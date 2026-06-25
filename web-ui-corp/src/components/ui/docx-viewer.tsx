@@ -10,7 +10,7 @@ import {
   useDocxViewerThumbnails,
   type DocxDocumentTheme,
   type DocxEditorController,
-  type DocxPageThumbnailItem,
+  type DocxPageThumbnailItem, setWasmSource,
 } from "@extend-ai/react-docx"
 import {
   Comment01Icon,
@@ -1018,6 +1018,8 @@ function DocxThumbnailSidebarContent({
     />
   )
 }
+
+try { setWasmSource("/docx_wasm_bg.wasm"); } catch (e) { console.error("Failed to set WASM source", e); }
 
 export function DocxViewerPreview({
   className,

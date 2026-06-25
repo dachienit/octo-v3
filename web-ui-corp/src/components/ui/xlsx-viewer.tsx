@@ -5,7 +5,7 @@ import {
   useXlsxViewerThumbnails,
   useXlsxViewerZoom,
   XlsxViewer,
-  XlsxViewerProvider,
+  XlsxViewerProvider, setWasmSource,
   type XlsxCellAddress,
   type XlsxScrollerRenderProps,
   type XlsxSheetData,
@@ -1400,6 +1400,8 @@ export function XlsxWorkbookSurface({
     </div>
   )
 }
+
+try { setWasmSource("/duke_sheets_wasm_bg.wasm"); } catch (e) { console.error("Failed to set WASM source", e); }
 
 export function XlsxViewerPreview({
   className,
