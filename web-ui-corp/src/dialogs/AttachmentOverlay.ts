@@ -7,7 +7,11 @@ import { Download, X } from "lucide";
 import * as pdfjsLib from "pdfjs-dist";
 import "../tools/artifacts/TextArtifact.js";
 import type { Attachment } from "../utils/attachment-utils.js";
-import { i18n } from "../utils/i18n.js";
+import { i18n } from '../utils/i18n.js';
+import { createRoot, type Root } from 'react-dom/client';
+import React from 'react';
+import { DocxViewerPreview } from '../components/ui/docx-viewer.js';
+import { XlsxViewerPreview } from '../components/ui/xlsx-viewer.js';
 
 type FileType = "image" | "pdf" | "docx" | "pptx" | "excel" | "text";
 
@@ -20,6 +24,8 @@ export class AttachmentOverlay extends LitElement {
 	private currentLoadingTask: any = null;
 	private onCloseCallback?: () => void;
 	private boundHandleKeyDown?: (e: KeyboardEvent) => void;
+	private reactRoot?: Root;
+	private reactContainerRef?: HTMLDivElement;
 
 	protected override createRenderRoot(): HTMLElement | DocumentFragment {
 		return this;
@@ -241,9 +247,14 @@ export class AttachmentOverlay extends LitElement {
 				`;
 
 			case "docx":
-			case "excel":
-			case "pptx":
-				return this.renderDownloadOnlyContent();
+                        case "excel":
+                        case "pptx":
+                                if (fileType === "docx" || fileType === "excel") {
+                                        return html`
+                                                <div id="react-preview-container" class="bg-card text-foreground overflow-auto shadow-lg border border-border w-full h-full max-w-[1200px]"></div>
+                                        `;
+                                }
+                                return this.renderDownloadOnlyContent();
 
 			default: {
 				const content = this.attachment.extractedText || this.attachment.content || "";
@@ -263,26 +274,78 @@ export class AttachmentOverlay extends LitElement {
 	}
 
 	override async updated(changedProperties: Map<string, any>) {
-		super.updated(changedProperties);
+                super.updated(changedProperties);
 
-		// Only process if we need to render the actual file (not extracted text)
-		if (
-			(changedProperties.has("attachment") || changedProperties.has("showExtractedText")) &&
-			this.attachment &&
-			!this.showExtractedText &&
-			!this.error
-		) {
-			const fileType = this.getFileType();
+                if (
+                        (changedProperties.has("attachment") || changedProperties.has("showExtractedText")) &&
+                        this.attachment &&
+                        !this.showExtractedText &&
+                        !this.error
+                ) {
+                        const fileType = this.getFileType();
 
-			switch (fileType) {
-				case "pdf":
-					await this.renderPdf();
-					break;
-			}
-		}
-	}
+                        switch (fileType) {
+                                case "pdf":
+                                        await this.renderPdf();
+                                        break;
+                                case "docx":
+                                case "excel":
+                                        this.renderReactViewer(fileType);
+                                        break;
+                        }
+                }
+        }
+        private renderReactViewer(fileType: "docx" | "excel") {
+                const container = this.querySelector("#react-preview-container") as HTMLDivElement;
+                if (!container || !this.attachment) return;
 
-	private isOfficeFile(fileType: FileType): boolean {
+                if (!this.reactRoot) {
+                        this.reactRoot = createRoot(container);
+                }
+
+                const url = `data:${this.attachment.mimeType};base64,${this.attachment.content}`;
+                const isDark = document.documentElement.classList.contains("dark");
+
+                if (fileType === "docx") {
+                        this.reactRoot.render(
+                                React.createElement(DocxViewerPreview, {
+                                        src: url,
+                                        fileName: this.attachment.fileName,
+                                        isDark: isDark,
+                                        onIsDarkChange: (dark: boolean) => {
+                                                if (dark) {
+                                                        document.documentElement.classList.add("dark");
+                                                } else {
+                                                        document.documentElement.classList.remove("dark");
+                                                }
+                                        },
+                                        showDownload: true,
+                                        showToolbar: true,
+                                        showUpload: false
+                                })
+                        );
+                } else if (fileType === "excel") {
+                        this.reactRoot.render(
+                                React.createElement(XlsxViewerPreview, {
+                                        src: url,
+                                        fileName: this.attachment.fileName,
+                                        isDark: isDark,
+                                        onIsDarkChange: (dark: boolean) => {
+                                                if (dark) {
+                                                        document.documentElement.classList.add("dark");
+                                                } else {
+                                                        document.documentElement.classList.remove("dark");
+                                                }
+                                        },
+                                        showDownload: true,
+                                        showToolbar: true,
+                                        showUpload: false
+                                })
+                        );
+                }
+        }
+
+        private isOfficeFile(fileType: FileType): boolean {
 		return fileType === "docx" || fileType === "pptx" || fileType === "excel";
 	}
 
