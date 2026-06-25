@@ -1019,7 +1019,7 @@ function DocxThumbnailSidebarContent({
   )
 }
 
-try { setWasmSource("/docx_wasm_bg.wasm"); } catch (e) { console.error("Failed to set WASM source", e); }
+fetch("/docx_wasm_bg.wasm").then(res => { if (res.ok) setWasmSource(res); }).catch(e => console.error("Failed to fetch WASM", e));
 
 export function DocxViewerPreview({
   className,

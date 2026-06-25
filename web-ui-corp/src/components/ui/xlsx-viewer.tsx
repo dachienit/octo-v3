@@ -1401,7 +1401,7 @@ export function XlsxWorkbookSurface({
   )
 }
 
-try { setWasmSource("/duke_sheets_wasm_bg.wasm"); } catch (e) { console.error("Failed to set WASM source", e); }
+fetch("/duke_sheets_wasm_bg.wasm").then(res => { if (res.ok) setWasmSource(res); }).catch(e => console.error("Failed to fetch WASM", e));
 
 export function XlsxViewerPreview({
   className,
