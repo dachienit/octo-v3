@@ -12,6 +12,8 @@ import "../tools/artifacts/MarkdownArtifact.js";
 import "../tools/artifacts/PdfArtifact.js";
 import "../tools/artifacts/TextArtifact.js";
 import "../tools/artifacts/CsvArtifact.js";
+import "../tools/artifacts/DocxArtifact.js";
+import "../tools/artifacts/XlsxArtifact.js";
 import "../tools/artifacts/DataTableArtifact.js";
 
 const TEXT_PREVIEW_EXTENSIONS = new Set([
@@ -122,7 +124,15 @@ class CoreServiceFileViewer extends LitElement {
 		return this.extension === "md" || this.extension === "markdown" || this.mimeType === "text/markdown";
 	}
 
-	private get isCsv() {
+	private get isDocx() {
+            return this.extension === "docx";
+    }
+
+    private get isXlsx() {
+            return this.extension === "xlsx" || this.extension === "xls";
+    }
+
+    private get isCsv() {
 		return this.extension === "csv" || this.mimeType === "text/csv";
 	}
 
@@ -167,7 +177,13 @@ class CoreServiceFileViewer extends LitElement {
 			return html`<img src=${src} class="max-w-full" alt=${name} />`;
 		}
 		const actualFilename = this.path.split("/").pop() || this.path;
-		if (this.isPdf) {
+		if (this.isDocx) {
+                    return html`<docx-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></docx-artifact>`;
+            }
+            if (this.isXlsx) {
+                    return html`<xlsx-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></xlsx-artifact>`;
+            }
+            if (this.isPdf) {
 			return html`<pdf-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></pdf-artifact>`;
 		}
 		if (this.isMarkdown) {

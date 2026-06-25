@@ -22,6 +22,8 @@ import { i18n } from "../../utils/i18n.js";
 import type { ArtifactElement } from "./ArtifactElement.js";
 import { CsvArtifact } from "./CsvArtifact.js";
 import { GenericArtifact } from "./GenericArtifact.js";
+import { DocxArtifact } from "./DocxArtifact.js";
+import { XlsxArtifact } from "./XlsxArtifact.js";
 import { HtmlArtifact } from "./HtmlArtifact.js";
 import { ImageArtifact } from "./ImageArtifact.js";
 import { MarkdownArtifact } from "./MarkdownArtifact.js";
@@ -135,12 +137,14 @@ export class ArtifactsPanel extends LitElement {
 	// Helper to determine file type from extension
 	private getFileType(
 		filename: string,
-	): "html" | "svg" | "markdown" | "image" | "pdf" | "csv" | "text" | "generic" {
+	): "html" | "svg" | "markdown" | "image" | "pdf" | "csv" | "text" | "generic" | "docx" | "xlsx" {
 		const ext = filename.split(".").pop()?.toLowerCase();
 		if (ext === "html") return "html";
 		if (ext === "svg") return "svg";
 		if (ext === "md" || ext === "markdown") return "markdown";
 		if (ext === "pdf") return "pdf";
+            if (ext === "docx") return "docx";
+            if (ext === "xlsx" || ext === "xls") return "xlsx";
 		if (ext === "csv") return "csv";
 		if (
 			ext === "png" ||
@@ -206,6 +210,13 @@ export class ArtifactsPanel extends LitElement {
 				element = new TextArtifact();
 			} else {
 				element = new GenericArtifact();
+                        }
+
+                        // Swap with document artifacts if detected
+                        if (type === "docx") {
+                                element = new DocxArtifact();
+                        } else if (type === "xlsx") {
+                                element = new XlsxArtifact();
 			}
 			element.filename = filename;
 			element.content = content;
