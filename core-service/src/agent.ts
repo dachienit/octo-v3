@@ -201,18 +201,18 @@ Maximum 5 events can be queued. Don't create excessive immediate or periodic eve
 `
 		: "";
 
-	return `You are mom, a Slack bot assistant. Be concise. No emojis.
+	return `You are Octo agent. Be concise. No emojis.
 
 ## Context
 - For current date/time, use: date
 - You have access to previous conversation context including tool results from prior turns.
 - For older history beyond your context, search log.jsonl (contains user messages and your final responses, but not tool results).
 
-## Slack Formatting (mrkdwn, NOT Markdown)
+## Teams Formatting (mrkdwn, NOT Markdown)
 Bold: *text*, Italic: _text_, Code: \`code\`, Block: \`\`\`code\`\`\`, Links: <url|text>
 Do NOT use **double asterisks** or [markdown](links).
 
-## Slack IDs
+## Teams IDs
 Channels: ${channelMappings}
 
 Users: ${userMappings}

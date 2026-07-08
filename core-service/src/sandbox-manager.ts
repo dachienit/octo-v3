@@ -5,7 +5,11 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import type { SandboxConfig } from "@octo/core-agent";
 
-type ContainerRuntime = "docker" | "podman";
+type ContainerRuntime = "docker" | "podman" | "octo-box";
+
+function runtimeCommand(runtime: ContainerRuntime): string {
+	return runtime === "octo-box" ? "box" : runtime;
+}
 
 const IMAGE = "octo/sandbox:local";
 const CONTAINER_PREFIX = "octo-ws-";
@@ -36,7 +40,7 @@ export type WorkspaceSandboxStatus = {
 };
 
 export function isManagedSandbox(config: SandboxConfig): config is { type: ContainerRuntime } {
-	return (config.type === "docker" || config.type === "podman") && !config.container;
+	return (config.type === "docker" || config.type === "podman" || config.type === "octo-box") && !config.container;
 }
 
 export function markWorkspaceSandboxActive(config: SandboxConfig, opts: {
@@ -373,8 +377,9 @@ async function commandSucceeds(command: string, args: string[]): Promise<boolean
 }
 
 function run(command: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+	const executable = command === "docker" || command === "podman" || command === "octo-box" ? runtimeCommand(command) : command;
 	return new Promise((resolve, reject) => {
-		const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"] });
+		const child = spawn(executable, args, { stdio: ["ignore", "pipe", "pipe"], env: process.env });
 		let stdout = "";
 		let stderr = "";
 

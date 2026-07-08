@@ -2400,7 +2400,7 @@ function renderApp() {
 							onClick: toggleSidebar,
 							title: sidebarOpen ? "Collapse sessions" : "Expand sessions",
 						})}
-						<span class="corp-app-title text-base font-semibold text-foreground">Bot Chat</span>
+						<span class="corp-app-title text-base font-semibold text-foreground">Octo Agent</span>
 					</div>
 					<div class="flex items-center gap-2">
 						${Ui5Button({
