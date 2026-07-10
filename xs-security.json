@@ -1,5 +1,5 @@
 {
-  "xsappname": "mirati",
+  "xsappname": "octo",
   "tenant-mode": "dedicated",
   "description": "Aymphony AI Agent security descriptor (XSUAA / IAS). Authentication only — no role/scope authorization yet.",
   "scopes": [

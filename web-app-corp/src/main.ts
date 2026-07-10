@@ -132,7 +132,7 @@ const chatPanel = new CoreServiceChatPanel();
 chatPanel.baseUrl = baseUrl;
 chatPanel.channelId = channelId;
 chatPanel.userName = userName;
-chatPanel.agentName = "Mirati"; //IYH1HC add: brand name shown next to assistant messages
+chatPanel.agentName = "Octo Agent"; //IYH1HC add: brand name shown next to assistant messages
 chatPanel.authToken = authToken;
 chatPanel.addEventListener("file-preview-open", () => {
 	if (workspaceOpen && sidebarOpen) {
@@ -2756,7 +2756,7 @@ function renderApp() {
 							onClick: toggleSidebar,
 							title: sidebarOpen ? "Collapse sessions" : "Expand sessions",
 						})}
-						<span class="corp-app-title text-base font-semibold text-foreground">Mirati Studio</span>
+						<span class="corp-app-title text-base font-semibold text-foreground">Octo Agent</span>
 					</div>
 					<div class="flex items-center gap-2">
 						${Ui5Button({
