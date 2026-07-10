@@ -1,6 +1,6 @@
 "use strict";
 
-// SAP ADT smart-proxy for the Octo approuter (principal propagation).
+// SAP ADT smart-proxy for the OCto Agent approuter (principal propagation).
 //
 // Mounted on the approuter at `/adt-proxy` (see ../start.js). It is the cloud
 // half of the on-prem reach: adt-cli (running inside octo-srv) sends plain
