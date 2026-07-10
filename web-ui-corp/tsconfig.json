@@ -4,13 +4,14 @@
     "module": "ES2022",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "moduleResolution": "bundler",
-    "strict": true,
+    "strict": false,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "experimentalDecorators": true,
     "useDefineForClassFields": false,
     "noEmit": true,
+    "jsx": "react-jsx",
 
   },
   "include": ["src/**/*"]

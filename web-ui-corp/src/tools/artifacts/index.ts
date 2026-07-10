@@ -5,3 +5,6 @@ export { HtmlArtifact } from "./HtmlArtifact.js";
 export { MarkdownArtifact } from "./MarkdownArtifact.js";
 export { SvgArtifact } from "./SvgArtifact.js";
 export { TextArtifact } from "./TextArtifact.js";
+
+export { DocxArtifact } from "./DocxArtifact.js";
+export { XlsxArtifact } from "./XlsxArtifact.js";

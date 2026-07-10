@@ -18,6 +18,8 @@ import "../tools/artifacts/MarkdownArtifact.js";
 import "../tools/artifacts/PdfArtifact.js";
 import "../tools/artifacts/TextArtifact.js";
 import "../tools/artifacts/CsvArtifact.js";
+import "../tools/artifacts/DocxArtifact.js"; //IYH1HC add
+import "../tools/artifacts/XlsxArtifact.js"; //IYH1HC add
 import "../tools/artifacts/DataTableArtifact.js";
 
 const TEXT_PREVIEW_EXTENSIONS = new Set([
@@ -132,6 +134,16 @@ class CoreServiceFileViewer extends LitElement {
 		return this.extension === "csv" || this.mimeType === "text/csv";
 	}
 
+	//IYH1HC add
+	private get isDocx() {
+		return this.extension === "docx";
+	}
+
+	//IYH1HC add
+	private get isXlsx() {
+		return this.extension === "xlsx" || this.extension === "xls";
+	}
+
 	private get isTextPreview() {
 		return (
 			!BINARY_PREVIEW_UNSUPPORTED_EXTENSIONS.has(this.extension) && (
@@ -181,6 +193,14 @@ class CoreServiceFileViewer extends LitElement {
 		}
 		if (this.isCsv) {
 			return html`<csv-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></csv-artifact>`;
+		}
+		//IYH1HC add
+		if (this.isDocx) {
+			return html`<docx-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></docx-artifact>`;
+		}
+		//IYH1HC add
+		if (this.isXlsx) {
+			return html`<xlsx-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></xlsx-artifact>`;
 		}
 		if (this.isTextPreview) {
 			return html`<text-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></text-artifact>`;
