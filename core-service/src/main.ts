@@ -136,7 +136,7 @@ if (parsedArgs.downloadChannel) {
 
 // Normal bot mode - require working dir
 if (!parsedArgs.workingDir) {
-	console.error("Usage: mom [--sandbox=host|docker:<name>|podman:<name>] [--http[=port]] <data-directory>");
+	console.error("Usage: mom [--sandbox=host|docker:<name>|podman:<name>|octo-box:<name>] [--http[=port]] <data-directory>");
 	console.error("       mom --download <channel-id>");
 	process.exit(1);
 }

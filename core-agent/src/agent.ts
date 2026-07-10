@@ -757,6 +757,6 @@ function getContainerWorkspacePath(hostDataRoot: string, hostWorkspacePath: stri
 	return `/workspace/${rel.replace(/\\/g, "/")}`;
 }
 
-function isContainerSandboxConfig(config: CoreAgentOptions["sandboxConfig"]): config is Extract<CoreAgentOptions["sandboxConfig"], { type: "docker" | "podman" }> {
-	return config.type === "docker" || config.type === "podman";
+function isContainerSandboxConfig(config: CoreAgentOptions["sandboxConfig"]): config is Extract<CoreAgentOptions["sandboxConfig"], { type: "docker" | "podman" | "octo-box" }> {
+	return config.type === "docker" || config.type === "podman" || config.type === "octo-box";
 }

@@ -4,7 +4,7 @@ import { mkdir, readFile as fsReadFile, writeFile as fsWriteFile } from "node:fs
 import { dirname, isAbsolute, posix, resolve } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 
-export type ContainerRuntime = "docker" | "podman";
+export type ContainerRuntime = "docker" | "podman" | "octo-box";
 export type SandboxConfig = { type: "host" } | {
 	type: ContainerRuntime;
 	container?: string;
@@ -16,7 +16,7 @@ export function parseSandboxArg(value: string): SandboxConfig {
 	if (value === "host") {
 		return { type: "host" };
 	}
-	for (const runtime of ["docker", "podman"] as const) {
+	for (const runtime of ["docker", "podman", "octo-box"] as const) {
 		if (value === runtime) return { type: runtime };
 		const prefix = `${runtime}:`;
 		if (!value.startsWith(prefix)) continue;
@@ -27,7 +27,7 @@ export function parseSandboxArg(value: string): SandboxConfig {
 		}
 		return { type: runtime, container };
 	}
-	console.error(`Error: Invalid sandbox type '${value}'. Use 'host', 'docker', 'podman', 'docker:<container-name>', or 'podman:<container-name>'`);
+	console.error(`Error: Invalid sandbox type '${value}'. Use 'host', 'docker', 'podman', 'octo-box', 'docker:<container-name>', 'podman:<container-name>' or 'octo-box:<container-name>'`);
 	process.exit(1);
 }
 
@@ -37,7 +37,7 @@ export async function validateSandbox(config: SandboxConfig): Promise<void> {
 	}
 
 	try {
-		await execSimple(config.type, ["--version"]);
+		await execSimple(runtimeCommand(config.type), ["--version"]);
 	} catch {
 		console.error(`Error: ${runtimeLabel(config.type)} is not installed or not in PATH`);
 		process.exit(1);
@@ -49,10 +49,10 @@ export async function validateSandbox(config: SandboxConfig): Promise<void> {
 	}
 
 	try {
-		const result = await execSimple(config.type, ["inspect", "-f", "{{.State.Running}}", config.container]);
+		const result = await execSimple(runtimeCommand(config.type), ["inspect", "-f", "{{.State.Running}}", config.container]);
 		if (result.trim() !== "true") {
 			console.error(`Error: Container '${config.container}' is not running.`);
-			console.error(`Start it with: ${config.type} start ${config.container}`);
+			console.error(`Start it with: ${runtimeCommand(config.type)} start ${config.container}`);
 			process.exit(1);
 		}
 	} catch {
@@ -227,7 +227,7 @@ class ContainerExecutor implements Executor {
 		const wrappedCommand = this.cwd
 			? `mkdir -p ${shellEscape(this.cwd)} && cd ${shellEscape(this.cwd)} && ${command}`
 			: command;
-		const containerCmd = `${this.runtime} exec ${this.container} sh -c ${shellEscape(wrappedCommand)}`;
+		const containerCmd = `${runtimeCommand(this.runtime)} exec ${this.container} sh -c ${shellEscape(wrappedCommand)}`;
 		const hostExecutor = new HostExecutor();
 		return hostExecutor.exec(containerCmd, options);
 	}
@@ -275,16 +275,21 @@ class ContainerExecutor implements Executor {
 			containerArgs.push("--env", `${key}=${value}`);
 		}
 		containerArgs.push(this.container, "sh", "-c", wrappedCommand);
-		const child = spawn(this.runtime, containerArgs, {
+		const child = spawn(runtimeCommand(this.runtime), containerArgs, {
 			stdio: ["pipe", "pipe", "pipe"],
+			env: process.env
 		});
 		options?.signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
 		return child;
 	}
 }
 
+function runtimeCommand(runtime: ContainerRuntime): string {
+	return runtime === "octo-box" ? "box" : runtime;
+}
+
 function runtimeLabel(runtime: ContainerRuntime): string {
-	return runtime === "docker" ? "Docker" : "Podman";
+	return runtime === "docker" ? "Docker" : runtime === "podman" ? "Podman" : "Octo Box";
 }
 
 function killProcessTree(pid: number): void {

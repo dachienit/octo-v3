@@ -7,7 +7,7 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "strict": true,
+    "strict": false,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
@@ -15,6 +15,7 @@
     "useDefineForClassFields": false,
     "rootDir": "./src",
     "outDir": "./dist",
+    "jsx": "react-jsx",
 
   },
   "include": ["src/**/*"]
