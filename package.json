@@ -1,5 +1,5 @@
 {
-	"name": "mirati-monorepo",
+	"name": "octo-monorepo",
 	"private": true,
 	"workspaces": [
 		"core-agent",
