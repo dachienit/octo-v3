@@ -102,7 +102,6 @@ export function createEditTool(executor: Executor): AgentTool<typeof editSchema>
 			{ path, oldText, newText }: { label: string; path: string; oldText: string; newText: string },
 			_signal?: AbortSignal,
 		) => {
-			//IYH1HC add: read via the executor (Node fs on host, shell inside Docker) — cross-platform.
 			let content: string;
 			try {
 				content = (await executor.readFile(path)).toString("utf-8");
@@ -132,7 +131,6 @@ export function createEditTool(executor: Executor): AgentTool<typeof editSchema>
 				);
 			}
 
-			//IYH1HC add: write via the executor — cross-platform, preserves Docker isolation.
 			await executor.writeFile(path, newContent);
 
 			return {

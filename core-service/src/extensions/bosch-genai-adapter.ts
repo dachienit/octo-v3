@@ -29,8 +29,6 @@
  * untouched — Vertex streams the same event format the SDKs already parse.
  */
 
-//IYH1HC comment: interface BoschAzureTarget { apiVersion: string; }
-//IYH1HC add: registry entries now cover all three LLM Farm flavours.
 type BoschTarget =
 	| { kind: "azure-openai"; apiVersion: string }
 	| { kind: "vertex-google" }
@@ -62,13 +60,13 @@ export function prepareBoschOpenAIEndpoint(endpoint: string): string {
 	url.pathname = url.pathname.replace(/\/+$/, "").replace(/\/chat\/completions$/i, "");
 	const base = `${url.origin}${url.pathname}`;
 	if (apiVersion) {
-		registry.set(base, { kind: "azure-openai", apiVersion }); //IYH1HC comment: was { apiVersion }
+		registry.set(base, { kind: "azure-openai", apiVersion });
 		installBoschGenAIFetch();
 	}
 	return base;
 }
 
-//IYH1HC add: parse a Vertex publisher URL pasted from the farm docs. Tolerates an
+// parse a Vertex publisher URL pasted from the farm docs. Tolerates an
 // optional query, an optional ":method" suffix and an optional "/models/{id}" segment:
 //   https://<host>/api/google/v1/publishers/{pub}/models/{model}:{method}
 // Returns the base up to ".../publishers/{pub}" plus the extracted model id (if any).
@@ -89,7 +87,7 @@ function parseVertexPublisherEndpoint(endpoint: string): { base: string; modelId
 	return { base: `${url.origin}${path}` };
 }
 
-//IYH1HC add: Google models via the farm's Vertex publisher endpoint. @google/genai
+// Google models via the farm's Vertex publisher endpoint. @google/genai
 // (with apiVersion "") already builds "{baseUrl}/models/{model}:streamGenerateContent"
 // which matches the farm path — we only need to swap the auth header to Bearer.
 export function prepareBoschGoogleEndpoint(endpoint: string): { baseUrl: string; modelId?: string } {
@@ -100,7 +98,7 @@ export function prepareBoschGoogleEndpoint(endpoint: string): { baseUrl: string;
 	return { baseUrl: parsed.base, modelId: parsed.modelId };
 }
 
-//IYH1HC add: Anthropic models via the farm's Vertex publisher endpoint. The Anthropic
+// Anthropic models via the farm's Vertex publisher endpoint. The Anthropic
 // SDK posts to "{baseUrl}/v1/messages"; the interceptor rewrites that into the Vertex
 // rawPredict form (URL method by stream flag, anthropic_version body field, Bearer auth).
 export function prepareBoschAnthropicEndpoint(endpoint: string): { baseUrl: string; modelId?: string } {
@@ -159,18 +157,15 @@ function installBoschGenAIFetch(): void {
 			return origFetch(finalUrl, { ...init, headers });
 		}
 
-		//IYH1HC add: farm auth is a Bearer subscription key; @google/genai only sets x-goog-api-key.
 		if (target.kind === "vertex-google") {
 			const key = headers.get("x-goog-api-key");
 			if (key && !headers.get("authorization")) {
 				headers.set("authorization", `Bearer ${key}`);
 			}
-			console.log(`[bosch-genai] google → ${url}`); //IYH1HC add: wire-level proof of the model actually called
+			console.log(`[bosch-genai] google → ${url}`);
 			return origFetch(url, { ...init, headers });
 		}
 
-		//IYH1HC add: rewrite the Anthropic Messages call into the Vertex rawPredict form.
-		// target.kind === "vertex-anthropic"
 		const key = headers.get("x-api-key");
 		if (key) {
 			headers.set("authorization", `Bearer ${key}`);
@@ -190,7 +185,7 @@ function installBoschGenAIFetch(): void {
 					const method = payload.stream === true ? "streamRawPredict" : "rawPredict";
 					finalUrl = `${url.slice(0, messagesIdx)}/models/${encodeURIComponent(model)}:${method}`;
 					body = JSON.stringify(payload);
-					console.log(`[bosch-genai] anthropic → ${finalUrl}`); //IYH1HC add: wire-level proof of the model actually called
+					console.log(`[bosch-genai] anthropic → ${finalUrl}`);
 				}
 			} catch {
 				// Leave the request untouched; the gateway error will surface to the caller.

@@ -50,8 +50,8 @@ function getDefaultModelId(provider: string): string {
 
 function getDefaultApiType(provider: string): string {
 	if (provider === "openai-codex") return "openai-codex-responses";
-	if (provider === "openai") return "openai-responses"; //IYH1HC add
-	if (provider === "google") return "google-generative-ai"; //IYH1HC add
+	if (provider === "openai") return "openai-responses";
+	if (provider === "google") return "google-generative-ai";
 	return "anthropic-messages";
 }
 
@@ -79,7 +79,7 @@ const model: ReturnType<typeof getModel> = _rawModel ?? ({
 	input: ["text", "image"],
 	contextWindow: 200000,
 	maxTokens: 8192,
-	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, //IYH1HC add: avoid calculateCost crash
+	cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 } as any);
 if (process.env.LLM_BASE_URL) {
 	model.baseUrl = process.env.LLM_BASE_URL;
@@ -204,8 +204,6 @@ function extractToolResultText(result: unknown): string {
 	return JSON.stringify(result);
 }
 
-//IYH1HC comment: signature gained a `provider` param (defaults to env llmProvider)
-// so per-run model overrides can resolve a key for a different provider.
 async function getLlmApiKey(authStorage: AuthStorage, authFilePath: string, provider: string = llmProvider): Promise<string> {
 	if (process.env.LLM_API_KEY) return process.env.LLM_API_KEY;
 	// SAP providers use extension-level auth/token handling; use sentinel key for runtime checks.
@@ -275,7 +273,7 @@ export class CoreAgent {
 	private currentEvents: CoreAgentEventHandlers | null = null;
 	private pendingTools = new Map<string, { toolName: string; args: unknown; startTime: number }>();
 
-	//IYH1HC add: per-run model override state (set in run() when input.model present)
+	// per-run model override state (set in run() when input.model present)
 	private runProvider: string | undefined;
 	private runApiKey: string | undefined;
 
@@ -284,8 +282,6 @@ export class CoreAgent {
 	private runErrorMessage: string | undefined;
 	private runTotalUsage = freshUsage();
 	private runLastAssistantText: string | undefined;
-	//IYH1HC stream add: increments on each assistant message "start" stream event within a run;
-	// combined with contentIndex it forms the unique blockId for delta correlation.
 	private assistantMsgSeq = 0;
 
 	constructor(channelId: string, options: CoreAgentOptions) {
@@ -310,10 +306,7 @@ export class CoreAgent {
 			? containerWorkspacePath
 			: this.executor.getWorkspacePath(hostWorkspacePath);
 
-		//IYH1HC add: attach uploads from the HOST fs, so it must use the host artifacts dir
-		//IYH1HC add: (executorCwd is a container path like /workspace/artifacts in Docker mode).
 		const primitiveTools = createPrimitiveTools(this.executor, () => this.currentUploadFn, hostArtifactsDir);
-		//IYH1HC comment const primitiveTools = createPrimitiveTools(this.executor, () => this.currentUploadFn, executorCwd);
 		const tools = options.extraTools ? [...primitiveTools, ...options.extraTools] : primitiveTools;
 
 		const contextFile = join(options.channelDir, "context.jsonl");
@@ -327,8 +320,6 @@ export class CoreAgent {
 		this.agentInstance = new Agent({
 			initialState: { systemPrompt: "", model, thinkingLevel: "off", tools },
 			convertToLlm,
-			//IYH1HC comment: use the per-run override key when one is set; otherwise
-			// fall back to env/auth-file resolution for the active provider.
 			getApiKey: async () =>
 				this.runApiKey ?? getLlmApiKey(this.authStorage, this.authFilePath, this.runProvider ?? llmProvider),
 		});
@@ -381,8 +372,6 @@ export class CoreAgent {
 				const e = event as AgentEvent & { type: "tool_execution_start" };
 				const args = e.args as { label?: string };
 				this.pendingTools.set(e.toolCallId, { toolName: e.toolName, args: e.args, startTime: Date.now() });
-				//IYH1HC stream comment events.onToolStart?.(e.toolName, args.label || e.toolName, e.args as Record<string, unknown>);
-				//IYH1HC stream add: pass toolCallId so transports can correlate lifecycle events
 				events.onToolStart?.(e.toolName, args.label || e.toolName, e.args as Record<string, unknown>, e.toolCallId);
 			} else if (event.type === "tool_execution_end") {
 				const e = event as AgentEvent & { type: "tool_execution_end" };
@@ -398,7 +387,7 @@ export class CoreAgent {
 					durationMs,
 					resultStr,
 					e.isError,
-					e.toolCallId, //IYH1HC stream add
+					e.toolCallId,
 				);
 			} else if (event.type === "tool_execution_update") {
 				const e = event as AgentEvent & { type: "tool_execution_update" };
@@ -410,10 +399,8 @@ export class CoreAgent {
 					label,
 					(pending?.args as Record<string, unknown>) ?? {},
 					resultStr,
-					e.toolCallId, //IYH1HC stream add
+					e.toolCallId,
 				);
-			//IYH1HC stream add: forward token-level assistant stream events (previously dropped).
-			// pi re-emits every AssistantMessageEvent through message_update while the LLM streams.
 			} else if (event.type === "message_update") {
 				const e = event as AgentEvent & { type: "message_update" };
 				const ame = e.assistantMessageEvent;
@@ -453,12 +440,9 @@ export class CoreAgent {
 						this.runTotalUsage.cost.cacheRead += msg.usage.cost.cacheRead;
 						this.runTotalUsage.cost.cacheWrite += msg.usage.cost.cacheWrite;
 						this.runTotalUsage.cost.total += msg.usage.cost.total;
-						//IYH1HC stream add: authoritative per-message usage for live token accounting
 						events.onUsage?.(
 							{ ...msg.usage, cost: { ...msg.usage.cost } },
 							msg.stopReason,
-							//IYH1HC stream add: which model actually served this step (responseModel
-							// is the gateway-reported id when it differs from the requested one)
 							{ provider: String(msg.provider ?? ""), id: String(msg.responseModel || msg.model || "") },
 						);
 					}
@@ -591,8 +575,6 @@ export class CoreAgent {
 			this.resourcesLoaded = true;
 		}
 
-		//IYH1HC add: apply a per-run model override coming from the web UI. When absent,
-		// restore the env-driven default so reused instances (Slack/cron) stay backward-compatible.
 		if (input.model) {
 			const provider = input.model.provider;
 			// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -607,8 +589,6 @@ export class CoreAgent {
 				input: ["text", "image"],
 				contextWindow: 200000,
 				maxTokens: 8192,
-				//IYH1HC add: calculateCost() reads model.cost.input — a stub without it crashes
-				// ("Cannot read properties of undefined (reading 'input')") for custom models.
 				cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
 			};
 			if (input.model.baseUrl) runModel.baseUrl = input.model.baseUrl;
@@ -653,7 +633,7 @@ export class CoreAgent {
 		this.runErrorMessage = undefined;
 		this.runTotalUsage = freshUsage();
 		this.runLastAssistantText = undefined;
-		this.assistantMsgSeq = 0; //IYH1HC stream add
+		this.assistantMsgSeq = 0;
 
 		// Build timestamped user message
 		const now = new Date();

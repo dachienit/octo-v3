@@ -185,33 +185,19 @@ export async function createAuthStorage(opts: { dataRoot: string }): Promise<Aut
 		const { PostgresAuthStorage } = await import("./auth-storage-pg.js");
 		const store = new PostgresAuthStorage(pg);
 		await store.init();
-		//IYH1HC add: log the resolved target (no credentials) so the selected
-		//IYH1HC add: backend is visible in `cf logs` after deploy.
 		const target = pg.host && pg.database ? `${pg.host}/${pg.database}` : "connection string";
 		console.log(`[auth-storage] backend: postgresql (${target})`);
 		return store;
 	}
 
-	//IYH1HC add: NODE_ENV=production is set for octo-srv in mta.yaml, which is only
-	//IYH1HC add: true when running on BTP CF. The container filesystem there is
-	//IYH1HC add: ephemeral, so silently falling back to SQLite would lose all
-	//IYH1HC add: users/tokens/provider keys on the next restart without anyone
-	//IYH1HC add: noticing. Fail fast at startup instead.
-	//IYH1HC add: temporary opt-out while octo-postgresql is not yet provisioned
-	//IYH1HC add: (unpaid service on this landscape). Set CORE_SERVICE_AUTH_ALLOW_EPHEMERAL=true
-	//IYH1HC add: in mta.yaml to accept SQLite (lost on restart) until A3 Postgres lands.
-	//IYH1HC add: Remove this branch + the mta.yaml property together with re-enabling
-	//IYH1HC add: the octo-postgresql resource (see plan project-octo-v2-b-y-gi-adaptive-fern.md, A3).
 	const allowEphemeral = process.env.CORE_SERVICE_AUTH_ALLOW_EPHEMERAL === "true";
 	if (process.env.NODE_ENV === "production" && !allowEphemeral) {
-		//IYH1HC comment: original fail-fast throw, kept for when the flag is unset
 		throw new Error(
 			"[auth-storage] No PostgreSQL configuration found (VCAP_SERVICES['postgresql-db'] " +
 				"binding or DATABASE_URL) while NODE_ENV=production. Refusing to start with an " +
 				"ephemeral SQLite store — bind the 'octo-postgresql' service (see mta.yaml) before deploying.",
 		);
 	}
-	//IYH1HC add: explicit, loud warning so the ephemeral tradeoff is visible in `cf logs`
 	if (process.env.NODE_ENV === "production" && allowEphemeral) {
 		console.warn(
 			"[auth-storage] WARNING: running production with ephemeral SQLite (CORE_SERVICE_AUTH_ALLOW_EPHEMERAL=true). " +
@@ -222,7 +208,6 @@ export async function createAuthStorage(opts: { dataRoot: string }): Promise<Aut
 	const { SqliteAuthStorage } = await import("./auth-storage-sqlite.js");
 	const store = new SqliteAuthStorage(opts.dataRoot);
 	await store.init();
-	//IYH1HC add: log the selected backend for parity with the postgresql branch above.
 	console.log(`[auth-storage] backend: sqlite (${opts.dataRoot}/auth.sqlite)`);
 	return store;
 }

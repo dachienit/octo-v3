@@ -210,7 +210,7 @@ declare module "@mariozechner/mini-lit" {
 		Reasoning: string;
 		Model: string;
 		Default: string;
-		None: string; //IYH1HC add
+		None: string;
 		Send: string;
 	}
 }
