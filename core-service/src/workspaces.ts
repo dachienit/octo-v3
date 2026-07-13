@@ -19,17 +19,11 @@ export interface WorkspaceInfo {
 	settings?: WorkspaceSettings;
 }
 
-//IYH1HC add — one named SAP ADT connection inside a workspace. A workspace can hold
-//IYH1HC add — several (one adt-cli destination profile + an on-disk folder per entry).
 export interface SapConnection {
 	name: string;
-	//IYH1HC SSO comment — destinationName is BTP-only; optional now that local SSO
-	//IYH1HC SSO comment — connections (authType "sso") identify the target by url + spn.
 	destinationName?: string;
 	url?: string;
-	//IYH1HC SSO add — "destination" (BTP) | "sso" (local Kerberos/SPNEGO) | "basic".
 	authType?: "destination" | "sso" | "basic" | string;
-	//IYH1HC SSO add — local SSO fields.
 	systemId?: string;
 	spn?: string;
 	client?: string;
@@ -43,8 +37,6 @@ export interface WorkspaceSettings {
 		prompt?: string;
 		promptFile?: string;
 	};
-	//IYH1HC comment — legacy single free-text SAP connection. Kept for backward
-	//IYH1HC comment — compatibility; superseded by `sapConnections` (the multi-connection model).
 	sapConnection?: {
 		enabled?: boolean;
 		systemUrl?: string;
@@ -53,7 +45,7 @@ export interface WorkspaceSettings {
 		authType?: "basic" | "destination" | "oauth";
 		destinationName?: string;
 	};
-	sapConnections?: SapConnection[]; //IYH1HC add
+	sapConnections?: SapConnection[];
 	tools?: {
 		enabled?: string[];
 	};
@@ -107,7 +99,7 @@ export interface SessionInfo {
 	lastModified: number;
 }
 
-export type WorkspaceTemplateId = "default" | "sap-cap" | "sap-abap"; //IYH1HC add: "default" generic workspace type
+export type WorkspaceTemplateId = "default" | "sap-cap" | "sap-abap";
 
 export interface WorkspaceTemplate {
 	id: WorkspaceTemplateId;
@@ -129,7 +121,6 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const packageRoot = join(__dirname, "..");
 
 export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
-	//IYH1HC add: generic, SAP-agnostic workspace with no preconfigured skills.
 	{
 		id: "default",
 		label: "Default",
@@ -226,7 +217,6 @@ export class WorkspaceStore {
 	ensureDefaultWorkspace(userId: string): WorkspaceSummary {
 		const existing = this.listWorkspaces(userId)[0];
 		if (existing) return existing;
-		//IYH1HC add: auto-created first workspace now uses the generic "default" template (was "sap-cap")
 		return this.createWorkspace({ name: "Default workspace", userId, templateId: "default" });
 	}
 
@@ -389,8 +379,6 @@ export class WorkspaceStore {
 		const nextSettings: WorkspaceSettings = {
 			agent: { promptFile },
 			sapConnection: settings.sapConnection ?? {},
-			//IYH1HC add — preserve managed SAP connections when the client omits them
-			//IYH1HC add — (they are maintained by the dedicated sap-adt routes, not this PATCH).
 			sapConnections: settings.sapConnections ?? workspace.settings?.sapConnections ?? [],
 			tools: settings.tools ?? {},
 			connectors: settings.connectors ?? {},
@@ -400,13 +388,11 @@ export class WorkspaceStore {
 		return this.getWorkspaceSettings(userId, workspaceId);
 	}
 
-	//IYH1HC add — Read the managed SAP ADT connections for a workspace.
 	getSapConnections(userId: string, workspaceId: string): SapConnection[] {
 		this.assertWorkspaceAccess(userId, workspaceId);
 		return this.getWorkspace(workspaceId)?.settings?.sapConnections ?? [];
 	}
 
-	//IYH1HC add — Persist the managed SAP ADT connections, leaving all other settings intact.
 	setSapConnections(userId: string, workspaceId: string, connections: SapConnection[]): SapConnection[] {
 		const role = this.assertWorkspaceAccess(userId, workspaceId);
 		if (role === "viewer") throw new Error("Workspace settings are read-only for viewers");

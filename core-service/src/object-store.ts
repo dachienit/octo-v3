@@ -48,7 +48,7 @@ const TESTER_PREFIX = "_tester/";
 // dataRoot-relative, forward-slash path).
 const SKIP_FILE_PATTERNS = [/\.wal$/, /\.shm$/, /\.lock$/, /(^|[\\/])last_prompt\.jsonl$/];
 
-//IYH1HC add: templates/ is regenerated from the bundled package templates on every
+// templates/ is regenerated from the bundled package templates on every
 // boot (WorkspaceStore constructor) — never mirror it. Existing templates/** keys
 // already in the bucket are intentionally left untouched (deleteSync also skips them).
 const TEMPLATES_PREFIX = "templates/";
@@ -57,7 +57,7 @@ const TEMPLATES_PREFIX = "templates/";
 // mirrored — either a transient file or the tester's reserved subtree.
 function shouldSkip(relPath: string): boolean {
 	if (relPath.startsWith(TESTER_PREFIX)) return true;
-	if (relPath.startsWith(TEMPLATES_PREFIX)) return true; //IYH1HC add
+	if (relPath.startsWith(TEMPLATES_PREFIX)) return true;
 	return SKIP_FILE_PATTERNS.some((re) => re.test(relPath));
 }
 
@@ -204,6 +204,42 @@ export class ObjectStoreGateway {
 		this.snapshotChain = (async () => {
 			await prev.catch(() => {});
 			await this.doSnapshot(opts);
+		})();
+		return this.snapshotChain;
+	}
+
+	// Targeted delete of one mirrored object. Needed because workspace-scoped
+	// snapshots never delete-sync, so a locally deleted file would otherwise be
+	// restored from the bucket on the next boot. Serialized via chain.
+	deleteObject(absPath: string): Promise<void> {
+		const prev = this.snapshotChain;
+		this.snapshotChain = (async () => {
+			await prev.catch(() => {});
+			const rel = relative(this.dataRoot, absPath).split(sep).join("/");
+			if (rel.startsWith("..") || shouldSkip(rel)) return;
+			const res = await this.gwFetch(`/objects/${encodeURIComponent(`${this.prefix}${rel}`)}`, { method: "DELETE" });
+			if (!res.ok && res.status !== 404) throw new Error(`DELETE object returned ${res.status}`);
+			this.uploaded.delete(absPath);
+		})();
+		return this.snapshotChain;
+	}
+
+	// Targeted delete of every mirrored object under one local directory (used when
+	// a workspace folder is deleted). Serialized via chain like deleteObject.
+	deleteObjectsUnder(absDir: string): Promise<void> {
+		const prev = this.snapshotChain;
+		this.snapshotChain = (async () => {
+			await prev.catch(() => {});
+			const rel = relative(this.dataRoot, absDir).split(sep).join("/");
+			if (!rel || rel.startsWith("..")) return;
+			const keyPrefix = `${this.prefix}${rel}/`;
+			for await (const key of this.listKeys(keyPrefix)) {
+				const relKey = key.startsWith(this.prefix) ? key.slice(this.prefix.length) : undefined;
+				if (!relKey || shouldSkip(relKey)) continue;
+				const res = await this.gwFetch(`/objects/${encodeURIComponent(key)}`, { method: "DELETE" });
+				if (!res.ok && res.status !== 404) throw new Error(`DELETE object returned ${res.status}`);
+				this.uploaded.delete(join(this.dataRoot, ...relKey.split("/")));
+			}
 		})();
 		return this.snapshotChain;
 	}

@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { Dirent, appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
-import { createRequire } from "module"; //IYH1HC add: resolve the vendored adt-cli bin from this ESM module
-import { basename, extname, isAbsolute, join, relative, resolve } from "path"; //IYH1HC add: relative (cross-platform containment check)
+import { createRequire } from "module";
+import { basename, extname, isAbsolute, join, relative, resolve } from "path";
 import {
 	getModel,
 	getModels,
@@ -18,12 +18,12 @@ import {
 	type ConnectorRuntime,
 } from "@octo/core-agent";
 import express from "express";
+import JSZip from "jszip";
 import { CoreServiceAuth } from "./auth.js";
-import { decryptSecret, encryptSecret } from "./crypto.js"; //IYH1HC add
-import { prepareBoschAnthropicEndpoint, prepareBoschGoogleEndpoint, prepareBoschOpenAIEndpoint } from "./extensions/bosch-genai-adapter.js"; //IYH1HC add
-import { GithubSsoProvider, loadSsoConfig } from "./sso.js"; //IYH1HC add
-import type { ObjectStoreGateway } from "./object-store.js"; //IYH1HC add: per-user restore/snapshot via gateway
-//IYH1HC SAP connection add — Eclipse-style ADT object tree materialization helpers.
+import { decryptSecret, encryptSecret } from "./crypto.js";
+import { prepareBoschAnthropicEndpoint, prepareBoschGoogleEndpoint, prepareBoschOpenAIEndpoint } from "./extensions/bosch-genai-adapter.js";
+import { GithubSsoProvider, loadSsoConfig } from "./sso.js";
+import type { ObjectStoreGateway } from "./object-store.js";
 import {
 	ADT_TREE_FILE,
 	LOCAL_OBJECTS_ROOT,
@@ -35,23 +35,19 @@ import {
 	writeManifest,
 	type AdtListResult,
 } from "./sapTree.js";
-//IYH1HC SSO add — local SAP Logon landscape parser (on-prem systems + ADT URL + Kerberos SPN).
 import { listLocalSapSystems, type SapLocalSystem } from "./sapLandscape.js";
 import * as log from "./log.js";
 import { getWorkspaceSandboxStatus } from "./sandbox-manager.js";
 import type { BotContext, BotHandler } from "./types.js";
-import { truncateToolResult, type AgentTrailEvent, type AgentUsage } from "./agent-events.js"; //IYH1HC stream add
-import { TrailStore, readTrail } from "./trail-store.js"; //IYH1HC stream add
+import { truncateToolResult, type AgentTrailEvent, type AgentUsage } from "./agent-events.js"; 
+import { TrailStore, readTrail } from "./trail-store.js";
 import { WorkspaceDatabase } from "./workspace-database.js";
 import { WorkspaceStore } from "./workspaces.js";
-import type { SapConnection, WorkspaceRole } from "./workspaces.js"; //IYH1HC add
+import type { SapConnection, WorkspaceRole } from "./workspaces.js";
 import type { SandboxConfig } from "@octo/core-agent";
 
-//IYH1HC add — In an ESM module `require` is not defined; createRequire gives us a
-//IYH1HC add — resolver so we can locate the vendored adt-cli executable on disk.
 const localRequire = createRequire(import.meta.url);
 
-//IYH1HC add — One destination row as emitted by `adt auth destinations list` (remote view).
 interface SapRemoteDest {
 	Name: string;
 	Type?: string;
@@ -80,8 +76,6 @@ interface PendingAuthLogin {
 	rejectManualCode?: (err: Error) => void;
 }
 
-//IYH1HC add: providers that use the per-user key + model-selection flow.
-// (openai-codex keeps OAuth; sap-* keep service-key-from-env.)
 const LLM_KEY_PROVIDERS: ReadonlyArray<{ id: string; label: string }> = [
 	{ id: "openai", label: "OpenAI" },
 	{ id: "google", label: "Google Gemini" },
@@ -122,11 +116,10 @@ export function createHttpContext(opts: {
 	attachments?: Array<{ local: string }>;
 	userId?: string;
 	authFilePath?: string;
-	model?: { provider: string; modelId: string; apiKey?: string; baseUrl?: string; apiType?: string }; //IYH1HC add
-	structured?: boolean; //IYH1HC stream add: client opted in to the structured trail protocol
+	model?: { provider: string; modelId: string; apiKey?: string; baseUrl?: string; apiType?: string }; 
+	structured?: boolean; 
 }): BotContext {
-	//IYH1HC stream comment const { channelId, userName, text, ts, send, workingDir, attachments = [], userId = "web-user", authFilePath, model } = opts; //IYH1HC comment: added `model`
-	const { channelId, userName, text, ts, send, workingDir, attachments = [], userId = "web-user", authFilePath, model, structured = false } = opts; //IYH1HC stream add
+	const { channelId, userName, text, ts, send, workingDir, attachments = [], userId = "web-user", authFilePath, model, structured = false } = opts;
 
 	const logToFile = (entry: object) => {
 		const dir = join(workingDir, "sessions", channelId);
@@ -134,9 +127,6 @@ export function createHttpContext(opts: {
 		appendFileSync(join(dir, "log.jsonl"), `${JSON.stringify(entry)}\n`);
 	};
 
-	//IYH1HC stream add: structured trail emitter — assigns the per-run seq, coalesces token
-	// deltas (40ms / 2KB per block) to bound SSE event rate, truncates tool results for the
-	// wire while the append-only trail.jsonl keeps the full text for audit.
 	let emitAgentEvent: ((event: AgentTrailEvent) => void) | undefined;
 	let flushAgentEvents: (() => void) | undefined;
 	if (structured) {
@@ -198,15 +188,12 @@ export function createHttpContext(opts: {
 			attachments,
 		},
 		authFilePath,
-		model, //IYH1HC add
+		model,
 		channelName: channelId,
 		channels: [{ id: channelId, name: channelId }],
 		users: [{ id: userId, userName, displayName: userName }],
 
 		respond: async (responseText: string, shouldLog = true) => {
-			//IYH1HC stream comment send({ type: "delta", text: responseText });
-			//IYH1HC stream add: structured clients receive content as block events — suppress
-			// the legacy flattened delta to avoid double rendering, but keep log.jsonl intact.
 			if (!structured) send({ type: "delta", text: responseText });
 			if (shouldLog) {
 				const responseTs = (Date.now() / 1000).toFixed(6);
@@ -221,8 +208,7 @@ export function createHttpContext(opts: {
 		},
 
 		respondInThread: async (responseText: string) => {
-			//IYH1HC stream comment send({ type: "thread", text: responseText });
-			if (!structured) send({ type: "thread", text: responseText }); //IYH1HC stream add
+			if (!structured) send({ type: "thread", text: responseText });
 			const responseTs = (Date.now() / 1000).toFixed(6);
 			logToFile({ date: new Date().toISOString(), ts: responseTs, user: "bot", text: responseText, attachments: [], isBot: true, isThread: true });
 		},
@@ -243,7 +229,6 @@ export function createHttpContext(opts: {
 			send({ type: "delete" });
 		},
 
-		//IYH1HC stream add
 		emitAgentEvent,
 		flushAgentEvents,
 	};
@@ -294,14 +279,12 @@ export class HttpServer {
 	private handler: BotHandler;
 	private workspaceStore: WorkspaceStore;
 	private sandboxConfig: SandboxConfig;
-	private features: { agentWorkers: boolean; reminders: boolean; connection: boolean; llmProviders: string[] | null; appTitle: string | null }; //IYH1HC add connection + llmProviders + appTitle
+	private features: { agentWorkers: boolean; reminders: boolean; connection: boolean; llmProviders: string[] | null; appTitle: string | null };
 	private auth: CoreServiceAuth;
 	private pendingAuthLogins = new Map<string, PendingAuthLogin>();
-	private sso: GithubSsoProvider | null; //IYH1HC add
+	private sso: GithubSsoProvider | null;
 	private pendingAgentWorkerLogins = new Map<string, PendingAgentWorkerLogin>();
-	//IYH1HC add: returns the object-store mirror state, or undefined when ephemeral.
 	private getObjectStoreStatus?: () => unknown;
-	//IYH1HC add: gateway object store — fire-and-forget workspace snapshot on tree reads.
 	private objectStore?: ObjectStoreGateway;
 
 	constructor(config: { port: number; workingDir: string; handler: BotHandler; workspaceStore: WorkspaceStore; sandboxConfig: SandboxConfig; features?: { agentWorkers?: boolean; reminders?: boolean; connection?: boolean; llmProviders?: string[] | null; appTitle?: string | null }; getObjectStoreStatus?: () => unknown; objectStore?: ObjectStoreGateway }) {
@@ -310,26 +293,23 @@ export class HttpServer {
 		this.handler = config.handler;
 		this.workspaceStore = config.workspaceStore;
 		this.sandboxConfig = config.sandboxConfig;
-		this.getObjectStoreStatus = config.getObjectStoreStatus; //IYH1HC add
-		this.objectStore = config.objectStore; //IYH1HC add
+		this.getObjectStoreStatus = config.getObjectStoreStatus;
+		this.objectStore = config.objectStore;
 		this.features = {
 			agentWorkers: config.features?.agentWorkers !== false,
 			reminders: config.features?.reminders !== false,
-			connection: config.features?.connection !== false, //IYH1HC add
-			llmProviders: config.features?.llmProviders ?? null, //IYH1HC add: null → all providers allowed
-			appTitle: config.features?.appTitle ?? null, //IYH1HC add: null → keep index.html default title
+			connection: config.features?.connection !== false,
+			llmProviders: config.features?.llmProviders ?? null,
+			appTitle: config.features?.appTitle ?? null,
 		};
 		this.auth = new CoreServiceAuth(config.workingDir);
-		//IYH1HC add: build the SSO provider from env (null when SSO is disabled).
 		const ssoConfig = loadSsoConfig();
 		this.sso = ssoConfig ? new GithubSsoProvider(ssoConfig) : null;
 		if (this.sso) log.logInfo(`SSO enabled: ${ssoConfig?.provider} (${ssoConfig?.label})`);
 	}
 
-	//IYH1HC comment: start() is now async — the auth store (PostgreSQL/SQLite) must finish
-	//IYH1HC comment: its async init (connect + schema bootstrap) before any request is served.
 	async start(): Promise<void> {
-		await this.auth.init(); //IYH1HC add: bootstrap the selected auth storage backend
+		await this.auth.init();
 		const app = express();
 		app.use(express.json({ limit: "50mb" }));
 
@@ -337,7 +317,7 @@ export class HttpServer {
 		app.use((_req, res, next) => {
 			const origin = _req.header("Origin");
 			res.setHeader("Access-Control-Allow-Origin", origin || "*");
-			res.setHeader("Access-Control-Allow-Methods", "POST, GET, PATCH, PUT, DELETE, OPTIONS"); //IYH1HC comment: added PUT/DELETE for LLM key endpoints
+			res.setHeader("Access-Control-Allow-Methods", "POST, GET, PATCH, PUT, DELETE, OPTIONS");
 			res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-User-Id, Authorization");
 			res.setHeader("Access-Control-Allow-Credentials", "true");
 			next();
@@ -353,14 +333,10 @@ export class HttpServer {
 		app.get("/auth/me", (req, res, next) => this.auth.requireAuth(req, res, next), (req, res) => this.auth.me(req, res));
 		app.post("/auth/logout", (req, res, next) => this.auth.requireAuth(req, res, next), (req, res) => this.auth.logout(req, res));
 
-		//IYH1HC add: external SSO (GHES) — public endpoints, must be before requireAuth.
 		app.get("/auth/sso/config", (req, res) => this.handleSsoConfig(req, res));
 		app.get("/auth/sso/login", (req, res) => this.handleSsoLogin(req, res));
 		app.get("/auth/sso/callback", (req, res) => { void this.handleSsoCallback(req, res); });
 
-		//IYH1HC add: object-store mirror diagnostics — public (no secrets, only bucket
-		// name + counters) so it stays reachable right after a restart when the
-		// freshly-restored auth DB may not yet recognize the caller.
 		app.get("/objectstore/status", (_req, res) => {
 			const status = this.getObjectStoreStatus?.();
 			res.json(status ? { mode: "mirror", ...status } : { mode: "ephemeral" });
@@ -376,16 +352,13 @@ export class HttpServer {
 		app.post("/workspaces",     (req, res) => this.handleCreateWorkspace(req, res));
 		app.get("/workspaces/:workspaceId/settings", (req, res) => this.handleWorkspaceSettings(req, res));
 		app.patch("/workspaces/:workspaceId/settings", (req, res) => this.handleUpdateWorkspaceSettings(req, res));
-		//IYH1HC add — SAP ADT connection management (destination → adt-cli profile + lazy tree).
 		app.get("/workspaces/:workspaceId/sap-adt/destinations", (req, res) => { void this.handleSapListDestinations(req, res); });
-		//IYH1HC SSO add — local (on-prem) systems discovered from the developer's SAP Logon landscape.
 		app.get("/workspaces/:workspaceId/sap-adt/local-systems", (req, res) => { void this.handleSapListLocalSystems(req, res); });
 		app.post("/workspaces/:workspaceId/sap-adt/connections", (req, res) => { void this.handleSapCreateConnection(req, res); });
 		app.delete("/workspaces/:workspaceId/sap-adt/connections/:name", (req, res) => { void this.handleSapDeleteConnection(req, res); });
 		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/test", (req, res) => { void this.handleSapTestConnection(req, res); });
 		app.get("/workspaces/:workspaceId/sap-adt/connections/:name/nodes", (req, res) => { void this.handleSapListNodes(req, res); });
 		app.get("/workspaces/:workspaceId/sap-adt/connections/:name/source", (req, res) => { void this.handleSapGetSource(req, res); });
-		//IYH1HC SAP connection add — lazy ADT object tree materialized into the workspace Artifacts panel.
 		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/tree/expand", (req, res) => { void this.handleSapExpandTree(req, res); });
 		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/tree/hydrate", (req, res) => { void this.handleSapHydrateFile(req, res); });
 		app.get("/workspaces/:workspaceId/sap-adt/connections/:name/tree/manifest", (req, res) => { void this.handleSapTreeManifest(req, res); });
@@ -398,13 +371,11 @@ export class HttpServer {
 		app.post("/auth/openai-codex/login", (req, res) => { void this.handleCodexLogin(req, res); });
 		app.get("/auth/openai-codex/login/:loginId", (req, res) => this.handleCodexLoginStatus(req, res));
 		app.post("/auth/openai-codex/login/:loginId/code", (req, res) => this.handleCodexLoginCode(req, res));
-		//IYH1HC add: per-user LLM provider key + active-model management.
 		app.get("/llm/config", (req, res) => this.handleLlmConfig(req, res));
 		app.get("/llm/active-models", (req, res) => this.handleLlmActiveModels(req, res));
 		app.put("/llm/providers/:provider/key", (req, res) => this.handleSetProviderKey(req, res));
 		app.delete("/llm/providers/:provider/key", (req, res) => this.handleDeleteProviderKey(req, res));
 		app.put("/llm/providers/:provider/models", (req, res) => this.handleSetActiveModels(req, res));
-		//IYH1HC add: user-defined custom models (Bosch GenAI / LLM Farm).
 		app.get("/llm/custom-models", (req, res) => this.handleListCustomModels(req, res));
 		app.post("/llm/custom-models", (req, res) => this.handleCreateCustomModel(req, res));
 		app.put("/llm/custom-models/:id", (req, res) => this.handleUpdateCustomModel(req, res));
@@ -434,6 +405,7 @@ export class HttpServer {
 		app.get("/messages/:id",    (req, res) => this.handleMessages(req, decodeURIComponent(req.params.id), res));
 		app.get("/sessions/:id/messages", (req, res) => this.handleMessages(req, decodeURIComponent(req.params.id), res));
 		app.get("/file",            (req, res) => this.handleFile(req, String(req.query.path ?? ""), res));
+		app.delete("/file",         (req, res) => this.handleDeleteFile(req, String(req.query.path ?? ""), res));
 		app.get("/artifact-url",    (req, res) => this.handleArtifactUrl(req, String(req.query.path ?? ""), res));
 		app.get("/workspace/:id",   (req, res) => this.handleWorkspace(req, decodeURIComponent(req.params.id), res));
 		app.get("/sessions/:id/workspace", (req, res) => this.handleWorkspace(req, decodeURIComponent(req.params.id), res));
@@ -452,8 +424,6 @@ export class HttpServer {
 		return String(req.user?.id || req.header("x-user-id") || req.query.userId || fallback || "web-user");
 	}
 
-	//IYH1HC add: resolve display name from the authenticated principal (reliable on BTP/XSUAA),
-	// falling back to client-supplied name only when no session user is present.
 	private getUserName(req: express.Request, fallback?: string): string {
 		return String(req.user?.displayName || req.user?.email || fallback || "user");
 	}
@@ -472,13 +442,8 @@ export class HttpServer {
 		}
 
 		const root = resolve(this.workingDir);
-		//IYH1HC comment: const resolved = resolve(filePath.startsWith("/") ? filePath : join(this.workingDir, filePath));
-		const resolved = resolve(isAbsolute(filePath) ? filePath : join(this.workingDir, filePath)); //IYH1HC add: isAbsolute handles Windows drive paths
+		const resolved = resolve(isAbsolute(filePath) ? filePath : join(this.workingDir, filePath));
 
-		//IYH1HC add: containment check via path.relative — cross-platform. The previous
-		// startsWith(`${root}/`) hardcoded a forward slash, so it never matched the backslash
-		// paths that resolve()/join() produce on Windows, returning 403 for every file/artifact.
-		//IYH1HC comment: if (resolved !== root && !resolved.startsWith(`${root}/`)) {
 		const relFromRoot = relative(root, resolved);
 		if (relFromRoot === "" || relFromRoot.startsWith("..") || isAbsolute(relFromRoot)) {
 			res.status(403).json({ error: "Forbidden" });
@@ -486,15 +451,13 @@ export class HttpServer {
 		}
 
 		const workspaceRoot = resolve(join(this.workingDir, "workspaces"));
-		//IYH1HC comment: if (resolved === workspaceRoot || !resolved.startsWith(`${workspaceRoot}/`)) {
-		const relFromWorkspaces = relative(workspaceRoot, resolved); //IYH1HC add
+		const relFromWorkspaces = relative(workspaceRoot, resolved);
 		if (relFromWorkspaces === "" || relFromWorkspaces.startsWith("..") || isAbsolute(relFromWorkspaces)) {
 			res.status(403).json({ error: "Forbidden" });
 			return undefined;
 		}
 
-		//IYH1HC comment: const workspaceId = resolved.slice(workspaceRoot.length + 1).split(/[\\/]/)[0];
-		const workspaceId = relFromWorkspaces.split(/[\\/]/)[0]; //IYH1HC add
+		const workspaceId = relFromWorkspaces.split(/[\\/]/)[0];
 		try {
 			this.workspaceStore.assertWorkspaceAccess(this.getUserId(req), workspaceId);
 		} catch (err) {
@@ -514,17 +477,15 @@ export class HttpServer {
 		res.json({ provider: "openai-codex", configured: status.configured, source: status.source, label: status.label });
 	}
 
-	//IYH1HC add: public SSO config so the web app knows whether to show the button.
 	private handleSsoConfig(_req: express.Request, res: express.Response): void {
-		const hideAuthUi = process.env.CORE_SERVICE_HIDE_AUTH_UI === "true"; //IYH1HC add: hide login screen + logout (XSUAA edge auth)
+		const hideAuthUi = process.env.CORE_SERVICE_HIDE_AUTH_UI === "true";
 		if (!this.sso) {
-			res.json({ enabled: false, hideAuthUi }); //IYH1HC add: hideAuthUi
+			res.json({ enabled: false, hideAuthUi });
 			return;
 		}
-		res.json({ enabled: true, provider: this.sso.config.provider, label: this.sso.config.label, loginUrl: "/auth/sso/login", hideAuthUi }); //IYH1HC add: hideAuthUi
+		res.json({ enabled: true, provider: this.sso.config.provider, label: this.sso.config.label, loginUrl: "/auth/sso/login", hideAuthUi });
 	}
 
-	//IYH1HC add: start the SSO flow — redirect the browser to the GHES authorize URL.
 	private handleSsoLogin(_req: express.Request, res: express.Response): void {
 		if (!this.sso) {
 			res.status(404).json({ error: "SSO is not enabled" });
@@ -533,9 +494,6 @@ export class HttpServer {
 		res.redirect(this.sso.createAuthorizeUrl());
 	}
 
-	//IYH1HC add: SSO callback — validate state, exchange code, upsert the federated
-	// user, issue the standard session token, and hand it to the web app via the URL
-	// hash fragment (not logged server-side) alongside the HttpOnly cookie.
 	private async handleSsoCallback(req: express.Request, res: express.Response): Promise<void> {
 		if (!this.sso) {
 			res.status(404).json({ error: "SSO is not enabled" });
@@ -550,7 +508,7 @@ export class HttpServer {
 			if (!this.sso.consumeState(state)) throw new Error("Invalid or expired state");
 
 			const identity = await this.sso.resolveIdentity(code);
-			const session = await this.auth.completeFederatedLogin(res, identity); //IYH1HC comment: await — completeFederatedLogin is now async
+			const session = await this.auth.completeFederatedLogin(res, identity);
 			res.redirect(`${redirectBase}/#sso_token=${encodeURIComponent(session.token)}`);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
@@ -679,11 +637,11 @@ export class HttpServer {
 	}
 
 	// GET /llm/config → per-provider { id, label, hasKey, models:[{id,name,active}] }. Never returns keys.
-	private async handleLlmConfig(req: express.Request, res: express.Response): Promise<void> { //IYH1HC comment: async — store reads are now async
+	private async handleLlmConfig(req: express.Request, res: express.Response): Promise<void> {
 		const userId = this.getUserId(req);
 		const store = this.auth.getStore();
-		const active = new Set((await store.getActiveModels(userId)).map((m) => `${m.provider}:${m.modelId}`)); //IYH1HC comment: await
-		const providers = await Promise.all(LLM_KEY_PROVIDERS.map(async (p) => { //IYH1HC comment: await hasProviderKey per provider
+		const active = new Set((await store.getActiveModels(userId)).map((m) => `${m.provider}:${m.modelId}`));
+		const providers = await Promise.all(LLM_KEY_PROVIDERS.map(async (p) => {
 			let models: Array<{ id: string; name: string; active: boolean }> = [];
 			try {
 				// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -693,30 +651,28 @@ export class HttpServer {
 					active: active.has(`${p.id}:${m.id}`),
 				}));
 			} catch { models = []; }
-			return { id: p.id, label: p.label, hasKey: await store.hasProviderKey(userId, p.id), models }; //IYH1HC comment: await
+			return { id: p.id, label: p.label, hasKey: await store.hasProviderKey(userId, p.id), models };
 		}));
 		res.json({ providers });
 	}
 
 	// GET /llm/active-models → flat [{ provider, modelId, label }] for the chatbox listbox.
-	private async handleLlmActiveModels(req: express.Request, res: express.Response): Promise<void> { //IYH1HC comment: async
+	private async handleLlmActiveModels(req: express.Request, res: express.Response): Promise<void> {
 		const userId = this.getUserId(req);
 		const store = this.auth.getStore();
-		const models = (await store.getActiveModels(userId)).map((m) => ({ //IYH1HC comment: await
+		const models = (await store.getActiveModels(userId)).map((m) => ({
 			provider: m.provider,
 			modelId: m.modelId,
 			label: this.modelLabel(m.provider, m.modelId),
 		}));
-		//IYH1HC add: surface custom models (Bosch GenAI) into the same listbox. They are
-		// always active once configured, addressed by provider "custom" + modelId = custom-model id.
-		for (const cm of await store.listCustomModels(userId)) { //IYH1HC comment: await
+		for (const cm of await store.listCustomModels(userId)) {
 			models.push({ provider: "custom", modelId: cm.id, label: cm.name });
 		}
 		res.json({ models });
 	}
 
 	// PUT /llm/providers/:provider/key  body { apiKey } → encrypt + store.
-	private async handleSetProviderKey(req: express.Request, res: express.Response): Promise<void> { //IYH1HC comment: async
+	private async handleSetProviderKey(req: express.Request, res: express.Response): Promise<void> {
 		const provider = String(req.params.provider);
 		if (!this.isAllowedLlmProvider(provider)) {
 			res.status(400).json({ error: "Unsupported provider" });
@@ -729,7 +685,7 @@ export class HttpServer {
 		}
 		try {
 			const encrypted = encryptSecret(apiKey.trim());
-			await this.auth.getStore().setProviderKey(this.getUserId(req), provider, encrypted); //IYH1HC comment: await
+			await this.auth.getStore().setProviderKey(this.getUserId(req), provider, encrypted);
 			res.json({ ok: true, hasKey: true });
 		} catch (err) {
 			res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
@@ -737,18 +693,18 @@ export class HttpServer {
 	}
 
 	// DELETE /llm/providers/:provider/key → forget the stored key.
-	private async handleDeleteProviderKey(req: express.Request, res: express.Response): Promise<void> { //IYH1HC comment: async
+	private async handleDeleteProviderKey(req: express.Request, res: express.Response): Promise<void> {
 		const provider = String(req.params.provider);
 		if (!this.isAllowedLlmProvider(provider)) {
 			res.status(400).json({ error: "Unsupported provider" });
 			return;
 		}
-		await this.auth.getStore().deleteProviderKey(this.getUserId(req), provider); //IYH1HC comment: await
+		await this.auth.getStore().deleteProviderKey(this.getUserId(req), provider);
 		res.json({ ok: true, hasKey: false });
 	}
 
 	// PUT /llm/providers/:provider/models  body { modelIds: string[] } → replace active set.
-	private async handleSetActiveModels(req: express.Request, res: express.Response): Promise<void> { //IYH1HC comment: async
+	private async handleSetActiveModels(req: express.Request, res: express.Response): Promise<void> {
 		const provider = String(req.params.provider);
 		if (!this.isAllowedLlmProvider(provider)) {
 			res.status(400).json({ error: "Unsupported provider" });
@@ -759,16 +715,14 @@ export class HttpServer {
 			res.status(400).json({ error: "modelIds must be a string array" });
 			return;
 		}
-		await this.auth.getStore().setActiveModels(this.getUserId(req), provider, modelIds as string[]); //IYH1HC comment: await
+		await this.auth.getStore().setActiveModels(this.getUserId(req), provider, modelIds as string[]);
 		res.json({ ok: true });
 	}
 
-	//IYH1HC add: whether a base provider is valid for a custom model (reuse the key-provider allowlist).
 	private isAllowedBaseProvider(provider: string): boolean {
 		return LLM_KEY_PROVIDERS.some((p) => p.id === provider);
 	}
 
-	//IYH1HC add: parse + validate a custom-model payload. apiKey is required only on create.
 	private parseCustomModelBody(
 		req: express.Request,
 		requireKey: boolean,
@@ -789,13 +743,13 @@ export class HttpServer {
 	}
 
 	// GET /llm/custom-models → { customModels: [{ id, name, baseProvider, endpoint }] }. Never returns keys.
-	private async handleListCustomModels(req: express.Request, res: express.Response): Promise<void> { //IYH1HC comment: async
-		const customModels = await this.auth.getStore().listCustomModels(this.getUserId(req)); //IYH1HC comment: await
+	private async handleListCustomModels(req: express.Request, res: express.Response): Promise<void> {
+		const customModels = await this.auth.getStore().listCustomModels(this.getUserId(req));
 		res.json({ customModels });
 	}
 
 	// POST /llm/custom-models  body { name, baseProvider, endpoint, apiKey } → encrypt + store.
-	private async handleCreateCustomModel(req: express.Request, res: express.Response): Promise<void> { //IYH1HC comment: async
+	private async handleCreateCustomModel(req: express.Request, res: express.Response): Promise<void> {
 		const parsed = this.parseCustomModelBody(req, true);
 		if ("error" in parsed) {
 			res.status(400).json({ error: parsed.error });
@@ -803,7 +757,7 @@ export class HttpServer {
 		}
 		try {
 			const encryptedKey = encryptSecret(parsed.apiKey as string);
-			const id = await this.auth.getStore().addCustomModel(this.getUserId(req), { //IYH1HC comment: await
+			const id = await this.auth.getStore().addCustomModel(this.getUserId(req), {
 				name: parsed.name,
 				baseProvider: parsed.baseProvider,
 				endpoint: parsed.endpoint,
@@ -816,10 +770,10 @@ export class HttpServer {
 	}
 
 	// PUT /llm/custom-models/:id  body { name, baseProvider, endpoint, apiKey? } → update (key optional).
-	private async handleUpdateCustomModel(req: express.Request, res: express.Response): Promise<void> { //IYH1HC comment: async
+	private async handleUpdateCustomModel(req: express.Request, res: express.Response): Promise<void> {
 		const id = String(req.params.id);
 		const userId = this.getUserId(req);
-		if (!(await this.auth.getStore().getCustomModel(userId, id))) { //IYH1HC comment: await
+		if (!(await this.auth.getStore().getCustomModel(userId, id))) {
 			res.status(404).json({ error: "Custom model not found" });
 			return;
 		}
@@ -830,7 +784,7 @@ export class HttpServer {
 		}
 		try {
 			const encryptedKey = parsed.apiKey ? encryptSecret(parsed.apiKey) : undefined;
-			await this.auth.getStore().updateCustomModel(userId, id, { //IYH1HC comment: await
+			await this.auth.getStore().updateCustomModel(userId, id, {
 				name: parsed.name,
 				baseProvider: parsed.baseProvider,
 				endpoint: parsed.endpoint,
@@ -843,8 +797,8 @@ export class HttpServer {
 	}
 
 	// DELETE /llm/custom-models/:id → forget the custom model.
-	private async handleDeleteCustomModel(req: express.Request, res: express.Response): Promise<void> { //IYH1HC comment: async
-		await this.auth.getStore().deleteCustomModel(this.getUserId(req), String(req.params.id)); //IYH1HC comment: await
+	private async handleDeleteCustomModel(req: express.Request, res: express.Response): Promise<void> {
+		await this.auth.getStore().deleteCustomModel(this.getUserId(req), String(req.params.id));
 		res.json({ ok: true });
 	}
 
@@ -893,7 +847,7 @@ export class HttpServer {
 	}
 
 	private handleFeatures(res: express.Response): void {
-		res.json({ features: { agentWorkers: this.features.agentWorkers, reminders: this.features.reminders, connection: this.features.connection, llmProviders: this.features.llmProviders, appTitle: this.features.appTitle } }); //IYH1HC add connection + llmProviders + appTitle
+		res.json({ features: { agentWorkers: this.features.agentWorkers, reminders: this.features.reminders, connection: this.features.connection, llmProviders: this.features.llmProviders, appTitle: this.features.appTitle } });
 	}
 
 	private handleConnectors(req: express.Request, res: express.Response): void {
@@ -992,7 +946,7 @@ export class HttpServer {
 	}
 
 	// ==========================================================================
-	//IYH1HC add — SAP ADT connection management
+	// SAP ADT connection management
 	// ==========================================================================
 
 	// Run the vendored adt-cli (spawned via the current Node binary + an absolute
@@ -1002,7 +956,6 @@ export class HttpServer {
 	private runAdtCli(
 		userId: string,
 		argv: string[],
-		//IYH1HC SAP connection add — destinationName + routerBase drive env `destinations` injection (BTP approuter smart-proxy)
 		opts: { userJwt?: string; cwd?: string; profileName?: string; timeoutMs?: number; destinationName?: string; routerBase?: string } = {},
 	): Promise<{ stdout: string; stderr: string; exitCode: number }> {
 		return new Promise((resolveP) => {
@@ -1021,10 +974,6 @@ export class HttpServer {
 			const usersRoot = this.getUsersRoot();
 			const home = getConnectorHome(usersRoot, userId, connector.id);
 			const env: NodeJS.ProcessEnv = {
-				//IYH1HC SSO add — inherit the service process env (PATH, SystemRoot/windir, DNS)
-				//IYH1HC SSO add — so the native Kerberos/SSPI addon and direct networking work for
-				//IYH1HC SSO add — local "sso" connections. Per-user isolation still comes from
-				//IYH1HC SSO add — ADT_CLI_HOME (profile store) + request-scoped ADT_USER_JWT below.
 				...process.env,
 				...this.getConnectorEnv(userId, connector),
 				// adt-cli persists profiles under ADT_CLI_HOME; set it explicitly because
@@ -1033,12 +982,6 @@ export class HttpServer {
 			};
 			if (opts.userJwt) env.ADT_USER_JWT = opts.userJwt;
 			if (opts.profileName) env.ADT_PROFILE = opts.profileName;
-			//IYH1HC SAP connection add — On BTP, adt-cli reaches the on-prem ABAP system through the
-			//IYH1HC SAP connection add — app's own approuter (octo-agent) ADT smart-proxy. We inject a local
-			//IYH1HC SAP connection add — destination pointing at <approuter>/adt-proxy/<dest> with forwardAuthToken,
-			//IYH1HC SAP connection add — so adt-cli sends the user JWT (ADT_USER_JWT) as Bearer and the proxy resolves
-			//IYH1HC SAP connection add — the destination + connectivity + principal propagation. Never set ADT_BEARER:
-			//IYH1HC SAP connection add — it short-circuits adt-cli's auth before the destination URL is resolved.
 			if (opts.destinationName && opts.routerBase) {
 				env.destinations = JSON.stringify([
 					{
@@ -1078,10 +1021,6 @@ export class HttpServer {
 		return match?.[1]?.trim();
 	}
 
-	//IYH1HC SAP connection add — Base URL of the app's own approuter (octo-agent), used to build the
-	//IYH1HC SAP connection add — ADT smart-proxy endpoint. On BTP the approuter sets x-forwarded-host/-proto
-	//IYH1HC SAP connection add — when it proxies /api/* to octo-srv, so we derive it from the request and
-	//IYH1HC SAP connection add — avoid a circular MTA dependency. ADT_ROUTER_URL overrides it for local dev.
 	private resolveRouterBase(req: express.Request): string | undefined {
 		if (process.env.ADT_ROUTER_URL) return process.env.ADT_ROUTER_URL;
 		const host = req.header("x-forwarded-host") || req.header("host");
@@ -1090,8 +1029,6 @@ export class HttpServer {
 		return `${proto}://${host}`;
 	}
 
-	//IYH1HC SAP connection add — Resolve a stored connection's SAP destination name (the adt-cli profile
-	//IYH1HC SAP connection add — name and the destination name can differ), used to build the smart-proxy URL.
 	private getConnectionDestination(userId: string, workspaceId: string, name: string): string | undefined {
 		return this.workspaceStore.getSapConnections(userId, workspaceId).find((c) => c.name === name)?.destinationName;
 	}
@@ -1150,8 +1087,6 @@ export class HttpServer {
 	}
 
 	// GET /workspaces/:id/sap-adt/local-systems
-	//IYH1HC SSO add — On-prem systems discovered from the developer's SAP Logon landscape
-	//IYH1HC SSO add — (ADT URL + Kerberos SPN), used to seed the "On-Premise (SSO)" connect form.
 	private async handleSapListLocalSystems(req: express.Request, res: express.Response): Promise<void> {
 		const ctx = this.assertSapAccess(req, res, false);
 		if (!ctx) return;
@@ -1163,9 +1098,6 @@ export class HttpServer {
 		}
 	}
 
-	//IYH1HC SSO add — Create a LOCAL on-prem connection authenticated by Kerberos/SPNEGO
-	//IYH1HC SSO add — (no password). Mirrors the destination flow but logs in via
-	//IYH1HC SSO add — `adt auth login basicsso` against a direct URL + SPN (no BTP proxy/JWT).
 	private async createLocalSsoConnection(ctx: { userId: string; workspaceId: string }, req: express.Request, res: express.Response): Promise<void> {
 		const body = req.body as { url?: unknown; spn?: unknown; systemId?: unknown; name?: unknown; client?: unknown; language?: unknown };
 		const url = String(body.url ?? "").trim();
@@ -1186,17 +1118,9 @@ export class HttpServer {
 		const folder = join(this.workspaceStore.getWorkspaceRoot(ctx.workspaceId), "artifacts", name);
 		mkdirSync(folder, { recursive: true });
 
-		//IYH1HC comment — const argv = ["-q", "auth", "login", "sso", "--url", url, "--spn", spn, "--insecure", "--name", name];
-		//IYH1HC add — adt-cli renamed the on-prem Kerberos/SPNEGO subcommand "sso" -> "basicsso"
-		//IYH1HC add — (legacy "sso" removed); spawning the old name fails with "unknown command".
 		const argv = ["-q", "auth", "login", "basicsso", "--url", url, "--spn", spn, "--insecure", "--name", name];
 		if (client) argv.push("--client", client);
 		if (language) argv.push("--language", language);
-		//IYH1HC SSO add — no destinationName/routerBase/userJwt: adt-cli connects DIRECTLY to the
-		//IYH1HC SSO add — on-prem system (no BTP approuter proxy / user JWT). TLS for the insecure
-		//IYH1HC SSO add — wdisp endpoint is handled inside adt-cli's AdtClient (NODE_TLS bypass when
-		//IYH1HC SSO add — --insecure); Node global fetch does not auto-honor HTTPS_PROXY, so the
-		//IYH1HC SSO add — route stays direct without any proxy-skip logic in bin/adt.js.
 		const result = await this.runAdtCli(ctx.userId, argv, { cwd: folder, profileName: name });
 		const connected = result.exitCode === 0;
 
@@ -1237,8 +1161,6 @@ export class HttpServer {
 	private async handleSapCreateConnection(req: express.Request, res: express.Response): Promise<void> {
 		const ctx = this.assertSapAccess(req, res, true);
 		if (!ctx) return;
-		//IYH1HC SSO add — local on-prem connect (Kerberos/SPNEGO) has a different shape than
-		//IYH1HC SSO add — the BTP destination flow; dispatch on the "mode" field.
 		if (["local", "sso"].includes(String((req.body as { mode?: unknown }).mode ?? "").trim().toLowerCase())) {
 			await this.createLocalSsoConnection(ctx, req, res);
 			return;
@@ -1258,8 +1180,6 @@ export class HttpServer {
 		const language = body.language ? String(body.language) : undefined;
 		const userJwt = this.extractUserJwt(req);
 
-		//IYH1HC add — Create the connection folder under the workspace artifacts dir so it
-		//IYH1HC add — shows up in the workspace file tree (which is rooted at .../artifacts).
 		const folder = join(this.workspaceStore.getWorkspaceRoot(ctx.workspaceId), "artifacts", name);
 		mkdirSync(folder, { recursive: true });
 
@@ -1267,7 +1187,6 @@ export class HttpServer {
 		if (client) argv.push("--client", client);
 		if (language) argv.push("--language", language);
 		if (userJwt) argv.push("--user-jwt", userJwt);
-		//IYH1HC SAP connection add — verify step hits on-prem, so route it through the approuter ADT smart-proxy.
 		const result = await this.runAdtCli(ctx.userId, argv, { userJwt, cwd: folder, profileName: name, destinationName: destination, routerBase: this.resolveRouterBase(req) });
 		const connected = result.exitCode === 0;
 
@@ -1276,12 +1195,8 @@ export class HttpServer {
 			`${JSON.stringify({ connectionName: name, destination, client, language }, null, 2)}\n`,
 		);
 
-		//IYH1HC SAP connection add — On a successful connect, seed the Eclipse-style ADT
-		//IYH1HC SAP connection add — object tree: a synthetic "Local Object ($TMP)" root folder
-		//IYH1HC SAP connection add — plus a sidecar manifest. Children are materialized lazily on expand.
 		if (connected) {
 			mkdirSync(join(folder, LOCAL_OBJECTS_ROOT), { recursive: true });
-			//IYH1HC SAP connection add — empty sibling folder for agent-generated artifacts.
 			mkdirSync(join(folder, "Artifacts"), { recursive: true });
 			writeManifest(folder, initialManifest());
 		}
@@ -1324,7 +1239,6 @@ export class HttpServer {
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const userJwt = this.extractUserJwt(req);
-		//IYH1HC SAP connection add — route the on-prem verify through the approuter ADT smart-proxy.
 		const destinationName = this.getConnectionDestination(ctx.userId, ctx.workspaceId, name);
 		const result = await this.runAdtCli(ctx.userId, ["-q", "auth", "login", "test", "--name", name], { userJwt, profileName: name, destinationName, routerBase: this.resolveRouterBase(req) });
 		const ok = result.exitCode === 0;
@@ -1347,7 +1261,6 @@ export class HttpServer {
 		const argv = ["-q", "object", "list", "--package", pkg, "--json"];
 		if (typeof req.query.parentType === "string" && req.query.parentType) argv.push("--parent-type", req.query.parentType);
 		if (typeof req.query.parentName === "string" && req.query.parentName) argv.push("--parent-name", req.query.parentName);
-		//IYH1HC SAP connection add — route the on-prem object list through the approuter ADT smart-proxy.
 		const destinationName = this.getConnectionDestination(ctx.userId, ctx.workspaceId, name);
 		const result = await this.runAdtCli(ctx.userId, argv, { userJwt, profileName: name, destinationName, routerBase: this.resolveRouterBase(req) });
 		if (result.exitCode !== 0) {
@@ -1375,7 +1288,6 @@ export class HttpServer {
 			return;
 		}
 		const userJwt = this.extractUserJwt(req);
-		//IYH1HC SAP connection add — route the on-prem source read through the approuter ADT smart-proxy.
 		const destinationName = this.getConnectionDestination(ctx.userId, ctx.workspaceId, name);
 		const result = await this.runAdtCli(ctx.userId, ["-q", "object", "source", uri], { userJwt, profileName: name, destinationName, routerBase: this.resolveRouterBase(req) });
 		if (result.exitCode !== 0) {
@@ -1385,9 +1297,6 @@ export class HttpServer {
 		res.json({ source: result.stdout });
 	}
 
-	//IYH1HC SAP connection add — Map a workspace-tree node path to its key within a
-	//IYH1HC SAP connection add — connection's ADT tree manifest (path relative to
-	//IYH1HC SAP connection add — artifacts/<name>/). Guards against traversal outside the folder.
 	private resolveSapTreeRelKey(workspaceId: string, connName: string, inputPath: string): string | null {
 		if (!inputPath) return null;
 		let p = String(inputPath).replace(/\\/g, "/").replace(/^\/+/, "");
@@ -1402,15 +1311,11 @@ export class HttpServer {
 		return relKey;
 	}
 
-	//IYH1HC SAP connection add — Resolve the on-disk connection folder for a workspace.
 	private sapConnDir(workspaceId: string, connName: string): string {
 		return join(this.workspaceStore.getWorkspaceRoot(workspaceId), "artifacts", connName);
 	}
 
 	// POST /workspaces/:id/sap-adt/connections/:name/tree/expand  body { path }
-	//IYH1HC SAP connection add — Lazily materialize the children of an ADT folder node:
-	//IYH1HC SAP connection add — list via nodestructure, then create category folders + empty
-	//IYH1HC SAP connection add — object files on disk and record them in the manifest.
 	private async handleSapExpandTree(req: express.Request, res: express.Response): Promise<void> {
 		const ctx = this.assertSapAccess(req, res, false);
 		if (!ctx) return;
@@ -1454,8 +1359,6 @@ export class HttpServer {
 	}
 
 	// POST /workspaces/:id/sap-adt/connections/:name/tree/hydrate  body { path }
-	//IYH1HC SAP connection add — On first open of an empty ADT-backed file, fetch its source
-	//IYH1HC SAP connection add — and write it to disk so the agent can read and @mention it.
 	private async handleSapHydrateFile(req: express.Request, res: express.Response): Promise<void> {
 		const ctx = this.assertSapAccess(req, res, false);
 		if (!ctx) return;
@@ -1490,8 +1393,6 @@ export class HttpServer {
 	}
 
 	// GET /workspaces/:id/sap-adt/connections/:name/tree/manifest
-	//IYH1HC SAP connection add — Tell the frontend which tree paths are lazy ADT folders
-	//IYH1HC SAP connection add — (call expand) and which are empty ADT-backed files (call hydrate).
 	private handleSapTreeManifest(req: express.Request, res: express.Response): void {
 		const ctx = this.assertSapAccess(req, res, false);
 		if (!ctx) return;
@@ -1949,22 +1850,18 @@ export class HttpServer {
 
 	private async handleChat(req: express.Request, res: express.Response, routeSessionId?: string): Promise<void> {
 		type AttachmentPayload = { fileName: string; mimeType: string; content: string };
-		//IYH1HC stream comment const { channelId, sessionId: bodySessionId, workspaceId, text, userName = "user", attachments = [], model: modelSel } = req.body as {
 		const { channelId, sessionId: bodySessionId, workspaceId, text, userName = "user", attachments = [], model: modelSel, structured = false } = req.body as {
 			channelId?: string; sessionId?: string; workspaceId?: string; text?: string; userName?: string; attachments?: AttachmentPayload[];
-			model?: { provider?: string; modelId?: string }; //IYH1HC add
-			structured?: boolean; //IYH1HC stream add: opt-in to the structured trail SSE protocol
+			model?: { provider?: string; modelId?: string };
+			structured?: boolean;
 		};
 		const sessionId = routeSessionId || bodySessionId || channelId;
 		const userId = this.getUserId(req, userName);
-		//IYH1HC add: trust the authenticated principal for the display identity (BTP/XSUAA forwards it),
-		// not the client-supplied body userName which degrades to "user" behind edge auth.
 		const resolvedUserName = this.getUserName(req, userName);
 
-		//IYH1HC add: resolve the per-run model override (decrypt the user's key here).
 		let resolvedModel: BotContext["model"];
 		if (modelSel?.provider && modelSel?.modelId && this.isAllowedLlmProvider(modelSel.provider)) {
-			const encrypted = await this.auth.getStore().getProviderKey(userId, modelSel.provider); //IYH1HC comment: await
+			const encrypted = await this.auth.getStore().getProviderKey(userId, modelSel.provider);
 			let apiKey: string | undefined;
 			if (encrypted) {
 				try {
@@ -1975,9 +1872,7 @@ export class HttpServer {
 			}
 			resolvedModel = { provider: modelSel.provider, modelId: modelSel.modelId, apiKey };
 		} else if (modelSel?.provider === "custom" && modelSel?.modelId) {
-			//IYH1HC add: custom model (Bosch GenAI) — resolve to its base provider's request
-			// format but fetch through the user-configured gateway endpoint (baseUrl override).
-			const cm = await this.auth.getStore().getCustomModel(userId, modelSel.modelId); //IYH1HC comment: await
+			const cm = await this.auth.getStore().getCustomModel(userId, modelSel.modelId);
 			if (cm) {
 				let apiKey: string | undefined;
 				try {
@@ -1991,13 +1886,11 @@ export class HttpServer {
 				// reduced to its deployment base here; the bosch-genai fetch adapter re-attaches the
 				// api-version query + api-key header at request time. The Responses API default
 				// ({endpoint}/responses) is not exposed by these gateways → 404.
-				//IYH1HC add: google/anthropic ride the farm's Vertex publisher endpoint
+				// google/anthropic ride the farm's Vertex publisher endpoint
 				// (api/google/v1/publishers/{pub}/models/{id}:{method}); the adapter splits the
 				// pasted URL into the SDK baseUrl + real model id and bridges auth/body at fetch
 				// time. Falls back to cm.name when the URL carries no model segment.
 				const isOpenAiBase = cm.baseProvider === "openai";
-				//IYH1HC comment: baseUrl: isOpenAiBase ? prepareBoschOpenAIEndpoint(cm.endpoint) : cm.endpoint,
-				//IYH1HC comment: modelId: cm.name, // placeholder; the gateway routes by endpoint
 				let baseUrl: string;
 				let modelId = cm.name;
 				if (isOpenAiBase) {
@@ -2020,7 +1913,7 @@ export class HttpServer {
 				};
 			}
 		}
-		//IYH1HC add: make the per-run model resolution visible in the server log so users
+		// make the per-run model resolution visible in the server log so users
 		// can verify the picker selection drives the outbound call (model self-reports lie).
 		// A selection that cannot be resolved silently falls back to the default env model —
 		// surface that as a warning instead of leaving it invisible.
@@ -2053,15 +1946,10 @@ export class HttpServer {
 
 		res.writeHead(200, {
 			"Content-Type": "text/event-stream",
-			//IYH1HC stream comment: was "Cache-Control": "no-cache",
-			//IYH1HC stream add: no-transform bypasses the approuter gzip on BTP — compression@1.7.4
-			// buffers SSE chunks until the run ends unless Cache-Control contains no-transform.
 			"Cache-Control": "no-cache, no-transform",
 			Connection: "keep-alive",
-			"X-Accel-Buffering": "no", //IYH1HC stream add: disable buffering in nginx-style proxies
+			"X-Accel-Buffering": "no",
 		});
-		//IYH1HC stream add: push headers + a first byte immediately so intermediaries commit to
-		// streaming and the client sees the connection open before the first real event.
 		res.flushHeaders();
 		res.write(":ok\n\n");
 
@@ -2087,7 +1975,7 @@ export class HttpServer {
 
 		const ctx = createHttpContext({
 			channelId: sessionId,
-			userName: resolvedUserName, //IYH1HC comment: was `userName` (body); now principal-derived
+			userName: resolvedUserName,
 			text,
 			ts,
 			send,
@@ -2095,8 +1983,8 @@ export class HttpServer {
 			attachments: savedAttachments,
 			userId,
 			authFilePath: this.getUserAuthFilePath(userId),
-			model: resolvedModel, //IYH1HC add
-			structured, //IYH1HC stream add
+			model: resolvedModel,
+			structured,
 		});
 
 		appendFileSync(
@@ -2108,14 +1996,14 @@ export class HttpServer {
 
 		try {
 			await this.handler.handleEvent(sessionId, ctx);
-			ctx.flushAgentEvents?.(); //IYH1HC stream add: drain buffered deltas before done
+			ctx.flushAgentEvents?.();
 			send({ type: "done" });
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err);
 			log.logWarning(`[${sessionId}] HTTP run error`, msg);
 			send({ type: "error", message: msg });
 		} finally {
-			ctx.flushAgentEvents?.(); //IYH1HC stream add: abort path — no dangling flush timer
+			ctx.flushAgentEvents?.();
 			res.end();
 		}
 	}
@@ -2204,10 +2092,6 @@ export class HttpServer {
 		if (!resolved) {
 			return;
 		}
-		//IYH1HC comment: let url = `http://localhost:${this.port}/file?path=${encodeURIComponent(resolved)}`;
-		// IYH1HC add: default to null so the web app builds a same-origin URL via its own
-		// baseUrl (/api/file). The hardcoded localhost URL was unreachable from the browser
-		// on BTP; only a real public tunnel URL (below) should override this.
 		let url: string | null = null;
 
 		const tunnelUrlFile = "/tmp/artifacts-url.txt";
@@ -2230,7 +2114,6 @@ export class HttpServer {
 			if (!existsSync(rootPath)) return [];
 			const walk = (absDir: string, relDir: string): WorkspaceNode[] => {
 				const entries = readdirSync(absDir, { withFileTypes: true })
-					//IYH1HC SAP connection add — hide SAP connection sidecar manifests from the file tree.
 					.filter((e: Dirent) => e.name !== ADT_TREE_FILE && e.name !== ".adt-connection.json")
 					.sort((a: Dirent, b: Dirent) => {
 						if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
@@ -2261,10 +2144,6 @@ export class HttpServer {
 			res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
 			return;
 		}
-		//IYH1HC add: durability tick — the UI hits this on the workspace refresh button (and
-		//IYH1HC add: on session load/switch); flush this workspace's subtree to the object
-		//IYH1HC add: store. Fire-and-forget so the response is never delayed; snapshot()
-		//IYH1HC add: serializes internally and mtime-dedups, so repeated calls are cheap.
 		void this.objectStore?.snapshot({ workspaceId: session.workspaceId, sessionId: channelId })
 			.catch((err) => log.logWarning("[object-store] workspace snapshot error", err instanceof Error ? err.message : String(err)));
 		const workspaceRoot = this.workspaceStore.getWorkspaceRoot(session.workspaceId);
@@ -2288,6 +2167,15 @@ export class HttpServer {
 			return;
 		}
 
+		if (statSync(resolved).isDirectory()) {
+			if (req.query.download === "1") {
+				void this.sendFolderZip(resolved, res);
+			} else {
+				res.status(400).json({ error: "Path is a directory" });
+			}
+			return;
+		}
+
 		const ext = extname(resolved).slice(1).toLowerCase();
 		const mimeType = BINARY_MIME_TYPES[ext];
 		if (mimeType) {
@@ -2302,10 +2190,61 @@ export class HttpServer {
 		res.sendFile(resolved);
 	}
 
+	// Send a folder to the client as a .zip archive. Artifact folders are small,
+	// so the archive is built in memory rather than streamed.
+	private async sendFolderZip(dir: string, res: express.Response): Promise<void> {
+		try {
+			const zip = new JSZip();
+			const addDir = (absDir: string, relDir: string) => {
+				for (const entry of readdirSync(absDir, { withFileTypes: true })) {
+					const abs = join(absDir, entry.name);
+					const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
+					if (entry.isDirectory()) {
+						addDir(abs, rel);
+					} else if (entry.isFile()) {
+						zip.file(rel, readFileSync(abs));
+					}
+				}
+			};
+			addDir(dir, "");
+			const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+			res.type("application/zip");
+			res.attachment(`${basename(dir)}.zip`);
+			res.send(buffer);
+		} catch (err) {
+			res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+		}
+	}
+
+	// Delete a workspace file or folder (recursive) and propagate the delete to the
+	// object-store mirror (a workspace-scoped snapshot alone would restore it on next boot).
+	private handleDeleteFile(req: express.Request, filePath: string, res: express.Response): void {
+		const resolved = this.resolveReadableWorkspaceFile(req, filePath, res);
+		if (!resolved) {
+			return;
+		}
+
+		if (!existsSync(resolved)) {
+			res.status(404).json({ error: "Not found" });
+			return;
+		}
+		const isDirectory = statSync(resolved).isDirectory();
+
+		try {
+			rmSync(resolved, isDirectory ? { recursive: true, force: true } : {});
+		} catch (err) {
+			res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+			return;
+		}
+		const propagate = isDirectory
+			? this.objectStore?.deleteObjectsUnder(resolved)
+			: this.objectStore?.deleteObject(resolved);
+		void propagate?.catch((err) => log.logWarning("[object-store] delete propagation error", err instanceof Error ? err.message : String(err)));
+		res.json({ ok: true });
+	}
+
 	private handleMessages(req: express.Request, channelId: string, res: express.Response): void {
 		type ContextEntry = { type: string; timestamp?: string; message?: Record<string, any> };
-		//IYH1HC stream add: structured replay block — mirrors the live StreamBlock model so a
-		// page reload reconstructs the same trail. Additive: legacy text/thread/files remain.
 		type ReplayBlock =
 			| { kind: "thinking"; content: string }
 			| { kind: "text"; content: string }
@@ -2321,16 +2260,15 @@ export class HttpServer {
 				durationMs?: number;
 				skill?: { name: string; path: string };
 			};
-		//IYH1HC stream comment type ChatMessage = { role: "user" | "assistant"; text: string; attachments?: string[]; thread?: string; files?: Array<{ path: string; title?: string }> };
 		type ChatMessage = {
 			role: "user" | "assistant";
 			text: string;
 			attachments?: string[];
 			thread?: string;
 			files?: Array<{ path: string; title?: string }>;
-			blocks?: ReplayBlock[]; //IYH1HC stream add
-			usage?: AgentUsage; //IYH1HC stream add
-			model?: string; //IYH1HC stream add: "provider/id" of the last model that served the turn
+			blocks?: ReplayBlock[];
+			usage?: AgentUsage;
+			model?: string;
 		};
 
 		const formatArgs = (args: Record<string, any>): string => {
@@ -2362,9 +2300,6 @@ export class HttpServer {
 		const contextFile = join(workspaceRoot, "sessions", channelId, "context.jsonl");
 		const messages: ChatMessage[] = [];
 
-		//IYH1HC stream add: enrich replay with audit-trail facts keyed by toolCallId —
-		// exact durations and skill invocations only exist in trail.jsonl (context.jsonl
-		// carries neither, and is rewritten on compaction while the trail is append-only).
 		const trailDurations = new Map<string, number>();
 		const trailSkills = new Map<string, { name: string; path: string }>();
 		for (const record of readTrail(join(workspaceRoot, "sessions", channelId))) {
@@ -2383,8 +2318,7 @@ export class HttpServer {
 
 				type ToolCall = { id: string; name: string; label?: string; args: Record<string, any> };
 				type ToolResult = { toolCallId: string; toolName: string; text: string; isError: boolean };
-				//IYH1HC stream comment type Turn = { userText: string; attachments: string[]; toolCalls: ToolCall[]; toolResults: ToolResult[]; assistantTexts: string[] };
-				type Turn = { userText: string; attachments: string[]; toolCalls: ToolCall[]; toolResults: ToolResult[]; assistantTexts: string[]; blocks: ReplayBlock[]; usage?: AgentUsage; model?: string }; //IYH1HC stream add
+				type Turn = { userText: string; attachments: string[]; toolCalls: ToolCall[]; toolResults: ToolResult[]; assistantTexts: string[]; blocks: ReplayBlock[]; usage?: AgentUsage; model?: string };
 				const normalizeAttachedFilePath = (rawPath: string): string => {
 					const dockerWorkspacePrefix = `/workspace/workspaces/${session.workspaceId}/`;
 					if (rawPath === `/workspace/workspaces/${session.workspaceId}`) return workspaceRoot;
@@ -2419,15 +2353,13 @@ export class HttpServer {
 						const textPart = (msg.content as any[])?.find((c: any) => c.type === "text");
 						if (!textPart?.text) continue;
 						const { text: cleanText, attachments } = extractAttachments(stripPrefix(textPart.text));
-						//IYH1HC stream comment turns.push({ userText: cleanText, attachments, toolCalls: [], toolResults: [], assistantTexts: [] });
-						turns.push({ userText: cleanText, attachments, toolCalls: [], toolResults: [], assistantTexts: [], blocks: [] }); //IYH1HC stream add
+						turns.push({ userText: cleanText, attachments, toolCalls: [], toolResults: [], assistantTexts: [], blocks: [] });
 					} else if (msg.role === "assistant") {
 						if (turns.length === 0) continue;
 						const turn = turns[turns.length - 1];
 						for (const part of (msg.content as any[]) || []) {
 							if (part.type === "toolCall") {
 								turn.toolCalls.push({ id: part.id, name: part.name, label: part.arguments?.label, args: part.arguments ?? {} });
-								//IYH1HC stream add: ordered structured block (result joined below)
 								turn.blocks.push({
 									kind: "tool",
 									toolCallId: part.id,
@@ -2439,17 +2371,14 @@ export class HttpServer {
 								});
 							} else if (part.type === "text" && part.text?.trim()) {
 								turn.assistantTexts.push(part.text.trim());
-								turn.blocks.push({ kind: "text", content: part.text.trim() }); //IYH1HC stream add
-							//IYH1HC stream add: thinking parts were previously dropped from replay
+								turn.blocks.push({ kind: "text", content: part.text.trim() });
 							} else if (part.type === "thinking" && part.thinking?.trim()) {
 								turn.blocks.push({ kind: "thinking", content: part.thinking.trim() });
 							}
 						}
-						//IYH1HC stream add: remember which model served the turn (last one wins)
 						if (msg.model) {
 							turn.model = msg.provider ? `${msg.provider}/${msg.responseModel || msg.model}` : String(msg.responseModel || msg.model);
 						}
-						//IYH1HC stream add: accumulate authoritative usage per turn
 						if (msg.usage) {
 							const u = msg.usage as AgentUsage;
 							if (!turn.usage) {
@@ -2472,7 +2401,6 @@ export class HttpServer {
 						const turn = turns[turns.length - 1];
 						const text = (msg.content as any[])?.find((c: any) => c.type === "text")?.text ?? "";
 						turn.toolResults.push({ toolCallId: msg.toolCallId, toolName: msg.toolName, text, isError: msg.isError });
-						//IYH1HC stream add: join result into the matching structured tool block
 						const toolBlock = turn.blocks.find(
 							(b) => b.kind === "tool" && b.toolCallId === msg.toolCallId && b.result === undefined,
 						) as Extract<ReplayBlock, { kind: "tool" }> | undefined;
@@ -2512,10 +2440,6 @@ export class HttpServer {
 					}
 
 					const thread = threadParts.length > 0 ? threadParts.join("\n\n") : undefined;
-					//IYH1HC stream comment if (mainText || thread) {
-					//IYH1HC stream comment 	messages.push({ role: "assistant", text: mainText, thread, files: files.length > 0 ? files : undefined });
-					//IYH1HC stream comment }
-					//IYH1HC stream add: also emit assistant turns that only carry structured blocks
 					if (mainText || thread || turn.blocks.length > 0) {
 						messages.push({
 							role: "assistant",
@@ -2524,7 +2448,7 @@ export class HttpServer {
 							files: files.length > 0 ? files : undefined,
 							blocks: turn.blocks.length > 0 ? turn.blocks : undefined,
 							usage: turn.usage,
-							model: turn.model, //IYH1HC stream add
+							model: turn.model,
 						});
 					}
 				}

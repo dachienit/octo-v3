@@ -3,7 +3,7 @@
  */
 
 import type { Attachment } from "./store.js";
-import type { AgentTrailEvent } from "./agent-events.js"; //IYH1HC stream add
+import type { AgentTrailEvent } from "./agent-events.js";
 
 // ============================================================================
 // Channel / User info
@@ -65,11 +65,11 @@ export interface BotContext {
 	uploadFile: (filePath: string, title?: string) => Promise<void>;
 	setWorking: (working: boolean) => Promise<void>;
 	deleteMessage: () => Promise<void>;
-	//IYH1HC stream add: structured activity trail emitter. Only set by the HTTP transport
+	// structured activity trail emitter. Only set by the HTTP transport
 	// when the client opted in (structured: true); absent on Slack — the runner falls back
 	// to the legacy markdown flattening when undefined.
 	emitAgentEvent?: (event: AgentTrailEvent) => void;
-	//IYH1HC stream add: flush any coalesced block deltas still buffered (abort/end-of-run).
+	// flush any coalesced block deltas still buffered (abort/end-of-run).
 	flushAgentEvents?: () => void;
 }
 

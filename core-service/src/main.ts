@@ -2,11 +2,6 @@
 
 import "dotenv/config";
 
-//IYH1HC add: On Cloud Foundry the credentials of a user-provided service (e.g.
-//IYH1HC add: `octo-secrets`) are injected into VCAP_SERVICES, NOT as plain env vars,
-//IYH1HC add: while the code reads process.env directly. Hydrate process.env from every
-//IYH1HC add: bound user-provided service's credentials (real env vars keep priority).
-//IYH1HC add: No-op locally where VCAP_SERVICES is absent.
 function loadUserProvidedCredentials(): void {
 	const raw = process.env.VCAP_SERVICES;
 	if (!raw) return;
@@ -62,14 +57,11 @@ const MOM_SLACK_APP_TOKEN = process.env.MOM_SLACK_APP_TOKEN;
 const MOM_SLACK_BOT_TOKEN = process.env.MOM_SLACK_BOT_TOKEN;
 const AGENT_WORKERS_ENABLED = !["0", "false", "off", "no"].includes((process.env.CORE_SERVICE_AGENT_WORKERS_ENABLED ?? "true").toLowerCase());
 const REMINDERS_ENABLED = !["0", "false", "off", "no"].includes((process.env.CORE_SERVICE_REMINDERS_ENABLED ?? "true").toLowerCase());
-//IYH1HC add
 const CONNECTION_ENABLED = !["0", "false", "off", "no"].includes((process.env.CORE_SERVICE_CONNECTION_ENABLED ?? "true").toLowerCase());
-//IYH1HC add: optional allowlist of LLM provider ids shown in the UI picker. Unset/empty → all providers.
 const LLM_PROVIDERS_ALLOWLIST = (process.env.CORE_SERVICE_LLM_PROVIDERS ?? "")
 	.split(",")
 	.map((id) => id.trim())
 	.filter(Boolean);
-//IYH1HC add: optional browser tab title for the web app. Unset/empty → keep the index.html default.
 const APP_TITLE = (process.env.CORE_SERVICE_APP_TITLE ?? "").trim();
 
 interface ParsedArgs {
@@ -103,8 +95,6 @@ function parseArgs(): ParsedArgs {
 			if (next && !next.startsWith("-") && /^\d+$/.test(next)) {
 				httpPort = parseInt(next, 10);
 				i++;
-			//IYH1HC add: on Cloud Foundry the start command is `--http $PORT`; if $PORT is
-			//IYH1HC add: unset/empty the flag arrives bare, so fall back to env PORT then 3030.
 			} else {
 				const envPort = parseInt(process.env.PORT ?? "", 10);
 				httpPort = Number.isFinite(envPort) ? envPort : 3030;
@@ -438,15 +428,12 @@ if (hasHttp) {
 		workingDir,
 		workspaceStore,
 		sandboxConfig: sandbox,
-		features: { agentWorkers: AGENT_WORKERS_ENABLED, reminders: REMINDERS_ENABLED, connection: CONNECTION_ENABLED, llmProviders: LLM_PROVIDERS_ALLOWLIST.length > 0 ? LLM_PROVIDERS_ALLOWLIST : null, appTitle: APP_TITLE || null }, //IYH1HC add connection + llmProviders allowlist + appTitle
+		features: { agentWorkers: AGENT_WORKERS_ENABLED, reminders: REMINDERS_ENABLED, connection: CONNECTION_ENABLED, llmProviders: LLM_PROVIDERS_ALLOWLIST.length > 0 ? LLM_PROVIDERS_ALLOWLIST : null, appTitle: APP_TITLE || null },
 		handler,
-		//IYH1HC add: expose mirror state at GET /objectstore/status (undefined → ephemeral).
 		getObjectStoreStatus: () => objectStore?.status(),
-		//IYH1HC add: gateway store instance for the fire-and-forget workspace snapshot on
-		//IYH1HC add: workspace tree reads (the UI refresh button path).
 		objectStore,
 	});
-	await httpServer.start(); //IYH1HC comment: await — start() is now async (auth storage bootstrap)
+	await httpServer.start();
 }
 
 // Start event watchers for each adapter.
@@ -477,8 +464,6 @@ if (hasSlack) {
 }
 
 // Handle shutdown
-//IYH1HC add: shared async shutdown so SIGINT/SIGTERM both flush a final snapshot
-//IYH1HC add: (best-effort within CF's ~10s grace) before exiting.
 async function shutdown(): Promise<void> {
 	log.logInfo("Shutting down...");
 	stopSandboxIdleCleanup?.();

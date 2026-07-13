@@ -1,5 +1,3 @@
-//IYH1HC stream add: token/cost accounting shape shared by usage events and replay.
-// Kept in manual sync with core-service/src/agent-events.ts (packages do not share types).
 export type AgentUsage = {
 	input: number;
 	output: number;
@@ -8,7 +6,6 @@ export type AgentUsage = {
 	cost: { input: number; output: number; cacheRead: number; cacheWrite: number; total: number };
 };
 
-//IYH1HC stream add: structured replay block returned by GET /messages when available.
 export type ReplayBlock =
 	| { kind: "thinking"; content: string }
 	| { kind: "text"; content: string }
@@ -25,7 +22,6 @@ export type ReplayBlock =
 		skill?: { name: string; path: string };
 	};
 
-//IYH1HC stream add: chat history message shape (blocks/usage present for structured runs).
 export type HistoryMessage = {
 	role: "user" | "assistant";
 	text: string;
@@ -46,8 +42,6 @@ export type SseEvent =
 	| { type: "delete" }
 	| { type: "done" }
 	| { type: "error"; message: string }
-	//IYH1HC stream add: structured agent-trail events (server sends them only when the
-	// request body carried structured: true; legacy delta/thread are then suppressed).
 	| { type: "turn"; seq: number; phase: "start" | "end"; turnIndex: number; ts: number }
 	| { type: "block"; seq: number; phase: "start"; blockId: string; kind: "text" | "thinking"; ts: number }
 	| { type: "block"; seq: number; phase: "delta"; blockId: string; kind: "text" | "thinking"; delta: string }
@@ -78,7 +72,7 @@ export type AuthUser = {
 	id: string;
 	email: string;
 	displayName: string;
-	avatarUrl?: string; // IYH1HC add: profile picture (GitHub avatar from SSO)
+	avatarUrl?: string;
 };
 
 // IYH1HC add: external SSO (GHES) config exposed to the web app.
@@ -87,7 +81,7 @@ export type SsoConfig = {
 	provider?: string;
 	label?: string;
 	loginUrl?: string;
-	hideAuthUi?: boolean; //IYH1HC add: when true, hide the in-app login screen + logout (XSUAA edge auth)
+	hideAuthUi?: boolean;
 };
 
 export type ProviderAuthStatus = {
@@ -191,9 +185,9 @@ export type ConnectorStatus = AgentWorkerStatus & {
 export type CoreServiceFeatures = {
 	agentWorkers: boolean;
 	reminders: boolean;
-	connection: boolean; //IYH1HC add
-	llmProviders: string[] | null; //IYH1HC add: allowlist of provider ids shown in the UI picker; null → all
-	appTitle: string | null; //IYH1HC add: configurable browser tab title; null → keep index.html default
+	connection: boolean;
+	llmProviders: string[] | null;
+	appTitle: string | null;
 };
 
 export type AgentWorkerLoginStart = {
@@ -232,7 +226,6 @@ export type WorkspaceTree = {
 	skills: WorkspaceNode[];
 };
 
-//IYH1HC add — SAP ADT connection model (multi-connection per workspace).
 export type SapConnection = {
 	name: string;
 	destinationName: string;
@@ -253,7 +246,6 @@ export type SapDestination = {
 	description?: string;
 };
 
-//IYH1HC SSO add — On-prem system discovered from the developer's local SAP Logon landscape.
 export type SapLocalSystem = {
 	systemId: string;
 	client?: string;
@@ -271,7 +263,6 @@ export type SapNode = {
 	description?: string;
 };
 
-//IYH1HC add — one entry of the materialized ADT tree manifest (per relative path).
 export type SapTreeManifestEntry = {
 	lazy: boolean; // an ADT folder that must be expanded via the backend
 	loaded: boolean; // for lazy folders: have children been materialized yet
@@ -294,7 +285,7 @@ export type WorkspaceSettings = {
 		authType?: "basic" | "destination" | "oauth";
 		destinationName?: string;
 	};
-	sapConnections?: SapConnection[]; //IYH1HC add
+	sapConnections?: SapConnection[];
 	tools?: {
 		enabled?: string[];
 	};
@@ -307,7 +298,7 @@ export type WorkspaceSettings = {
 };
 
 export type WorkspaceTemplate = {
-	id: "default" | "sap-cap" | "sap-abap"; //IYH1HC add: "default" generic workspace type
+	id: "default" | "sap-cap" | "sap-abap";
 	label: string;
 	description: string;
 	sandboxImage: string;
@@ -613,14 +604,13 @@ export class CoreServiceClient {
 		userName?: string,
 		signal?: AbortSignal,
 		attachments?: AttachmentPayload[],
-		model?: { provider: string; modelId: string }, //IYH1HC add: per-run model override
+		model?: { provider: string; modelId: string },
 	): AsyncGenerator<SseEvent> {
 		const userQuery = userName ? `?userId=${encodeURIComponent(userName)}` : "";
 		const response = await this.fetch(`/sessions/${encodeURIComponent(channelId)}/messages${userQuery}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			//IYH1HC stream comment body: JSON.stringify({ text, userName, attachments, model }), //IYH1HC comment: forward selected model
-			body: JSON.stringify({ text, userName, attachments, model, structured: true }), //IYH1HC stream add: opt in to the structured trail protocol
+			body: JSON.stringify({ text, userName, attachments, model, structured: true }),
 			signal,
 		});
 
@@ -697,17 +687,17 @@ export class CoreServiceClient {
 	async getFeatures(): Promise<CoreServiceFeatures> {
 		try {
 			const response = await this.fetch("/features");
-			if (!response.ok) return { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null }; //IYH1HC add connection + llmProviders + appTitle
+			if (!response.ok) return { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null };
 			const data = await response.json() as { features?: Partial<CoreServiceFeatures> };
 			return {
 				agentWorkers: data.features?.agentWorkers !== false,
 				reminders: data.features?.reminders !== false,
-				connection: data.features?.connection !== false, //IYH1HC add
-				llmProviders: Array.isArray(data.features?.llmProviders) ? data.features.llmProviders : null, //IYH1HC add
-				appTitle: typeof data.features?.appTitle === "string" ? data.features.appTitle : null, //IYH1HC add
+				connection: data.features?.connection !== false,
+				llmProviders: Array.isArray(data.features?.llmProviders) ? data.features.llmProviders : null,
+				appTitle: typeof data.features?.appTitle === "string" ? data.features.appTitle : null,
 			};
 		} catch {
-			return { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null }; //IYH1HC add connection + llmProviders + appTitle
+			return { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null };
 		}
 	}
 
@@ -809,8 +799,7 @@ export class CoreServiceClient {
 		});
 	}
 
-	//IYH1HC stream comment async getMessages(channelId: string): Promise<Array<{ role: "user" | "assistant"; text: string }>> {
-	async getMessages(channelId: string): Promise<HistoryMessage[]> { //IYH1HC stream add
+	async getMessages(channelId: string): Promise<HistoryMessage[]> {
 		try {
 			const response = await this.fetch(`/messages/${encodeURIComponent(channelId)}`);
 			if (!response.ok) return [];
@@ -857,6 +846,40 @@ export class CoreServiceClient {
 			return { content: `data:${mimeType};base64,${base64}`, mimeType };
 		} catch {
 			return null;
+		}
+	}
+
+	async deleteWorkspaceFile(path: string): Promise<{ ok: boolean; error?: string }> {
+		try {
+			const response = await this.fetch(`/file?path=${encodeURIComponent(path)}`, { method: "DELETE" });
+			if (!response.ok) {
+				const data = await response.json().catch(() => ({}));
+				return { ok: false, error: (data as { error?: string }).error ?? `HTTP ${response.status}` };
+			}
+			return { ok: true };
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) };
+		}
+	}
+
+	// Fetch the file with the auth header, then trigger a browser download via an
+	// object URL (a plain anchor href would not carry the Bearer token).
+	async downloadWorkspaceFile(path: string, fileName?: string): Promise<boolean> {
+		try {
+			const response = await this.fetch(`/file?path=${encodeURIComponent(path)}&download=1`);
+			if (!response.ok) return false;
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const anchor = document.createElement("a");
+			anchor.href = url;
+			anchor.download = fileName || path.split("/").pop() || "download";
+			document.body.appendChild(anchor);
+			anchor.click();
+			anchor.remove();
+			URL.revokeObjectURL(url);
+			return true;
+		} catch {
+			return false;
 		}
 	}
 
@@ -966,7 +989,6 @@ export class CoreServiceClient {
 		}
 	}
 
-	//IYH1HC add — SAP ADT connection management.
 	async listSapDestinations(workspaceId: string): Promise<SapDestination[]> {
 		try {
 			const response = await this.fetch(`/workspaces/${encodeURIComponent(workspaceId)}/sap-adt/destinations`);
@@ -995,7 +1017,6 @@ export class CoreServiceClient {
 		}
 	}
 
-	//IYH1HC SSO add — list on-prem systems from the developer's SAP Logon landscape.
 	async listLocalSapSystems(workspaceId: string): Promise<SapLocalSystem[]> {
 		try {
 			const response = await this.fetch(`/workspaces/${encodeURIComponent(workspaceId)}/sap-adt/local-systems`);
@@ -1007,7 +1028,6 @@ export class CoreServiceClient {
 		}
 	}
 
-	//IYH1HC SSO add — create a local on-prem connection authenticated by Kerberos/SPNEGO (no password).
 	async createLocalSapConnection(
 		workspaceId: string,
 		input: { url: string; spn: string; systemId?: string; name: string; client?: string; language?: string },
@@ -1050,9 +1070,6 @@ export class CoreServiceClient {
 		}
 	}
 
-	//IYH1HC add — ADT object tree materialized into the workspace Artifacts panel.
-	// Returns a map of manifest-relative path -> entry so the UI knows which folders
-	// to lazily expand, which empty files to hydrate, and how to label object files.
 	async getSapTreeManifest(workspaceId: string, name: string): Promise<Record<string, SapTreeManifestEntry>> {
 		try {
 			const response = await this.fetch(
@@ -1066,7 +1083,6 @@ export class CoreServiceClient {
 		}
 	}
 
-	//IYH1HC add — Materialize the children of an ADT folder node on disk (lazy expand).
 	async expandSapTree(workspaceId: string, name: string, path: string): Promise<{ ok: boolean; error?: string }> {
 		try {
 			const response = await this.fetch(
@@ -1080,7 +1096,6 @@ export class CoreServiceClient {
 		}
 	}
 
-	//IYH1HC add — Fetch and persist the source of an empty ADT-backed file before opening it.
 	async hydrateSapFile(workspaceId: string, name: string, path: string): Promise<{ source: string | null; error?: string }> {
 		try {
 			const response = await this.fetch(
