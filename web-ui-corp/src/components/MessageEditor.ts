@@ -11,7 +11,6 @@ import { i18n } from "../utils/i18n.js";
 import "./AttachmentTile.js";
 import type { ThinkingLevel } from "@earendil-works/pi-agent-core";
 
-//IYH1HC add: reasoning levels for the inline quick selector (mirrors backend ThinkingLevel).
 type ReasoningValue = "off" | "minimal" | "low" | "medium" | "high";
 const REASONING_LEVELS: { value: ReasoningValue; label: string }[] = [
 	{ value: "off", label: "Off" },
@@ -21,7 +20,6 @@ const REASONING_LEVELS: { value: ReasoningValue; label: string }[] = [
 	{ value: "high", label: "High" },
 ];
 
-//IYH1HC add: shape of an entry in the inline model quick-pick list.
 export type QuickModelOption = { value: string; label: string; provider: string };
 
 @customElement("message-editor")
@@ -56,7 +54,6 @@ export class MessageEditor extends LitElement {
 	@property() declare maxFiles: number;
 	@property() declare maxFileSize: number;
 	@property() declare acceptedTypes: string;
-	//IYH1HC add: inline combined model + reasoning quick selector (used by the corp chat panel).
 	@property() declare useQuickSelector: boolean;
 	@property() declare quickModels: QuickModelOption[];
 	@property() declare selectedModelValue: string;
@@ -64,13 +61,13 @@ export class MessageEditor extends LitElement {
 
 	@state() declare processingFiles: boolean;
 	@state() declare isDragging: boolean;
-	@state() declare quickMenuOpen: boolean; //IYH1HC add
-	@state() declare quickSubmenuOpen: boolean; //IYH1HC add
-	@state() declare quickMenuAnchor: DOMRect | null; //IYH1HC add: trigger rect for fixed-position popover
+	@state() declare quickMenuOpen: boolean;
+	@state() declare quickSubmenuOpen: boolean;
+	@state() declare quickMenuAnchor: DOMRect | null;
 
 	private fileInputRef = createRef<HTMLInputElement>();
-	private quickAnchorRef = createRef<HTMLDivElement>(); //IYH1HC add
-	private menuPortal?: HTMLDivElement; //IYH1HC add: body-level host for the quick menu
+	private quickAnchorRef = createRef<HTMLDivElement>();
+	private menuPortal?: HTMLDivElement;
 
 	constructor() {
 		super();
@@ -93,7 +90,6 @@ export class MessageEditor extends LitElement {
 			"image/*,application/pdf,.docx,.pptx,.xlsx,.xls,.txt,.md,.json,.xml,.html,.css,.js,.ts,.jsx,.tsx,.yml,.yaml";
 		this.processingFiles = false;
 		this.isDragging = false;
-		//IYH1HC add: quick selector defaults.
 		this.useQuickSelector = false;
 		this.quickModels = [];
 		this.selectedModelValue = "";
@@ -116,7 +112,6 @@ export class MessageEditor extends LitElement {
 	private handleKeyDown = (e: KeyboardEvent) => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
-			//IYH1HC add: block Enter-to-send while quick selector has no model picked (None)
 			if (
 				!this.isStreaming &&
 				!this.processingFiles &&
@@ -293,11 +288,9 @@ export class MessageEditor extends LitElement {
 	}
 
 	override updated() {
-		this.syncQuickMenuPortal(); //IYH1HC add: keep the body-level quick menu in sync
+		this.syncQuickMenuPortal();
 	}
 
-	//IYH1HC add: open/close the quick menu, capturing the trigger rect so the popover
-	// can be positioned with `fixed` (escapes ancestor overflow/stacking and renders in front).
 	private toggleQuickMenu() {
 		if (this.quickMenuOpen) {
 			this.quickMenuOpen = false;
@@ -309,10 +302,9 @@ export class MessageEditor extends LitElement {
 		this.quickSubmenuOpen = false;
 	}
 
-	//IYH1HC add: combined model + reasoning trigger button (corp quick selector).
 	private renderQuickSelector() {
 		const selected = this.quickModels.find((m) => m.value === this.selectedModelValue);
-		const modelLabel = selected?.label ?? i18n("None"); //IYH1HC comment: was i18n("Default")
+		const modelLabel = selected?.label ?? i18n("None");
 		const levelLabel = REASONING_LEVELS.find((l) => l.value === String(this.thinkingLevel))?.label ?? "Off";
 		return html`
 			<div class="relative" ${ref(this.quickAnchorRef)}>
@@ -331,8 +323,6 @@ export class MessageEditor extends LitElement {
 		`;
 	}
 
-	//IYH1HC add: render the quick menu into a body-level portal (or tear it down) so it always
-	// floats in front, unaffected by ancestor transforms/overflow/stacking. Driven from updated().
 	private syncQuickMenuPortal() {
 		if (this.useQuickSelector && this.quickMenuOpen) {
 			if (!this.menuPortal) {
@@ -356,13 +346,9 @@ export class MessageEditor extends LitElement {
 		}
 	}
 
-	//IYH1HC add: the popover panel (Reasoning + collapsible Model section), opening upward.
-	// Styled with SAP/Fiori theme tokens (bg-popover / accent / sapFontFamily / sapContent_Shadow2)
-	// so it matches the rest of the Fiori corp shell. The Model section expands INLINE (no side
-	// flyout) to avoid overlapping the chat area.
 	private renderQuickMenuContent() {
 		const selected = this.quickModels.find((m) => m.value === this.selectedModelValue);
-		const modelLabel = selected?.label ?? i18n("None"); //IYH1HC comment: was i18n("Default")
+		const modelLabel = selected?.label ?? i18n("None");
 		const closeMenu = () => {
 			this.quickMenuOpen = false;
 			this.quickSubmenuOpen = false;
@@ -371,8 +357,6 @@ export class MessageEditor extends LitElement {
 			this.onModelChange?.(value);
 			closeMenu();
 		};
-		//IYH1HC add: position the popover with `fixed` relative to the trigger rect so it floats
-		// in front of everything and opens upward, capped to the free space above (never clips).
 		const a = this.quickMenuAnchor;
 		const right = a ? Math.max(8, Math.round(window.innerWidth - a.right)) : 8;
 		const bottom = a ? Math.round(window.innerHeight - a.top + 8) : 64;
@@ -525,7 +509,7 @@ export class MessageEditor extends LitElement {
 										size: "icon",
 										className: "h-8 w-8",
 										onClick: this.handleAttachmentClick,
-										children: icon(this.useQuickSelector ? Plus : Paperclip, "sm"), //IYH1HC add: "+" affordance in quick mode
+										children: icon(this.useQuickSelector ? Plus : Paperclip, "sm"),
 									})}
 								`
 								: ""

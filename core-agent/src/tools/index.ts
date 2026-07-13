@@ -8,8 +8,6 @@ import { createWriteTool } from "./write.js";
 
 type UploadFn = (filePath: string, title?: string) => Promise<void>;
 
-//IYH1HC add: `attachCwd` must be a HOST path — attach's uploadFn reads from the host
-// filesystem. read/edit/write resolve paths via the executor's own cwd internally.
 export function createPrimitiveTools(
 	executor: Executor,
 	getUploadFn: () => UploadFn | null,

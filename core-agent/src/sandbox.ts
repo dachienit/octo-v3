@@ -1,5 +1,4 @@
 //import { spawn } from "child_process";
-//IYH1HC add: Node fs/path APIs for cross-platform file I/O on the host
 import { mkdir, readFile as fsReadFile, writeFile as fsWriteFile } from "node:fs/promises";
 import { dirname, isAbsolute, posix, resolve } from "node:path";
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
@@ -94,8 +93,6 @@ export interface Executor {
 	exec(command: string, options?: ExecOptions): Promise<ExecResult>;
 	spawn(command: string, args?: string[], options?: SpawnOptions): ChildProcessWithoutNullStreams;
 	getWorkspacePath(hostPath: string): string;
-	//IYH1HC add: sandbox-aware file I/O so tools never depend on a POSIX shell.
-	// Host: Node fs (cross-platform). Docker: shell commands inside the container.
 	readFile(path: string): Promise<Buffer>;
 	writeFile(path: string, content: string): Promise<void>;
 }
@@ -195,7 +192,6 @@ class HostExecutor implements Executor {
 		return hostPath;
 	}
 
-	//IYH1HC add: cross-platform file I/O via Node fs (works on Windows + Linux host).
 	private resolvePath(path: string): string {
 		return isAbsolute(path) ? path : resolve(this.cwd ?? process.cwd(), path);
 	}
@@ -236,8 +232,6 @@ class ContainerExecutor implements Executor {
 		return "/workspace";
 	}
 
-	//IYH1HC add: file I/O that runs *inside* the container so Docker isolation is preserved.
-	// Relative paths resolve as POSIX against the container cwd (e.g. /workspace/artifacts).
 	private resolvePath(path: string): string {
 		return path.startsWith("/") ? path : posix.join(this.cwd ?? "/workspace", path);
 	}

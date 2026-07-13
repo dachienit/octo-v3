@@ -1,7 +1,7 @@
 _schema-version: "3.3.0"
-ID: mirati
+ID: octo
 version: 1.0.0
-description: Mirati AI Agent Core Service + Approuter on SAP BTP Cloud Foundry
+description: Octo AI Agent Core Service + Approuter on SAP BTP Cloud Foundry
 
 parameters:
   enable-parallel-deployments: true
@@ -24,7 +24,7 @@ modules:
   # Backend: core-service (HTTP/SSE). Tools run with --sandbox=host inside this
   # container. $PORT is injected by Cloud Foundry.
   # ----------------------------------------------------------------------------
-  - name: mirati-srv
+  - name: octo-srv
     type: nodejs
     path: core-service
     parameters:
@@ -34,7 +34,7 @@ modules:
       disk-quota: 10239M
     properties:
       # Skip login logout UI      
-      MIRATI_STUDIO_EDGE_AUTH: xsuaa
+      OCTO_EDGE_AUTH: xsuaa
       CORE_SERVICE_HIDE_AUTH_UI: "true"
       CORE_SERVICE_ALLOW_SIGNUP: "false"
       NODE_ENV: production
@@ -45,9 +45,9 @@ modules:
       # snapshot on SIGTERM + workspace refresh). Keys: <prefix><path-relative-to-dataRoot>.
       # The prefix must match the scope bound to the gateway API key. The key itself is
       # NEVER committed — set it once after deploy:
-      #   cf set-env mirati-srv CORE_SERVICE_OBJECTSTORE_GATEWAY_API_KEY <osk_...> && cf restage mirati-srv
+      #   cf set-env octo-srv CORE_SERVICE_OBJECTSTORE_GATEWAY_API_KEY <osk_...> && cf restage octo-srv
       # ALLOW_EPHEMERAL=true for first rollout; flip to "false" once the smoke test passes.
-      # SINGLE-WRITER: do NOT scale mirati-srv instances > 1 while the mirror is active —
+      # SINGLE-WRITER: do NOT scale octo-srv instances > 1 while the mirror is active —
       # concurrent snapshots would overwrite each other and delete-sync from one instance
       # could wipe another instance's fresh writes.
       CORE_SERVICE_OBJECTSTORE_GATEWAY_API_KEY: ""
@@ -55,25 +55,25 @@ modules:
       CORE_SERVICE_OBJECTSTORE_GATEWAY_URL: ""
       CORE_SERVICE_OBJECTSTORE_PREFIX: ""
 
-      CORE_SERVICE_AGENT_WORKERS_ENABLED: "false"
-      CORE_SERVICE_REMINDERS_ENABLED: "false"
-      CORE_SERVICE_CONNECTION_ENABLED: "false"
+      CORE_SERVICE_AGENT_WORKERS_ENABLED: "true"
+      CORE_SERVICE_REMINDERS_ENABLED: "true"
+      CORE_SERVICE_CONNECTION_ENABLED: "true"
       # Optional allowlist of LLM providers shown in the UI picker (comma-separated ids). Unset = all.
       # Ids: bosch-genai, openai-codex, openai, google, anthropic, sap-openai, sap-claude
-      CORE_SERVICE_LLM_PROVIDERS: "bosch-genai"
+      CORE_SERVICE_LLM_PROVIDERS: "bosch-genai, openai-codex, openai, google, anthropic, sap-openai, sap-claude"
       # Optional browser tab title for the web app. Unset = keep the index.html default ("Octo Web App").
-      CORE_SERVICE_APP_TITLE: "mirati Studio"
+      CORE_SERVICE_APP_TITLE: "Octo Agent"
     provides:
-      - name: mirati-srv-api
+      - name: octo-srv-api
         properties:
           srv-url: ${default-url}
     requires:
-      - name: mirati-xsuaa
-      #- name: mirati-postgresql
-      - name: mirati-destination
-      - name: mirati-connectivity
-      - name: mirati-secrets
-    # Assemble a self-contained deploy/ folder: vendors @mirati/core-agent as an
+      - name: octo-xsuaa
+      #- name: octo-postgresql
+      - name: octo-destination
+      - name: octo-connectivity
+      - name: octo-secrets
+    # Assemble a self-contained deploy/ folder: vendors @octo/core-agent as an
     # npm-pack tarball (file: dep) so the CF buildpack's node_modules relocation
     # does not break workspace resolution. before-all has already built all dist.
     build-parameters:
@@ -85,26 +85,26 @@ modules:
         - "node_modules/"
 
   # ----------------------------------------------------------------------------
-  # Approuter: XSUAA login gate, static SPA host, reverse proxy to mirati-srv.
+  # Approuter: XSUAA login gate, static SPA host, reverse proxy to octo-srv.
   # The SPA build is copied into approuter/resources at build time.
   # ----------------------------------------------------------------------------
-  - name: mirati
+  - name: octo
     type: approuter.nodejs
     path: approuter
     parameters:
       memory: 2048M
       disk-quota: 8192M
     requires:
-      - name: mirati-xsuaa
-      # IYH1HC SAP connection add — destination + connectivity so the approuter's
+      - name: octo-xsuaa
+      # destination + connectivity so the approuter's
       # ADT smart-proxy (start.js / lib/adt-proxy.js) can resolve on-prem
       # destinations and tunnel via the connectivity proxy with principal propagation.
-      - name: mirati-destination
-      - name: mirati-connectivity
-      - name: mirati-srv-api
+      - name: octo-destination
+      - name: octo-connectivity
+      - name: octo-srv-api
         group: destinations
         properties:
-          name: mirati-srv
+          name: octo-srv
           url: ~{srv-url}
           forwardAuthToken: true
     build-parameters:
@@ -117,7 +117,7 @@ modules:
         - "node_modules/"
 
 resources:
-  - name: mirati-xsuaa
+  - name: octo-xsuaa
     type: org.cloudfoundry.managed-service
     parameters:
       service: xsuaa
@@ -130,32 +130,32 @@ resources:
   # binding is present (see auth-storage.ts detectPostgres); falls back to SQLite
   # locally. Plan confirmed via `cf marketplace -e postgresql-db` (this landscape
   # only offers "standard").
-  #- name: mirati-postgresql
+  #- name: octo-postgresql
   #  type: org.cloudfoundry.managed-service
   #  parameters:
   #    service: postgresql-db
   #    service-plan: standard
 
   # Destination + connectivity for on-prem SAP reach via principal propagation.
-  - name: mirati-destination
+  - name: octo-destination
     type: org.cloudfoundry.managed-service
     parameters:
       service: destination
       service-plan: lite
 
-  - name: mirati-connectivity
+  - name: octo-connectivity
     type: org.cloudfoundry.managed-service
     parameters:
       service: connectivity
       service-plan: lite
 
   # Secrets. DO NOT commit real values: override via an mtaext at deploy time
-  # (cf deploy mirati_*.mtar -e secrets.mtaext) or set after deploy with
+  # (cf deploy octo_*.mtar -e secrets.mtaext) or set after deploy with
   # `cf update-user-provided-service`.
-  - name: mirati-secrets
+  - name: octo-secrets
     type: org.cloudfoundry.user-provided-service
     parameters:
       config:
-        CORE_SERVICE_ENCRYPTION_KEY: "mirati-75c7e8b8ca58483bbbe94d96ed7e9ac2"
+        CORE_SERVICE_ENCRYPTION_KEY: "octo-75c7e8b8ca58483bbbe94d96ed7e9ac2"
         SSO_GITHUB_CLIENT_SECRET: ""
         AICORE_SERVICE_KEY: ""
