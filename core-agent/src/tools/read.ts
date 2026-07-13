@@ -41,9 +41,6 @@ export function createReadTool(executor: Executor): AgentTool<typeof readSchema>
 			_signal?: AbortSignal,
 		): Promise<{ content: (TextContent | ImageContent)[]; details: ReadToolDetails | undefined }> => {
 			const mimeType = isImageFile(path);
-
-			//IYH1HC add: read the file once via the executor (Node fs on host, shell inside Docker).
-			// Replaces the POSIX-only base64/wc/cat/tail shell calls so this works on Windows host.
 			const buffer = await executor.readFile(path);
 
 			if (mimeType) {
@@ -57,7 +54,6 @@ export function createReadTool(executor: Executor): AgentTool<typeof readSchema>
 				};
 			}
 
-			//IYH1HC add: line accounting and offset/limit done in JS (cross-platform).
 			const fileContent = buffer.toString("utf-8");
 			const allLines = fileContent.split("\n");
 			const totalFileLines = allLines.length;

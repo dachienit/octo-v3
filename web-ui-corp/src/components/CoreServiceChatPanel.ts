@@ -1,14 +1,11 @@
 import { html, LitElement } from "lit";
 import { customElement, property, query, state } from "lit/decorators.js";
 import { createRef, ref } from "lit/directives/ref.js";
-import { icon } from "@mariozechner/mini-lit"; //IYH1HC add
-//IYH1HC stream comment import { Sparkles } from "lucide"; //IYH1HC add
-//IYH1HC comment import { Check, Loader, Sparkles, X, Zap } from "lucide"; //IYH1HC stream add: tool status + token counter icons
-import { Check, Download, Loader, Sparkles, X, Zap } from "lucide"; //IYH1HC add: Download icon for file chip download button
-import type { MessageEditor, QuickModelOption } from "./MessageEditor.js"; //IYH1HC add: QuickModelOption
-//IYH1HC stream comment import { CoreServiceClient, type ActiveModel, type AttachmentPayload, type SseEvent, type WorkspaceTableRows } from "../adapters/core-service.js";
-import { CoreServiceClient, type ActiveModel, type AgentUsage, type AttachmentPayload, type ReplayBlock, type SseEvent, type WorkspaceTableRows } from "../adapters/core-service.js"; //IYH1HC stream add
-import "./ThinkingBlock.js"; //IYH1HC stream add: reuse the collapsible thinking renderer
+import { icon } from "@mariozechner/mini-lit";
+import { Check, Download, Loader, Sparkles, X, Zap } from "lucide";
+import type { MessageEditor, QuickModelOption } from "./MessageEditor.js";
+import { CoreServiceClient, type ActiveModel, type AgentUsage, type AttachmentPayload, type ReplayBlock, type SseEvent, type WorkspaceTableRows } from "../adapters/core-service.js";
+import "./ThinkingBlock.js";
 import type { Attachment } from "../utils/attachment-utils.js";
 import "./MessageEditor.js";
 import "./SandboxedIframe.js";
@@ -18,8 +15,8 @@ import "../tools/artifacts/MarkdownArtifact.js";
 import "../tools/artifacts/PdfArtifact.js";
 import "../tools/artifacts/TextArtifact.js";
 import "../tools/artifacts/CsvArtifact.js";
-import "../tools/artifacts/DocxArtifact.js"; //IYH1HC add
-import "../tools/artifacts/XlsxArtifact.js"; //IYH1HC add
+import "../tools/artifacts/DocxArtifact.js";
+import "../tools/artifacts/XlsxArtifact.js";
 import "../tools/artifacts/DataTableArtifact.js";
 
 const TEXT_PREVIEW_EXTENSIONS = new Set([
@@ -38,6 +35,10 @@ const BINARY_PREVIEW_UNSUPPORTED_EXTENSIONS = new Set([
 	"doc", "docx", "ppt", "pptx", "xls", "xlsx",
 	"zip", "gz", "tar", "tgz", "7z", "rar",
 ]);
+
+// Agent tools that can create/modify/delete workspace files — their completion
+// triggers a "workspace-changed" event so hosts can refresh the artifacts tree.
+const WORKSPACE_MUTATING_TOOLS = new Set(["write", "edit", "bash", "attach"]);
 
 // ============================================================================
 // File viewer sub-component
@@ -134,12 +135,10 @@ class CoreServiceFileViewer extends LitElement {
 		return this.extension === "csv" || this.mimeType === "text/csv";
 	}
 
-	//IYH1HC add
 	private get isDocx() {
 		return this.extension === "docx";
 	}
 
-	//IYH1HC add
 	private get isXlsx() {
 		return this.extension === "xlsx" || this.extension === "xls";
 	}
@@ -194,11 +193,9 @@ class CoreServiceFileViewer extends LitElement {
 		if (this.isCsv) {
 			return html`<csv-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></csv-artifact>`;
 		}
-		//IYH1HC add
 		if (this.isDocx) {
 			return html`<docx-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></docx-artifact>`;
 		}
-		//IYH1HC add
 		if (this.isXlsx) {
 			return html`<xlsx-artifact class="block h-full" .filename=${actualFilename} .content=${this.content}></xlsx-artifact>`;
 		}
@@ -227,12 +224,7 @@ class CoreServiceFileViewer extends LitElement {
 	}
 }
 
-//IYH1HC stream add: ordered structured trail block — built live from SSE trail events
-// and reconstructed from replay blocks on page reload.
 type StreamBlock =
-	//IYH1HC stream add(w2): `target` = full received text, `content` = revealed portion —
-	// a rAF loop drains target→content a few chars per frame for a smooth typewriter feel.
-	// `ended` marks that the authoritative block-end event arrived.
 	| { kind: "text"; id: string; content: string; streaming: boolean; target?: string; ended?: boolean }
 	| { kind: "thinking"; id: string; content: string; streaming: boolean; target?: string; ended?: boolean }
 	| {
@@ -252,13 +244,9 @@ type StreamBlock =
 	| { kind: "event"; id: string; variant: "compaction" | "retry"; text: string }
 	| { kind: "usage"; id: string; scope: "message" | "run"; usage: AgentUsage; model?: { provider: string; id: string }; contextTokens?: number; contextWindow?: number };
 
-//IYH1HC stream comment type ChatMessage =
-//IYH1HC stream comment 	| { role: "user"; text: string; attachments?: string[] }
-//IYH1HC stream comment 	| { role: "assistant"; text: string; thread?: string; files?: FileRef[] }
-//IYH1HC stream comment 	| { role: "error"; text: string };
 type ChatMessage =
 	| { role: "user"; text: string; attachments?: string[] }
-	| { role: "assistant"; text: string; thread?: string; files?: FileRef[]; blocks?: StreamBlock[]; usage?: AgentUsage; model?: string } //IYH1HC stream add: blocks + usage + model
+	| { role: "assistant"; text: string; thread?: string; files?: FileRef[]; blocks?: StreamBlock[]; usage?: AgentUsage; model?: string }
 	| { role: "error"; text: string };
 
 type FileRef = { path: string; title?: string };
@@ -330,7 +318,7 @@ export class CoreServiceChatPanel extends LitElement {
 	@property() declare baseUrl: string;
 	@property() declare channelId: string;
 	@property() declare userName: string | undefined;
-	@property() declare agentName: string; //IYH1HC add: display name for the assistant (host sets the brand)
+	@property() declare agentName: string;
 	@property() declare authToken: string | null;
 
 	@state() private declare messages: ChatMessage[];
@@ -339,21 +327,17 @@ export class CoreServiceChatPanel extends LitElement {
 	@state() private declare streamingStatus: string;
 	@state() private declare streamingFiles: FileRef[];
 	@state() private declare isStreaming: boolean;
-	//IYH1HC stream add: ordered structured trail committed once per animation frame
 	@state() private declare streamingBlocks: StreamBlock[];
-	//IYH1HC stream add: live token counter display (ticking estimate + authoritative snaps)
 	@state() private declare liveTokenLabel: string;
 	@state() private declare elapsedSec: number;
-	//IYH1HC stream add(w2): model currently serving the run (from usage events)
 	@state() private declare currentModel: string;
 	@state() private declare rightPanelFile: FileRef | null;
 	@state() private declare rightPanelTable: TableRef | null;
 	@state() private declare rightPanelArtifactUrl: string | null;
 	@state() private declare rightPanelWidth: number;
-	//IYH1HC add: active models for the listbox + the user's current selection.
 	@state() private declare activeModels: ActiveModel[];
 	@state() private declare selectedModel: string;
-	@state() private declare selectedReasoning: string; //IYH1HC add: reasoning level (UI state)
+	@state() private declare selectedReasoning: string;
 
 	@query("message-editor") private declare _editor: MessageEditor;
 
@@ -361,23 +345,15 @@ export class CoreServiceChatPanel extends LitElement {
 	private abortController?: AbortController;
 	private scrollContainer?: HTMLElement;
 	private autoScroll = true;
-	//IYH1HC stream add(w2): last observed scrollTop — used to tell an upward USER scroll
-	// (stop auto-follow) apart from a downward programmatic scroll (keep following).
 	private lastScrollTop = 0;
-	//IYH1HC stream add(w2): watches the message list height and pins to the bottom whenever it
-	// grows (typewriter reveal, tool blocks, images) — independent of Lit's update timing, so
-	// auto-follow never gets "stuck" the way an updated()-only approach did.
 	private contentResizeObserver?: ResizeObserver;
 	private observedContent?: Element;
 	private resizingRightPanel = false;
 
-	//IYH1HC stream add: non-reactive streaming buffers — mutated per SSE event, committed to
-	// reactive state once per requestAnimationFrame (pattern from StreamingMessageContainer).
 	private blockOrder: StreamBlock[] = [];
 	private blockIndex = new Map<string, StreamBlock>();
 	private structuredSeen = false;
 	private rafPending = false;
-	//IYH1HC stream add(w2): typewriter reveal loop — persistent rAF while a run streams
 	private revealRafId: number | null = null;
 	private pendingCommit = false;
 	private runUsage: AgentUsage | null = null;
@@ -394,7 +370,7 @@ export class CoreServiceChatPanel extends LitElement {
 		this.baseUrl = "http://localhost:3030";
 		this.channelId = "default";
 		this.userName = undefined;
-		this.agentName = "Assistant"; //IYH1HC add: brand-neutral default; host (web-app-corp) overrides
+		this.agentName = "Assistant";
 		this.authToken = null;
 		this.messages = [];
 		this.streamingText = "";
@@ -402,17 +378,17 @@ export class CoreServiceChatPanel extends LitElement {
 		this.streamingStatus = "";
 		this.streamingFiles = [];
 		this.isStreaming = false;
-		this.streamingBlocks = []; //IYH1HC stream add
-		this.liveTokenLabel = ""; //IYH1HC stream add
-		this.elapsedSec = 0; //IYH1HC stream add
-		this.currentModel = ""; //IYH1HC stream add(w2)
+		this.streamingBlocks = [];
+		this.liveTokenLabel = "";
+		this.elapsedSec = 0;
+		this.currentModel = "";
 		this.rightPanelFile = null;
 		this.rightPanelTable = null;
 		this.rightPanelArtifactUrl = null;
 		this.rightPanelWidth = Number(sessionStorage.getItem("core-service-preview-width") || "") || 480;
-		this.activeModels = []; //IYH1HC add
-		this.selectedModel = localStorage.getItem("core-service-selected-model") || ""; //IYH1HC add
-		this.selectedReasoning = localStorage.getItem("core-service-reasoning") || "off"; //IYH1HC add
+		this.activeModels = [];
+		this.selectedModel = localStorage.getItem("core-service-selected-model") || "";
+		this.selectedReasoning = localStorage.getItem("core-service-reasoning") || "off";
 	}
 
 	protected override createRenderRoot(): HTMLElement | DocumentFragment {
@@ -429,10 +405,9 @@ export class CoreServiceChatPanel extends LitElement {
 		this.style.height = "100%";
 		this.style.minHeight = "0";
 		this.loadHistory();
-		this.loadActiveModels(); //IYH1HC add
+		this.loadActiveModels();
 	}
 
-	//IYH1HC add: fetch the user's active models; drop a stale selection if it vanished.
 	private async loadActiveModels() {
 		if (!this.client) return;
 		this.activeModels = await this.client.getActiveModels();
@@ -442,14 +417,11 @@ export class CoreServiceChatPanel extends LitElement {
 		}
 	}
 
-	//IYH1HC add: public hook so the app shell can refresh the listbox right after the
-	// user edits active models in the LLM provider dialog (no full page reload needed).
 	async refreshActiveModels(): Promise<void> {
 		await this.loadActiveModels();
 		this.requestUpdate();
 	}
 
-	//IYH1HC add: parse the "provider:modelId" listbox value into a chat() model arg.
 	private parseSelectedModel(): { provider: string; modelId: string } | undefined {
 		if (!this.selectedModel) return undefined;
 		const found = this.activeModels.find((m) => `${m.provider}:${m.modelId}` === this.selectedModel);
@@ -462,13 +434,11 @@ export class CoreServiceChatPanel extends LitElement {
 		else localStorage.removeItem("core-service-selected-model");
 	}
 
-	//IYH1HC add: reasoning level handler for the inline quick selector (UI state only for now).
 	private onSelectReasoning(level: string) {
 		this.selectedReasoning = level;
 		localStorage.setItem("core-service-reasoning", level);
 	}
 
-	//IYH1HC add: active models shaped for the editor's inline model quick-pick popover.
 	private quickModelOptions(): QuickModelOption[] {
 		return this.activeModels.map((m) => ({ value: `${m.provider}:${m.modelId}`, label: m.label, provider: m.provider }));
 	}
@@ -476,12 +446,10 @@ export class CoreServiceChatPanel extends LitElement {
 	override disconnectedCallback() {
 		super.disconnectedCallback();
 		this.stopRightPanelResize();
-		//IYH1HC stream add: never leak the elapsed-time ticker
 		if (this.elapsedTimer) {
 			clearInterval(this.elapsedTimer);
 			this.elapsedTimer = null;
 		}
-		//IYH1HC stream add(w2): tear down the auto-follow watcher + reveal loop
 		this.contentResizeObserver?.disconnect();
 		this.contentResizeObserver = undefined;
 		this.observedContent = undefined;
@@ -497,13 +465,12 @@ export class CoreServiceChatPanel extends LitElement {
 			this.streamingStatus = "";
 			this.streamingFiles = [];
 			this.isStreaming = false;
-			this.resetStreamBuffers(); //IYH1HC stream add
+			this.resetStreamBuffers();
 			this.rightPanelFile = null;
 			this.rightPanelArtifactUrl = null;
 			this.scrollContainer = undefined;
-			this.autoScroll = true; //IYH1HC stream add(w2): fresh channel starts pinned to bottom
-			this.lastScrollTop = 0; //IYH1HC stream add(w2)
-			//IYH1HC stream add(w2): drop the old observer so updated() re-attaches to the new list
+			this.autoScroll = true;
+			this.lastScrollTop = 0;
 			this.observedContent = undefined;
 			this.loadHistory();
 		}
@@ -511,8 +478,6 @@ export class CoreServiceChatPanel extends LitElement {
 
 	private async loadHistory() {
 		const msgs = await this.client.getMessages(this.channelId);
-		//IYH1HC stream comment this.messages = msgs.map((m) => ({ role: m.role, text: m.text, thread: (m as any).thread, files: (m as any).files, attachments: (m as any).attachments }));
-		//IYH1HC stream add: map structured replay blocks so a reload shows the same trail
 		this.messages = msgs.map((m) => ({
 			role: m.role,
 			text: m.text,
@@ -521,12 +486,11 @@ export class CoreServiceChatPanel extends LitElement {
 			attachments: m.attachments,
 			blocks: m.role === "assistant" && m.blocks ? m.blocks.map((b, i) => this.replayBlockToStreamBlock(b, i)) : undefined,
 			usage: m.role === "assistant" ? m.usage : undefined,
-			model: m.role === "assistant" ? m.model : undefined, //IYH1HC stream add(w2)
+			model: m.role === "assistant" ? m.model : undefined,
 		}));
 		this.autoScroll = true;
 	}
 
-	//IYH1HC stream add: convert a server ReplayBlock into the shared StreamBlock render model.
 	private replayBlockToStreamBlock(b: ReplayBlock, index: number): StreamBlock {
 		if (b.kind === "text") return { kind: "text", id: `replay-${index}`, content: b.content, streaming: false };
 		if (b.kind === "thinking") return { kind: "thinking", id: `replay-${index}`, content: b.content, streaming: false };
@@ -546,23 +510,21 @@ export class CoreServiceChatPanel extends LitElement {
 	}
 
 	override updated() {
-		//IYH1HC stream comment: re-resolve the scroll container and (re)wire the resize watcher.
 		const container = this.querySelector(".overflow-y-auto") as HTMLElement | null;
 		if (container && container !== this.scrollContainer) {
 			// Container was (re)created — e.g. empty-state → messages-view switch.
 			this.scrollContainer?.removeEventListener("scroll", this.handleScroll);
 			this.scrollContainer = container;
 			this.scrollContainer.addEventListener("scroll", this.handleScroll);
-			this.observeContent(); //IYH1HC stream add(w2)
+			this.observeContent();
 		} else if (container) {
-			this.observeContent(); //IYH1HC stream add(w2): content child may have been replaced
+			this.observeContent();
 		}
 		if (this.autoScroll && this.scrollContainer) {
 			this.scrollContainer.scrollTop = this.scrollContainer.scrollHeight;
 		}
 	}
 
-	//IYH1HC stream add(w2): (re)attach the ResizeObserver to the current message-list wrapper.
 	private observeContent() {
 		const content = this.scrollContainer?.firstElementChild ?? undefined;
 		if (!content || content === this.observedContent) return;
@@ -578,13 +540,6 @@ export class CoreServiceChatPanel extends LitElement {
 		this.observedContent = content;
 	}
 
-	//IYH1HC stream comment private handleScroll = () => { this.autoScroll = distanceFromBottom < 50; };
-	//IYH1HC stream add(w2): direction-aware follow control. The old version toggled autoScroll
-	// purely by distance-from-bottom, so a programmatic smooth-scroll passing through
-	// mid-positions (still far from a growing bottom) wrongly disabled auto-follow and the
-	// view got "stuck" needing manual scrolling. Now: reaching the bottom re-enables follow;
-	// only an actual upward scroll (scrollTop decreasing) while away from the bottom disables
-	// it — programmatic scrolls always move toward the bottom, so they never disable it.
 	private handleScroll = () => {
 		if (!this.scrollContainer) return;
 		const { scrollTop, scrollHeight, clientHeight } = this.scrollContainer;
@@ -613,13 +568,11 @@ export class CoreServiceChatPanel extends LitElement {
 		this.streamingFiles = [];
 		this.isStreaming = true;
 		this.autoScroll = true;
-		//IYH1HC stream add: reset the structured trail + token counter for this run
 		this.resetStreamBuffers();
 		this.streamStartMs = Date.now();
 		this.elapsedTimer = setInterval(() => {
 			this.elapsedSec = Math.floor((Date.now() - this.streamStartMs) / 1000);
 		}, 1000);
-		//IYH1HC stream add(w2): smooth typewriter reveal + smooth jump to the new user message
 		this.startRevealLoop();
 		this.scrollToBottom(true);
 
@@ -639,28 +592,24 @@ export class CoreServiceChatPanel extends LitElement {
 				this.messages = [...this.messages, { role: "error", text: String(err) }];
 			}
 		} finally {
-			//IYH1HC stream add: finalize any block still open (abort mid-stream) and commit
-			// the structured trail into the persisted message list.
 			if (this.elapsedTimer) {
 				clearInterval(this.elapsedTimer);
 				this.elapsedTimer = null;
 			}
-			this.stopRevealLoop(); //IYH1HC stream add(w2): before finalize so no frame races the snap
+			this.stopRevealLoop();
 			this.finalizeOpenBlocks();
 			this.commitStreamBlocks();
-			//IYH1HC stream comment const hasContent = this.streamingText || this.streamingThread || this.streamingFiles.length > 0;
-			const hasContent = this.streamingText || this.streamingThread || this.streamingFiles.length > 0 || this.blockOrder.length > 0; //IYH1HC stream add
+			const hasContent = this.streamingText || this.streamingThread || this.streamingFiles.length > 0 || this.blockOrder.length > 0;
 			if (hasContent) {
 				this.messages = [
 					...this.messages,
 					{
 						role: "assistant",
-						//IYH1HC stream comment text: this.streamingText,
-						text: this.structuredSeen ? this.lastTextBlockContent() : this.streamingText, //IYH1HC stream add
+						text: this.structuredSeen ? this.lastTextBlockContent() : this.streamingText,
 						thread: this.streamingThread || undefined,
 						files: this.streamingFiles.length > 0 ? [...this.streamingFiles] : undefined,
-						blocks: this.blockOrder.length > 0 ? [...this.blockOrder] : undefined, //IYH1HC stream add
-						usage: this.runUsage ?? undefined, //IYH1HC stream add
+						blocks: this.blockOrder.length > 0 ? [...this.blockOrder] : undefined,
+						usage: this.runUsage ?? undefined,
 					},
 				];
 			}
@@ -669,16 +618,14 @@ export class CoreServiceChatPanel extends LitElement {
 			this.streamingStatus = "";
 			this.streamingFiles = [];
 			this.isStreaming = false;
-			this.resetStreamBuffers(); //IYH1HC stream add
-			//IYH1HC stream add(w2): settle the view and hand focus back to the editor
+			this.resetStreamBuffers();
+			// End-of-turn catch-all: covers tools not in WORKSPACE_MUTATING_TOOLS and aborted turns.
+			this.emitWorkspaceChanged();
 			this.scrollToBottom(true);
 			this.focusEditor();
 		}
 	}
 
-	//IYH1HC stream add(w2): smooth-scroll helper for discrete jumps (send / done / history);
-	// per-frame streaming follow stays instant in updated() — small increments look smooth
-	// and a smooth-behavior chase would lag behind the reveal loop.
 	private scrollToBottom(smooth = false) {
 		requestAnimationFrame(() => {
 			const container = this.scrollContainer ?? (this.querySelector(".overflow-y-auto") as HTMLElement | null);
@@ -687,13 +634,10 @@ export class CoreServiceChatPanel extends LitElement {
 		});
 	}
 
-	//IYH1HC stream add(w2): keep the user's caret in the editor after a run finishes
 	private focusEditor() {
 		const textarea = (this._editor as unknown as HTMLElement | undefined)?.querySelector?.("textarea");
 		(textarea as HTMLTextAreaElement | null)?.focus({ preventScroll: true });
 	}
-
-	//IYH1HC stream add: streaming buffer lifecycle helpers -------------------------------
 
 	private resetStreamBuffers() {
 		this.blockOrder = [];
@@ -707,8 +651,8 @@ export class CoreServiceChatPanel extends LitElement {
 		this.streamingBlocks = [];
 		this.liveTokenLabel = "";
 		this.elapsedSec = 0;
-		this.currentModel = ""; //IYH1HC stream add(w2)
-		this.stopRevealLoop(); //IYH1HC stream add(w2)
+		this.currentModel = "";
+		this.stopRevealLoop();
 		if (this.elapsedTimer) {
 			clearInterval(this.elapsedTimer);
 			this.elapsedTimer = null;
@@ -717,24 +661,19 @@ export class CoreServiceChatPanel extends LitElement {
 
 	/** Batch reactive updates: mutate buffers freely, commit once per animation frame. */
 	private scheduleCommit() {
-		//IYH1HC stream add(w2): while the reveal loop runs it owns the commits — just flag.
 		this.pendingCommit = true;
 		if (this.revealRafId !== null) return;
 		if (this.rafPending) return;
 		this.rafPending = true;
 		requestAnimationFrame(() => {
 			this.rafPending = false;
-			//IYH1HC stream comment this.commitStreamBlocks();
-			if (this.pendingCommit) { //IYH1HC stream add(w2)
+			if (this.pendingCommit) {
 				this.pendingCommit = false;
 				this.commitStreamBlocks();
 			}
 		});
 	}
 
-	//IYH1HC stream add(w2): typewriter reveal — one persistent rAF loop per run. Each frame
-	// drains a proportional slice of every content block's pending text (older blocks snap
-	// instantly, only the newest unfinished block animates), then commits once if dirty.
 	private startRevealLoop() {
 		if (this.revealRafId !== null) return;
 		const tick = () => {
@@ -799,7 +738,6 @@ export class CoreServiceChatPanel extends LitElement {
 	/** Mark blocks left open by an abort: stop shimmer, flag running tools as aborted. */
 	private finalizeOpenBlocks() {
 		for (const b of this.blockOrder) {
-			//IYH1HC stream add(w2): snap any un-revealed text to the full received target
 			if ((b.kind === "text" || b.kind === "thinking") && b.target !== undefined && b.content.length < b.target.length) {
 				b.content = b.target;
 			}
@@ -847,30 +785,33 @@ export class CoreServiceChatPanel extends LitElement {
 		return `${approx}${this.formatTokenCount(total)} tokens`;
 	}
 
+	// Notify the host app that workspace files may have changed (e.g. to refresh
+	// the artifacts tree). Bubbles/composed so listeners outside the shadow DOM see it.
+	private emitWorkspaceChanged() {
+		this.dispatchEvent(new CustomEvent("workspace-changed", { bubbles: true, composed: true }));
+	}
+
 	private handleSseEvent(event: SseEvent) {
 		switch (event.type) {
 			case "delta":
-				//IYH1HC stream comment this.streamingText += event.text;
-				if (!this.structuredSeen) this.streamingText += event.text; //IYH1HC stream add: blocks already carry the content
+				if (!this.structuredSeen) this.streamingText += event.text;
 				break;
 			case "replace":
-				//IYH1HC stream comment this.streamingText = event.text;
-				if (!this.structuredSeen) this.streamingText = event.text; //IYH1HC stream add
+				if (!this.structuredSeen) this.streamingText = event.text;
 				break;
 			case "thread":
-				//IYH1HC stream comment this.streamingThread += event.text;
-				if (!this.structuredSeen) this.streamingThread += event.text; //IYH1HC stream add
+				if (!this.structuredSeen) this.streamingThread += event.text;
 				break;
 			case "status":
 				this.streamingStatus = event.status;
 				break;
 			case "file":
 				this.streamingFiles = [...this.streamingFiles, { path: event.path, title: event.title }];
+				this.emitWorkspaceChanged();
 				break;
 			case "delete":
 				// Bot deleted its current response — clear accumulated text
 				this.streamingText = "";
-				//IYH1HC stream add: silent response — drop the structured trail as well
 				this.blockOrder = [];
 				this.blockIndex = new Map();
 				this.scheduleCommit();
@@ -881,8 +822,6 @@ export class CoreServiceChatPanel extends LitElement {
 			case "done":
 				// Stream ends naturally; finally block commits the message
 				break;
-
-			//IYH1HC stream add: structured trail events ---------------------------------
 			case "turn":
 				this.structuredSeen = true;
 				break;
@@ -890,9 +829,6 @@ export class CoreServiceChatPanel extends LitElement {
 				this.structuredSeen = true;
 				// Coalescing may deliver the first delta before a start event — upsert always.
 				const block = this.upsertContentBlock(event.blockId, event.kind);
-				//IYH1HC stream comment if (event.phase === "delta") { block.content += event.delta; ... }
-				//IYH1HC stream add(w2): write into `target`; the reveal loop drains it into
-				// `content` smoothly. `streaming` stays true until reveal catches up.
 				if (event.phase === "delta") {
 					block.target = (block.target ?? block.content) + event.delta;
 					this.estCharsSinceUsage += event.delta.length;
@@ -925,6 +861,7 @@ export class CoreServiceChatPanel extends LitElement {
 					block.isError = event.isError;
 					block.durationMs = event.durationMs;
 					block.partialResult = undefined;
+					if (!event.isError && WORKSPACE_MUTATING_TOOLS.has(event.toolName)) this.emitWorkspaceChanged();
 				}
 				this.scheduleCommit();
 				break;
@@ -938,7 +875,6 @@ export class CoreServiceChatPanel extends LitElement {
 			}
 			case "usage": {
 				this.structuredSeen = true;
-				//IYH1HC stream add(w2): surface which model served this step
 				if (event.model?.id) {
 					this.currentModel = event.model.provider ? `${event.model.provider}/${event.model.id}` : event.model.id;
 				}
@@ -955,7 +891,7 @@ export class CoreServiceChatPanel extends LitElement {
 						id: `usage-${event.seq}`,
 						scope: "run",
 						usage: event.usage,
-						model: event.model, //IYH1HC stream add(w2)
+						model: event.model,
 						contextTokens: event.contextTokens,
 						contextWindow: event.contextWindow,
 					});
@@ -1134,8 +1070,6 @@ export class CoreServiceChatPanel extends LitElement {
 
 	private renderFileRightPanel(f: FileRef) {
 		const name = f.title || f.path.split("/").pop() || f.path;
-		//IYH1HC add: the header now also carries a download anchor (icon) next to "open ↗"
-		// so the previewed file can be saved locally without leaving the panel.
 		return html`
 			<div
 				class="w-1.5 shrink-0 cursor-col-resize border-l border-border bg-background hover:bg-accent"
@@ -1231,7 +1165,6 @@ export class CoreServiceChatPanel extends LitElement {
 		`;
 	}
 
-	//IYH1HC add: 1–2 letter initials from a display name (e.g. "Dat Chien" -> "DC", "Hien" -> "HI").
 	private senderInitials(name: string): string {
 		const parts = name.trim().split(/\s+/).filter(Boolean);
 		if (parts.length === 0) return "U";
@@ -1239,7 +1172,6 @@ export class CoreServiceChatPanel extends LitElement {
 		return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 	}
 
-	//IYH1HC add: round avatar with the user's initials.
 	private renderUserAvatar() {
 		return html`
 			<div class="h-8 w-8 shrink-0 rounded-full bg-primary/15 text-primary text-xs font-semibold flex items-center justify-center">
@@ -1248,7 +1180,6 @@ export class CoreServiceChatPanel extends LitElement {
 		`;
 	}
 
-	//IYH1HC add: round avatar marking the assistant.
 	private renderAgentAvatar() {
 		return html`
 			<div class="h-8 w-8 shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center">
@@ -1258,9 +1189,7 @@ export class CoreServiceChatPanel extends LitElement {
 	}
 
 	private renderMessage(msg: ChatMessage) {
-		//IYH1HC comment: user/assistant messages now lead with an avatar + sender name for clarity.
 		if (msg.role === "user") {
-			//IYH1HC comment: user messages align to the RIGHT (avatar on the right), agent stays on the left.
 			return html`
 				<div class="flex flex-row-reverse gap-3 mx-4">
 					${this.renderUserAvatar()}
@@ -1279,11 +1208,7 @@ export class CoreServiceChatPanel extends LitElement {
 			`;
 		}
 		if (msg.role === "assistant") {
-			//IYH1HC stream add: structured trail rendering takes precedence — blocks already
-			// contain text/thinking/tool detail in order; legacy text/thread is the fallback.
 			if (msg.blocks && msg.blocks.length > 0) {
-				//IYH1HC stream add(w2): replay carries usage/model on the message (live runs
-				// already have usage chips inside blocks — don't double-render).
 				const hasUsageBlock = msg.blocks.some((b) => b.kind === "usage");
 				return html`
 					<div class="flex gap-3 px-4">
@@ -1319,9 +1244,6 @@ export class CoreServiceChatPanel extends LitElement {
 		return "";
 	}
 
-	//IYH1HC add: build a direct download URL for a chat file chip — the /file endpoint
-	// already supports ?download=1 (Content-Disposition: attachment); auth rides on the
-	// session cookie, same as the file viewer's existing Download anchor.
 	private fileDownloadUrl(f: FileRef): string {
 		return `${this.baseUrl}/file?path=${encodeURIComponent(f.path)}&download=1`;
 	}
@@ -1329,23 +1251,6 @@ export class CoreServiceChatPanel extends LitElement {
 	private renderFile(f: FileRef) {
 		const name = f.title || f.path.split("/").pop() || f.path;
 		const isActive = this.rightPanelFile?.path === f.path;
-		//IYH1HC comment: the chip was a single <button>; an anchor cannot legally nest inside
-		// a button, so the outer element becomes a clickable <div> to host the download link.
-		//IYH1HC comment return html`
-		//IYH1HC comment 	<button
-		//IYH1HC comment 		class="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm text-left transition-colors
-		//IYH1HC comment 			${isActive
-		//IYH1HC comment 				? "border-primary bg-primary/10 text-primary"
-		//IYH1HC comment 				: "border-border bg-muted/30 hover:bg-muted/60 text-foreground"}"
-		//IYH1HC comment 		@click=${() => this.openRightPanel(f)}
-		//IYH1HC comment 	>
-		//IYH1HC comment 		<span>📄</span>
-		//IYH1HC comment 		<span class="truncate">${name}</span>
-		//IYH1HC comment 		<span class="ml-auto text-xs text-muted-foreground shrink-0">open ↗</span>
-		//IYH1HC comment 	</button>
-		//IYH1HC comment `;
-		//IYH1HC add: outer div keeps the old chip look; the download anchor stops propagation
-		// so clicking it saves the file without opening the preview panel.
 		return html`
 			<div
 				class="flex items-center gap-2 px-3 py-2 rounded-lg border text-sm text-left cursor-pointer transition-colors
@@ -1369,10 +1274,7 @@ export class CoreServiceChatPanel extends LitElement {
 	}
 
 	private renderStreaming() {
-		//IYH1HC stream comment const hasContent = this.streamingText || this.streamingThread || this.streamingFiles.length > 0;
-		const hasContent = this.streamingText || this.streamingThread || this.streamingFiles.length > 0 || this.streamingBlocks.length > 0; //IYH1HC stream add
-
-		//IYH1HC comment: streaming output now shares the assistant avatar + name layout for consistency.
+		const hasContent = this.streamingText || this.streamingThread || this.streamingFiles.length > 0 || this.streamingBlocks.length > 0;
 		if (!hasContent) {
 			const label = this.streamingStatus || "thinking";
 			return html`
@@ -1400,7 +1302,6 @@ export class CoreServiceChatPanel extends LitElement {
 		`;
 	}
 
-	//IYH1HC stream add(w2): centered branding footer under the message editor
 	private renderPoweredBy() {
 		return html`
 			<div class="text-center text-[11px] text-muted-foreground pt-1.5">
@@ -1413,8 +1314,6 @@ export class CoreServiceChatPanel extends LitElement {
 			</div>
 		`;
 	}
-
-	//IYH1HC stream add: structured trail rendering ---------------------------------------
 
 	/** Live status bar: spinner + status label + elapsed time + ticking token counter. */
 	private renderStreamingStatusBar() {
@@ -1451,8 +1350,7 @@ export class CoreServiceChatPanel extends LitElement {
 			case "event":
 				return html`<div class="py-0.5 text-xs italic text-muted-foreground">${block.text}</div>`;
 			case "usage":
-				//IYH1HC stream comment return block.scope === "run" ? this.renderRunUsageSummary(block) : this.renderUsageChip(block.usage);
-				return block.scope === "run" ? this.renderRunUsageSummary(block) : this.renderUsageChip(block.usage, block.model); //IYH1HC stream add(w2)
+				return block.scope === "run" ? this.renderRunUsageSummary(block) : this.renderUsageChip(block.usage, block.model);
 		}
 	}
 
@@ -1518,13 +1416,11 @@ export class CoreServiceChatPanel extends LitElement {
 	}
 
 	/** Per-step authoritative usage chip: model / in / out / cache / cost. */
-	//IYH1HC stream comment private renderUsageChip(usage: AgentUsage) {
-	private renderUsageChip(usage: AgentUsage, model?: { provider: string; id: string } | string) { //IYH1HC stream add(w2)
+	private renderUsageChip(usage: AgentUsage, model?: { provider: string; id: string } | string) {
 		const cost = usage.cost?.total ? ` · $${usage.cost.total.toFixed(4)}` : "";
 		const cache = usage.cacheRead || usage.cacheWrite
 			? ` · cache ${this.formatTokenCount(usage.cacheRead)}R/${this.formatTokenCount(usage.cacheWrite)}W`
 			: "";
-		//IYH1HC stream add(w2): which model served this step, shown ahead of the numbers
 		const modelLabel = typeof model === "string" ? model : model?.id ? model.id : "";
 		const modelTitle = typeof model === "object" && model?.provider ? `${model.provider}/${model.id}` : modelLabel;
 		return html`

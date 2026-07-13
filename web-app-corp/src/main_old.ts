@@ -21,7 +21,7 @@ let currentUser: AuthUser | null = null;
 let userName = urlParams.get("userName") || "user";
 let authMode: "login" | "register" = "login";
 let authError = "";
-let ssoConfig: SsoConfig = { enabled: false }; //IYH1HC add
+let ssoConfig: SsoConfig = { enabled: false };
 let userMenuOpen = false;
 let providerDialogOpen = false;
 let workspaceSettingsDialogOpen = false;
@@ -33,15 +33,14 @@ let codexLoginUrl = "";
 let codexLoginCode = "";
 let codexAuthError = "";
 let codexAuthBusy = false;
-//IYH1HC add: per-user LLM key + model selection state for the provider dialog.
 let llmConfig: LlmConfig = { providers: [] };
 let llmConfigLoading = false;
 let providerKeyInput = "";
 let providerKeySaving = false;
 let providerKeyError = "";
-let providerSavedNotice = ""; //IYH1HC add: transient "Saved" confirmation
-let modelFilter = ""; //IYH1HC add: model list search box
-let apiKeysExpanded = false; //IYH1HC add: collapsible "API Keys" section state
+let providerSavedNotice = "";
+let modelFilter = "";
+let apiKeysExpanded = false;
 
 // App state
 let sidebarOpen = true;
@@ -223,8 +222,6 @@ function toggleSidebar() {
 	renderApp();
 }
 
-//IYH1HC add: pick up the session token handed back by the SSO callback via the
-// URL hash fragment (kept out of server logs), then strip it from the address bar.
 function consumeSsoHash() {
 	if (!window.location.hash) return;
 	const params = new URLSearchParams(window.location.hash.slice(1));
@@ -240,7 +237,6 @@ function consumeSsoHash() {
 	}
 }
 
-//IYH1HC add: discover whether SSO is enabled so the login button can be shown.
 async function refreshSsoConfig() {
 	ssoConfig = await client.getSsoConfig();
 	if (!currentUser) renderApp();
@@ -307,12 +303,12 @@ function openProviderDialog() {
 	providerDialogOpen = true;
 	codexAuthError = "";
 	codexLoginCode = "";
-	providerKeyInput = ""; //IYH1HC add
-	providerKeyError = ""; //IYH1HC add
-	providerSavedNotice = ""; //IYH1HC add
-	modelFilter = ""; //IYH1HC add
+	providerKeyInput = "";
+	providerKeyError = "";
+	providerSavedNotice = "";
+	modelFilter = "";
 	void refreshCodexStatus();
-	void loadLlmConfig(); //IYH1HC add
+	void loadLlmConfig();
 	renderApp();
 }
 
@@ -383,11 +379,11 @@ function setProvider(provider: string) {
 	selectedProvider = provider;
 	localStorage.setItem(providerKey, provider);
 	codexAuthError = "";
-	providerKeyInput = ""; //IYH1HC add
-	providerKeyError = ""; //IYH1HC add
-	providerSavedNotice = ""; //IYH1HC add
-	modelFilter = ""; //IYH1HC add
-	apiKeysExpanded = !llmConfig.providers.find((p) => p.id === provider)?.hasKey; //IYH1HC add
+	providerKeyInput = "";
+	providerKeyError = "";
+	providerSavedNotice = "";
+	modelFilter = "";
+	apiKeysExpanded = !llmConfig.providers.find((p) => p.id === provider)?.hasKey;
 	if (provider === "openai-codex") void refreshCodexStatus();
 	renderApp();
 }
@@ -398,17 +394,14 @@ async function refreshCodexStatus() {
 	renderApp();
 }
 
-//IYH1HC add: providers that use the key + model-selection flow (mirrors the backend allowlist).
 const LLM_KEY_PROVIDERS = new Set(["openai", "anthropic", "google"]);
 
-//IYH1HC add: load per-provider key/model config for the dialog.
 async function loadLlmConfig() {
 	llmConfigLoading = true;
 	providerKeyError = "";
 	renderApp();
 	llmConfig = await client.getLlmConfig();
 	llmConfigLoading = false;
-	//IYH1HC add: expand the API Keys section automatically when no key is stored yet.
 	apiKeysExpanded = !currentProviderConfig()?.hasKey;
 	renderApp();
 }
@@ -417,7 +410,6 @@ function currentProviderConfig() {
 	return llmConfig.providers.find((p) => p.id === selectedProvider);
 }
 
-//IYH1HC add: forget the stored API key for the selected provider.
 async function deleteProviderKey() {
 	if (!LLM_KEY_PROVIDERS.has(selectedProvider)) return;
 	providerKeySaving = true;
@@ -435,7 +427,6 @@ async function deleteProviderKey() {
 	}
 }
 
-//IYH1HC add: models for the current provider matching the search box.
 function filteredModels() {
 	const provider = currentProviderConfig();
 	if (!provider) return [];
@@ -444,8 +435,6 @@ function filteredModels() {
 	return provider.models.filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q));
 }
 
-//IYH1HC add: toggle a model and auto-save immediately (no Save button). Optimistic
-// local update, then persist the full active set and refresh the chatbox listbox.
 async function toggleModelActive(modelId: string, active: boolean) {
 	const provider = currentProviderConfig();
 	if (!provider) return;
@@ -466,7 +455,6 @@ async function toggleModelActive(modelId: string, active: boolean) {
 	}
 }
 
-//IYH1HC add: persist the typed API key on Enter/blur (no Save button). No-op when empty.
 async function commitProviderKey() {
 	if (!LLM_KEY_PROVIDERS.has(selectedProvider) || !providerKeyInput.trim()) return;
 	providerKeySaving = true;
@@ -486,7 +474,6 @@ async function commitProviderKey() {
 	}
 }
 
-//IYH1HC add: API-key toggle handler. On → save typed key (no-op if empty); off → forget key.
 async function toggleProviderKey(enabled: boolean) {
 	if (enabled) {
 		await commitProviderKey();
@@ -647,8 +634,6 @@ function formatTime(ms: number): string {
 	return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-//IYH1HC add: render the user's avatar (GitHub SSO) with graceful fallback to the
-// default icon if there is no avatar or the image fails to load (e.g. off-network).
 function renderUserAvatar(sizeClass: string) {
 	if (currentUser?.avatarUrl) {
 		return html`<img
@@ -668,7 +653,7 @@ function renderUserMenu() {
 			${Button({
 				variant: "ghost",
 				size: "icon",
-				children: renderUserAvatar("h-6 w-6"), //IYH1HC add
+				children: renderUserAvatar("h-6 w-6"),
 				onClick: () => { userMenuOpen = !userMenuOpen; renderApp(); },
 				title: "User menu",
 			})}
@@ -702,7 +687,7 @@ function renderProviderDialog() {
 	const providers = [
 		{ id: "openai-codex", label: "Codex" },
 		{ id: "openai", label: "OpenAI" },
-		{ id: "google", label: "Google Gemini" }, //IYH1HC add
+		{ id: "google", label: "Google Gemini" },
 		{ id: "anthropic", label: "Anthropic" },
 		{ id: "sap-openai", label: "SAP OpenAI" },
 		{ id: "sap-claude", label: "SAP Claude" },
@@ -773,9 +758,6 @@ function renderProviderDialog() {
 	`;
 }
 
-//IYH1HC add: local pill toggle. mini-lit's Switch uses `data-[state=checked]:bg-primary`
-// classes that live in node_modules and aren't scanned by the web-app Tailwind build,
-// so they never get the color. We render the toggle inline with first-party classes.
 function pillToggle(checked: boolean, onChange: (checked: boolean) => void, disabled = false) {
 	return html`
 		<button
@@ -791,9 +773,6 @@ function pillToggle(checked: boolean, onChange: (checked: boolean) => void, disa
 	`;
 }
 
-//IYH1HC add: provider setup — toggle-switch model list (search) + collapsible
-// API Keys section. Everything auto-saves: flipping a model toggle persists the
-// active set; typing a key + Enter/blur (or flipping the key toggle on) stores it.
 function renderLlmKeyAndModels() {
 	const provider = currentProviderConfig();
 	const hasKey = provider?.hasKey === true;
@@ -1201,7 +1180,7 @@ function renderApp() {
 }
 
 // Initial render then load workspaces/sessions
-consumeSsoHash(); //IYH1HC add
-void refreshSsoConfig(); //IYH1HC add
+consumeSsoHash();
+void refreshSsoConfig();
 renderApp();
 void initializeAuth();

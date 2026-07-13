@@ -20,8 +20,6 @@ export function createWriteTool(executor: Executor): AgentTool<typeof writeSchem
 			{ path, content }: { label: string; path: string; content: string },
 			_signal?: AbortSignal,
 		) => {
-			//IYH1HC add: write via the executor (Node fs on host, shell inside Docker).
-			// Creates parent directories; cross-platform (replaces POSIX mkdir -p && printf).
 			await executor.writeFile(path, content);
 
 			return {

@@ -29,7 +29,7 @@ export interface SsoIdentity {
 	subject: string; // stable per-user id (GitHub numeric user id)
 	email: string;
 	displayName: string;
-	avatarUrl?: string; //IYH1HC add: GitHub user avatar (from /api/v3/user)
+	avatarUrl?: string;
 }
 
 function trimTrailingSlash(value: string): string {
@@ -161,7 +161,7 @@ export class GithubSsoProvider {
 			subject: String(user.id),
 			email: email.toLowerCase(),
 			displayName: user.name || user.login,
-			avatarUrl: user.avatar_url || undefined, //IYH1HC add
+			avatarUrl: user.avatar_url || undefined,
 		};
 	}
 }

@@ -43,8 +43,6 @@ export interface CoreAgentRunInput {
 }
 
 export interface CoreAgentEventHandlers {
-	//IYH1HC stream comment onToolStart?: (toolName: string, label: string, args: Record<string, unknown>) => void;
-	//IYH1HC stream add: trailing toolCallId lets transports correlate tool lifecycle events
 	onToolStart?: (toolName: string, label: string, args: Record<string, unknown>, toolCallId?: string) => void;
 	onToolEnd?: (
 		toolName: string,
@@ -53,22 +51,20 @@ export interface CoreAgentEventHandlers {
 		durationMs: number,
 		resultText: string,
 		isError: boolean,
-		toolCallId?: string, //IYH1HC stream add
+		toolCallId?: string,
 	) => void;
 	onToolUpdate?: (
 		toolName: string,
 		label: string | undefined,
 		args: Record<string, unknown>,
 		resultText: string,
-		toolCallId?: string, //IYH1HC stream add
+		toolCallId?: string,
 	) => void;
 	onMessage?: (text: string) => void;
 	onThinking?: (text: string) => void;
 	onCompactionStart?: (reason: string) => void;
 	onCompactionEnd?: (result?: { tokensBefore: number }, aborted?: boolean) => void;
 	onRetry?: (attempt: number, maxAttempts: number, errorMessage?: string) => void;
-	//IYH1HC stream add: token-level streaming callbacks (fed from pi message_update events).
-	// blockId = `${assistantMsgSeq}:${contentIndex}` — unique per content block within a run.
 	onTurnStart?: () => void;
 	onTurnEnd?: () => void;
 	onBlockStart?: (blockId: string, kind: "text" | "thinking") => void;

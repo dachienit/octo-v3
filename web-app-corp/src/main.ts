@@ -2,7 +2,7 @@ import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, translati
 import { setTranslations } from "@mariozechner/mini-lit";
 import { html, render } from "lit";
 import { icon } from "@mariozechner/mini-lit";
-import { Box, Brackets, ChevronDown, ChevronRight, Database, Eye, File, FileCode, FileText, Folder, FolderCog, FolderOpen, KeyRound, LoaderCircle, LogOut, MessageSquare, Plug, Plus, ShieldCheck, SquareTerminal, Table2, Tag, Tags, Trash2 } from "lucide";
+import { Box, Brackets, ChevronDown, ChevronRight, Database, Download, Eye, File, FileArchive, FileAudio, FileCode, FileCog, FileImage, FileJson, FilePlay, FileSpreadsheet, FileTerminal, FileText, Folder, FolderCog, FolderOpen, KeyRound, LoaderCircle, LogOut, MessageSquare, Plug, Plus, Presentation, ShieldCheck, SquareTerminal, Table2, Tag, Tags, Trash2 } from "lucide";
 import "./app.css";
 
 applyAppTheme();
@@ -22,13 +22,13 @@ let currentUser: AuthUser | null = null;
 let userName = urlParams.get("userName") || "user";
 let authMode: "login" | "register" = "login";
 let authError = "";
-let ssoConfig: SsoConfig = { enabled: false }; //IYH1HC add
-let authResolved = false; //IYH1HC add: true once /auth/me has been checked — gates the login screen so it never flashes before auth resolves
+let ssoConfig: SsoConfig = { enabled: false };
+let authResolved = false;
 let authDisplayName = "";
 let authEmail = "";
 let authPassword = "";
 let userMenuOpen = false;
-let themeMenuOpen = false; //IYH1HC add: theme selector dropdown open state
+let themeMenuOpen = false;
 let providerDialogOpen = false;
 let createWorkspaceDialogOpen = false;
 let workspaceSettingsDialogOpen = false;
@@ -41,19 +41,16 @@ let codexLoginUrl = "";
 let codexLoginCode = "";
 let codexAuthError = "";
 let codexAuthBusy = false;
-let serviceFeatures: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null }; //IYH1HC add connection + llmProviders + appTitle
-//IYH1HC add: per-user LLM key + model selection state for the provider dialog.
+let serviceFeatures: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null };
 let llmConfig: LlmConfig = { providers: [] };
 let llmConfigLoading = false;
 let providerKeyInput = "";
 let providerKeySaving = false;
 let providerKeyError = "";
-let providerSavedNotice = ""; //IYH1HC add: transient "Saved" confirmation
-let modelFilter = ""; //IYH1HC add: model list search box
-let apiKeysExpanded = false; //IYH1HC add: collapsible "API Keys" section state
-//IYH1HC add: Bosch GenAI (custom models) state for the provider dialog.
+let providerSavedNotice = "";
+let modelFilter = "";
+let apiKeysExpanded = false;
 let boschModels: CustomModelConfig[] = [];
-//IYH1HC add: per-model collapse state for Bosch GenAI blocks (keyed by model.id). Default collapsed.
 let boschExpanded: Record<string, boolean> = {};
 let boschLoading = false;
 let boschSaving = false;
@@ -93,14 +90,12 @@ let agentWorkerLoginOutput = "";
 let businessConnectorBusy = "";
 let businessConnectorLoginOutput = "";
 
-//IYH1HC add — SAP ADT connection panel state.
 let sapDestinations: SapDestination[] = [];
 let sapDestinationsLoaded = false;
 let sapNewDestination = "";
 let sapNewAlias = "";
 let sapBusy = "";
 let sapError = "";
-//IYH1HC SSO add — local on-prem (Kerberos/SPNEGO) connect state.
 let sapConnMode: "destination" | "local" = "local";
 let sapLocalSystems: SapLocalSystem[] = [];
 let sapLocalSystemsLoaded = false;
@@ -109,8 +104,6 @@ let sapLocalUrl = "";
 let sapLocalSpn = "";
 let sapLocalClient = "";
 let sapLocalLanguage = "";
-//IYH1HC add — Materialized ADT tree manifests, keyed by connection name:
-//IYH1HC add — relKey -> { lazy (an ADT folder to expand), loaded, hasUri (empty file to hydrate) }.
 const sapTreeManifests = new Map<string, Record<string, SapTreeManifestEntry>>();
 
 const connectorLoginModes = new Map<string, string>();
@@ -132,7 +125,7 @@ const chatPanel = new CoreServiceChatPanel();
 chatPanel.baseUrl = baseUrl;
 chatPanel.channelId = channelId;
 chatPanel.userName = userName;
-chatPanel.agentName = "Octo Agent"; //IYH1HC add: brand name shown next to assistant messages
+chatPanel.agentName = "Octo Agent";
 chatPanel.authToken = authToken;
 chatPanel.addEventListener("file-preview-open", () => {
 	if (workspaceOpen && sidebarOpen) {
@@ -140,30 +133,20 @@ chatPanel.addEventListener("file-preview-open", () => {
 		renderApp();
 	}
 });
+// Debounced artifacts refresh when the agent creates/edits/deletes files.
+let workspaceRefreshTimer: number | undefined;
+chatPanel.addEventListener("workspace-changed", () => {
+	if (workspaceRefreshTimer !== undefined) clearTimeout(workspaceRefreshTimer);
+	workspaceRefreshTimer = window.setTimeout(() => {
+		workspaceRefreshTimer = undefined;
+		void loadWorkspace();
+	}, 1000);
+});
 
 const app = document.getElementById("app");
 if (!app) throw new Error("App container not found");
 
 type Ui5ButtonDesign = "Default" | "Emphasized" | "Transparent" | "Positive" | "Negative" | "Attention";
-
-//IYH1HC comment: legacy 2-state light/dark helpers replaced by 4-theme model below.
-//IYH1HC comment: function getEffectiveAppTheme() {
-//IYH1HC comment: 	const theme = localStorage.getItem("theme") || "system";
-//IYH1HC comment: 	if (theme === "system") return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-//IYH1HC comment: 	return theme === "dark" ? "dark" : "light";
-//IYH1HC comment: }
-//IYH1HC comment:
-//IYH1HC comment: function applyAppTheme() {
-//IYH1HC comment: 	document.documentElement.classList.toggle("dark", getEffectiveAppTheme() === "dark");
-//IYH1HC comment: }
-//IYH1HC comment:
-//IYH1HC comment: function cycleAppTheme() {
-//IYH1HC comment: 	const nextTheme = getEffectiveAppTheme() === "dark" ? "light" : "dark";
-//IYH1HC comment: 	localStorage.setItem("theme", nextTheme);
-//IYH1HC comment: 	applyAppTheme();
-//IYH1HC comment: }
-
-//IYH1HC add: 4-theme model — Fiori light/dark + SAP Joule "AI" light/dark.
 type AppTheme = "light" | "dark" | "joule-light" | "joule-dark";
 
 const THEME_OPTIONS: { value: AppTheme; label: string }[] = [
@@ -193,7 +176,6 @@ function setAppTheme(theme: AppTheme) {
 	applyAppTheme();
 }
 
-//IYH1HC add: apply the configurable browser tab title from service features (falls back to index.html default).
 function applyAppTitle() {
 	if (serviceFeatures.appTitle) document.title = serviceFeatures.appTitle;
 }
@@ -229,7 +211,6 @@ function Ui5Button(config: {
 	`;
 }
 
-//IYH1HC add: theme dropdown (Fiori Light/Dark + AI Light/Dark), mirrors renderUserMenu.
 function renderThemeMenu() {
 	const current = getStoredTheme();
 	return html`
@@ -365,9 +346,27 @@ async function loadSessions() {
 async function loadWorkspace() {
 	if (!channelId) return;
 	workspaceTree = (await client.getWorkspace(channelId!)) ?? { artifacts: [], skills: [] };
-	await loadSapManifests(); //IYH1HC add — keep ADT tree manifests in sync with the file tree.
+	await loadSapManifests();
 	await refreshAcpJobs(false);
 	renderApp();
+}
+
+async function deleteWorkspaceArtifact(path: string, isFolder = false) {
+	const name = path.split("/").pop() ?? path;
+	const message = isFolder
+		? `Delete folder "${name}" and all its contents? This cannot be undone.`
+		: `Delete "${name}"? This cannot be undone.`;
+	if (!confirm(message)) return;
+	const result = await client.deleteWorkspaceFile(path);
+	if (!result.ok) alert(`Delete failed: ${result.error ?? "unknown error"}`);
+	await loadWorkspace();
+}
+
+async function downloadWorkspaceArtifact(path: string, isFolder = false) {
+	// Folders are downloaded as a .zip archive built by the server.
+	const zipName = isFolder ? `${path.split("/").pop() ?? "folder"}.zip` : undefined;
+	const ok = await client.downloadWorkspaceFile(path, zipName);
+	if (!ok) alert("Download failed");
 }
 
 function normalizeWorkspaceArtifactFilename(path: string): string {
@@ -455,8 +454,6 @@ function toggleSidebar() {
 	renderApp();
 }
 
-//IYH1HC add: pick up the session token handed back by the SSO callback via the
-// URL hash fragment (kept out of server logs), then strip it from the address bar.
 function consumeSsoHash() {
 	if (!window.location.hash) return;
 	const params = new URLSearchParams(window.location.hash.slice(1));
@@ -472,7 +469,6 @@ function consumeSsoHash() {
 	}
 }
 
-//IYH1HC add: discover whether SSO is enabled so the login button can be shown.
 async function refreshSsoConfig() {
 	ssoConfig = await client.getSsoConfig();
 	if (!currentUser) renderApp();
@@ -482,17 +478,17 @@ async function initializeAuth() {
 	const user = await client.me();
 	if (!user) {
 		currentUser = null;
-		authResolved = true; //IYH1HC add: auth checked, no session — allow the login screen to render
+		authResolved = true;
 		renderApp();
 		return;
 	}
-	authResolved = true; //IYH1HC add
+	authResolved = true;
 	currentUser = user;
 	userName = user.displayName;
 	chatPanel.userName = userName;
 	chatPanel.authToken = authToken;
 	serviceFeatures = await client.getFeatures();
-	applyAppTitle(); //IYH1HC add
+	applyAppTitle();
 	await loadWorkspaces();
 }
 
@@ -511,7 +507,7 @@ async function submitAuth(event: Event) {
 		chatPanel.userName = userName;
 		chatPanel.authToken = authToken;
 		serviceFeatures = await client.getFeatures();
-		applyAppTitle(); //IYH1HC add
+		applyAppTitle();
 		await loadWorkspaces();
 	} catch (err) {
 		authError = err instanceof Error ? err.message : String(err);
@@ -529,7 +525,7 @@ async function logout() {
 	authPassword = "";
 	currentUser = null;
 	userMenuOpen = false;
-	themeMenuOpen = false; //IYH1HC add
+	themeMenuOpen = false;
 	providerDialogOpen = false;
 	workspaces = [];
 	sessions = [];
@@ -790,9 +786,6 @@ async function disconnectBusinessConnector(connectorId: string) {
 	}
 }
 
-//IYH1HC add — SAP ADT connection panel handlers.
-//IYH1HC add — Refresh the materialized-tree manifests for every SAP connection so the
-//IYH1HC add — Artifacts tree knows which folders are lazy ADT nodes and which files need hydration.
 async function loadSapManifests() {
 	if (!workspaceId) return;
 	const conns = workspaceSettings.sapConnections ?? [];
@@ -803,8 +796,6 @@ async function loadSapManifests() {
 	);
 }
 
-//IYH1HC add — Map a workspace-tree path to its ADT connection + manifest entry, if any.
-//IYH1HC add — Paths look like `workspaces/<id>/artifacts/<conn>/<relKey>`.
 function sapTreeLookup(path: string): { conn: string; relKey: string; info: SapTreeManifestEntry } | null {
 	const marker = "/artifacts/";
 	const idx = path.indexOf(marker);
@@ -847,9 +838,6 @@ async function createSapConnection() {
 		const { connection, error } = await client.createSapConnection(workspaceId, { destination, name: alias });
 		if (error) sapError = error;
 		if (connection) {
-			//IYH1HC add — On success: surface the new connection's folder in the Artifacts tree
-			//IYH1HC add — (collapsed, lazy) and auto-close the settings popup. On failure we keep
-			//IYH1HC add — the popup open with sapError so the user can retry.
 			sapNewAlias = "";
 			workspaceSettings = await client.getWorkspaceSettings(workspaceId);
 			workspaceOpen = true;
@@ -862,7 +850,6 @@ async function createSapConnection() {
 	}
 }
 
-//IYH1HC SSO add — load on-prem systems from the local SAP Logon landscape and prefill the form.
 async function loadLocalSystems() {
 	if (!workspaceId) return;
 	sapBusy = "local-systems";
@@ -878,7 +865,6 @@ async function loadLocalSystems() {
 	}
 }
 
-//IYH1HC SSO add — prefill the editable URL/SPN/client/language fields from a picked system.
 function selectLocalSystem(sys: SapLocalSystem) {
 	sapLocalSelected = `${sys.systemId}|${sys.client ?? ""}`;
 	sapLocalUrl = sys.adtUrl;
@@ -888,7 +874,6 @@ function selectLocalSystem(sys: SapLocalSystem) {
 	if (!sapNewAlias) sapNewAlias = sys.client ? `${sys.systemId}_${sys.client}` : sys.systemId;
 }
 
-//IYH1HC SSO add — create a local on-prem connection via Kerberos/SPNEGO (no password).
 async function createLocalConnection() {
 	const url = sapLocalUrl.trim();
 	const spn = sapLocalSpn.trim();
@@ -909,7 +894,6 @@ async function createLocalConnection() {
 		});
 		if (error) sapError = error;
 		if (connection) {
-			//IYH1HC SSO add — same post-connect behavior as the destination flow.
 			sapNewAlias = "";
 			workspaceSettings = await client.getWorkspaceSettings(workspaceId);
 			workspaceOpen = true;
@@ -924,17 +908,17 @@ async function createLocalConnection() {
 
 function openProviderDialog() {
 	userMenuOpen = false;
-	themeMenuOpen = false; //IYH1HC add
+	themeMenuOpen = false;
 	providerDialogOpen = true;
 	codexAuthError = "";
 	codexLoginCode = "";
-	providerKeyInput = ""; //IYH1HC add
-	providerKeyError = ""; //IYH1HC add
-	providerSavedNotice = ""; //IYH1HC add
-	modelFilter = ""; //IYH1HC add
+	providerKeyInput = "";
+	providerKeyError = "";
+	providerSavedNotice = "";
+	modelFilter = "";
 	void refreshCodexStatus();
-	void loadLlmConfig(); //IYH1HC add
-	void loadBoschModels(); //IYH1HC add
+	void loadLlmConfig();
+	void loadBoschModels();
 	renderApp();
 }
 
@@ -1096,11 +1080,11 @@ function setProvider(provider: string) {
 	selectedProvider = provider;
 	localStorage.setItem(providerKey, provider);
 	codexAuthError = "";
-	providerKeyInput = ""; //IYH1HC add
-	providerKeyError = ""; //IYH1HC add
-	providerSavedNotice = ""; //IYH1HC add
-	modelFilter = ""; //IYH1HC add
-	apiKeysExpanded = !llmConfig.providers.find((p) => p.id === provider)?.hasKey; //IYH1HC add
+	providerKeyInput = "";
+	providerKeyError = "";
+	providerSavedNotice = "";
+	modelFilter = "";
+	apiKeysExpanded = !llmConfig.providers.find((p) => p.id === provider)?.hasKey;
 	if (provider === "openai-codex") void refreshCodexStatus();
 	renderApp();
 }
@@ -1111,17 +1095,14 @@ async function refreshCodexStatus() {
 	renderApp();
 }
 
-//IYH1HC add: providers that use the key + model-selection flow (mirrors the backend allowlist).
 const LLM_KEY_PROVIDERS = new Set(["openai", "anthropic", "google"]);
 
-//IYH1HC add: load per-provider key/model config for the dialog.
 async function loadLlmConfig() {
 	llmConfigLoading = true;
 	providerKeyError = "";
 	renderApp();
 	llmConfig = await client.getLlmConfig();
 	llmConfigLoading = false;
-	//IYH1HC add: expand the API Keys section automatically when no key is stored yet.
 	apiKeysExpanded = !currentProviderConfig()?.hasKey;
 	renderApp();
 }
@@ -1130,7 +1111,6 @@ function currentProviderConfig() {
 	return llmConfig.providers.find((p) => p.id === selectedProvider);
 }
 
-//IYH1HC add: load the user's custom models (Bosch GenAI) for the dialog.
 async function loadBoschModels() {
 	boschLoading = true;
 	boschError = "";
@@ -1145,7 +1125,6 @@ async function loadBoschModels() {
 	}
 }
 
-//IYH1HC add: create a custom model from the draft form, then refresh the chatbox listbox.
 async function addBoschModel() {
 	const name = boschDraft.name.trim();
 	const endpoint = boschDraft.endpoint.trim();
@@ -1171,7 +1150,6 @@ async function addBoschModel() {
 	}
 }
 
-//IYH1HC add: update one field of an existing custom model and persist (apiKey omitted = keep stored key).
 async function updateBoschModel(model: CustomModelConfig, patch: Partial<Pick<CustomModelConfig, "name" | "baseProvider" | "endpoint">> & { apiKey?: string }) {
 	boschSaving = true;
 	boschError = "";
@@ -1193,7 +1171,6 @@ async function updateBoschModel(model: CustomModelConfig, patch: Partial<Pick<Cu
 	}
 }
 
-//IYH1HC add: delete a custom model and refresh the listbox.
 async function deleteBoschModel(id: string) {
 	boschSaving = true;
 	boschError = "";
@@ -1210,7 +1187,6 @@ async function deleteBoschModel(id: string) {
 	}
 }
 
-//IYH1HC add: forget the stored API key for the selected provider.
 async function deleteProviderKey() {
 	if (!LLM_KEY_PROVIDERS.has(selectedProvider)) return;
 	providerKeySaving = true;
@@ -1228,7 +1204,6 @@ async function deleteProviderKey() {
 	}
 }
 
-//IYH1HC add: models for the current provider matching the search box.
 function filteredModels() {
 	const provider = currentProviderConfig();
 	if (!provider) return [];
@@ -1237,8 +1212,6 @@ function filteredModels() {
 	return provider.models.filter((m) => m.name.toLowerCase().includes(q) || m.id.toLowerCase().includes(q));
 }
 
-//IYH1HC add: toggle a model and auto-save immediately (no Save button). Optimistic
-// local update, then persist the full active set and refresh the chatbox listbox.
 async function toggleModelActive(modelId: string, active: boolean) {
 	const provider = currentProviderConfig();
 	if (!provider) return;
@@ -1259,7 +1232,6 @@ async function toggleModelActive(modelId: string, active: boolean) {
 	}
 }
 
-//IYH1HC add: persist the typed API key on Enter/blur (no Save button). No-op when empty.
 async function commitProviderKey() {
 	if (!LLM_KEY_PROVIDERS.has(selectedProvider) || !providerKeyInput.trim()) return;
 	providerKeySaving = true;
@@ -1279,7 +1251,6 @@ async function commitProviderKey() {
 	}
 }
 
-//IYH1HC add: API-key toggle handler. On → save typed key (no-op if empty); off → forget key.
 async function toggleProviderKey(enabled: boolean) {
 	if (enabled) {
 		await commitProviderKey();
@@ -1350,8 +1321,6 @@ async function toggleFolder(path: string) {
 		renderApp();
 		return;
 	}
-	//IYH1HC add — Lazily materialize ADT folders the first time they are expanded:
-	//IYH1HC add — list the node's children on the backend, then refetch the file tree.
 	const sap = sapTreeLookup(path);
 	if (sap && sap.info.lazy && !sap.info.loaded) {
 		sapBusy = `expand:${path}`;
@@ -1373,7 +1342,6 @@ async function toggleFolder(path: string) {
 }
 
 async function openWorkspaceFile(path: string) {
-	//IYH1HC add — Hydrate empty ADT-backed files (fetch + persist source) before previewing.
 	const sap = sapTreeLookup(path);
 	if (sap && sap.info.hasUri) {
 		sapBusy = `hydrate:${path}`;
@@ -1444,7 +1412,7 @@ function renderArtifacts() {
 	if (!hasFiles) {
 		return html`<div class="text-xs text-muted-foreground px-2 py-1">No artifacts</div>`;
 	}
-	return html`${renderTree(workspaceTree.artifacts)}`;
+	return html`${renderTree(workspaceTree.artifacts, 0, true)}`;
 }
 
 function renderAcpWorkersPanel() {
@@ -1681,8 +1649,6 @@ function renderConnectorStatusBadge(connector: ConnectorStatus) {
 	`;
 }
 
-//IYH1HC comment — the `sap` (legacy single connection) param is no longer rendered;
-//IYH1HC add — SAP ADT now uses the multi-connection panel (renderSapAdtPanel).
 function renderBusinessConnectorSettings(_sap: WorkspaceSettings["sapConnection"]) {
 	const allowedConnectors = new Set(workspaceSettings.connectors?.allowed ?? []);
 	return html`
@@ -1768,10 +1734,6 @@ function renderBusinessConnectorSettings(_sap: WorkspaceSettings["sapConnection"
 	`;
 }
 
-//IYH1HC add — SAP ADT connection panel. Two modes:
-//IYH1HC SSO add —   * On-Premise (SSO): local Kerberos/SPNEGO, no password, system auto-seeded from SAP Logon.
-//IYH1HC add —       * BTP destination: the original approuter + Principal Propagation flow.
-//IYH1HC add — On success the popup closes and the object tree appears in the Artifacts panel.
 function renderSapAdtPanel() {
 	return html`
 		<details class="mt-3 rounded border border-border/70 bg-muted/20 px-3 py-2" open>
@@ -1870,7 +1832,6 @@ function renderSapAdtPanel() {
 	`;
 }
 
-//IYH1HC add — Per-ADT-type icon for object leaves in the Artifacts tree (Eclipse-style).
 const SAP_TYPE_ICON: Record<string, typeof File> = {
 	"CLAS/OC": Box,
 	"INTF/OI": Plug,
@@ -1892,8 +1853,29 @@ const SAP_TYPE_ICON: Record<string, typeof File> = {
 	"SFPI/5I": Plug,
 };
 
-//IYH1HC add — A path belongs to a connection's ADT object tree when it sits at or
-//IYH1HC add — below `artifacts/<conn>/Local Object ($TMP)` for a connection we have a manifest for.
+// File-extension → icon map for artifact tree leaves.
+const FILE_EXT_ICON: Record<string, typeof File> = {
+	html: FileCode, htm: FileCode, css: FileCode, scss: FileCode,
+	js: FileCode, mjs: FileCode, cjs: FileCode, ts: FileCode, tsx: FileCode, jsx: FileCode,
+	py: FileCode, java: FileCode, abap: FileCode, cds: FileCode, csn: FileCode,
+	xml: FileCode, sql: FileCode, c: FileCode, cpp: FileCode, h: FileCode, go: FileCode, rs: FileCode,
+	json: FileJson, jsonl: FileJson,
+	md: FileText, markdown: FileText, txt: FileText, log: FileText, pdf: FileText, doc: FileText, docx: FileText,
+	csv: FileSpreadsheet, tsv: FileSpreadsheet, xls: FileSpreadsheet, xlsx: FileSpreadsheet,
+	yaml: FileCog, yml: FileCog, toml: FileCog, ini: FileCog, env: FileCog,
+	png: FileImage, jpg: FileImage, jpeg: FileImage, gif: FileImage, svg: FileImage, webp: FileImage, bmp: FileImage, ico: FileImage,
+	zip: FileArchive, gz: FileArchive, tar: FileArchive, tgz: FileArchive, "7z": FileArchive, rar: FileArchive,
+	ppt: Presentation, pptx: Presentation,
+	sh: FileTerminal, bash: FileTerminal, ps1: FileTerminal, bat: FileTerminal, cmd: FileTerminal,
+	mp3: FileAudio, wav: FileAudio, ogg: FileAudio, m4a: FileAudio,
+	mp4: FilePlay, mov: FilePlay, avi: FilePlay, webm: FilePlay, mkv: FilePlay,
+};
+
+function fileIconFor(name: string): typeof File {
+	const ext = name.split(".").pop()?.toLowerCase() ?? "";
+	return FILE_EXT_ICON[ext] ?? File;
+}
+
 function isSapObjectTreeFolder(path: string): boolean {
 	for (const conn of sapTreeManifests.keys()) {
 		if (path.includes(`/artifacts/${conn}/Local Object ($TMP)`)) return true;
@@ -1901,44 +1883,49 @@ function isSapObjectTreeFolder(path: string): boolean {
 	return false;
 }
 
-//IYH1HC add — Recursively count object files (leaves) under a node = Eclipse object count.
 function countSapObjects(node: WorkspaceNode): number {
 	if (node.type !== "directory") return 1;
 	return (node.children ?? []).reduce((sum, c) => sum + countSapObjects(c), 0);
 }
 
-//IYH1HC add — Eclipse-style display name for an ADT object file: prefer the manifest
-//IYH1HC add — label (real object name), else strip the abapGit extension and uppercase.
 function sapDisplayName(node: WorkspaceNode, info: SapTreeManifestEntry | undefined): string {
 	if (info?.label) return info.label;
 	const base = node.name.split(".")[0] ?? node.name;
 	return base.replace(/#/g, "/").toUpperCase();
 }
 
-function renderTree(nodes: WorkspaceNode[], depth = 0) {
+// Hover-revealed download/delete buttons for one artifact tree row.
+function renderArtifactActions(path: string, isFolder: boolean) {
+	return html`
+		<button class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-secondary text-muted-foreground transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title=${isFolder ? "Download as .zip" : "Download"}
+			@click=${(e: Event) => { e.stopPropagation(); void downloadWorkspaceArtifact(path, isFolder); }}>${icon(Download, "xs")}</button>
+		<button class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 text-destructive transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title="Delete"
+			@click=${(e: Event) => { e.stopPropagation(); void deleteWorkspaceArtifact(path, isFolder); }}>${icon(Trash2, "xs")}</button>`;
+}
+
+function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false) {
 	return nodes.map((node) => {
 		if (node.type === "directory") {
 			const open = expandedFolders.has(node.path);
-			//IYH1HC add — ADT object-tree folders show an Eclipse-style object count, and a
-			//IYH1HC add — spinner in place of the chevron while their on-prem expand call runs.
 			const isSapFolder = isSapObjectTreeFolder(node.path);
 			const expanding = sapBusy === `expand:${node.path}`;
 			const count = isSapFolder ? countSapObjects(node) : -1;
 			return html`<div>
-				<button class="w-full text-left px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px" @click=${() => void toggleFolder(node.path)}>
-					<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${expanding ? icon(LoaderCircle, "xs", "animate-spin") : icon(open ? ChevronDown : ChevronRight, "xs")}</span>
-					<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(open ? FolderOpen : Folder, "xs")}</span>
-					<span class="truncate">${node.name}</span>
-					${count >= 0 ? html`<span class="shrink-0 text-[11px] text-muted-foreground">(${count})</span>` : ""}
-				</button>
-				${open && node.children ? html`<div>${renderTree(node.children, depth + 1)}</div>` : ""}
+				<div class="group w-full px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px">
+					<button class="flex-1 min-w-0 text-left flex items-center gap-1" @click=${() => void toggleFolder(node.path)}>
+						<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${expanding ? icon(LoaderCircle, "xs", "animate-spin") : icon(open ? ChevronDown : ChevronRight, "xs")}</span>
+						<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(open ? FolderOpen : Folder, "xs")}</span>
+						<span class="truncate">${node.name}</span>
+						${count >= 0 ? html`<span class="shrink-0 text-[11px] text-muted-foreground">(${count})</span>` : ""}
+					</button>
+					${withActions && !isSapFolder ? renderArtifactActions(node.path, true) : ""}
+				</div>
+				${open && node.children ? html`<div>${renderTree(node.children, depth + 1, withActions)}</div>` : ""}
 			</div>`;
 		}
 		if (isDuckDbFile(node.path)) {
 			return renderDatabaseFile(node, depth);
 		}
-		//IYH1HC add — ADT object files: per-type icon, Eclipse display name + description,
-		//IYH1HC add — and a spinner while the source is being hydrated on first open.
 		const sap = sapTreeLookup(node.path);
 		if (sap?.info.hasUri) {
 			const hydrating = sapBusy === `hydrate:${node.path}`;
@@ -1949,10 +1936,13 @@ function renderTree(nodes: WorkspaceNode[], depth = 0) {
 				${sap.info.description ? html`<span class="truncate text-[11px] italic text-muted-foreground">${sap.info.description}</span>` : ""}
 			</button>`;
 		}
-		return html`<button class="w-full text-left px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px" @click=${() => void openWorkspaceFile(node.path)}>
-			<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(File, "xs")}</span>
-			<span class="truncate">${node.name}</span>
-		</button>`;
+		return html`<div class="group w-full px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px">
+			<button class="flex-1 min-w-0 text-left flex items-center gap-1" @click=${() => void openWorkspaceFile(node.path)}>
+				<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(fileIconFor(node.name), "xs")}</span>
+				<span class="truncate">${node.name}</span>
+			</button>
+			${withActions ? renderArtifactActions(node.path, false) : ""}
+		</div>`;
 	});
 }
 function formatTime(ms: number): string {
@@ -2158,18 +2148,16 @@ function renderCreateWorkspaceDialog() {
 function renderProviderDialog() {
 	if (!providerDialogOpen) return "";
 	const allProviders = [
-		{ id: "bosch-genai", label: "Bosch GenAI" }, //IYH1HC add: custom LLM Farm models (first option)
+		{ id: "bosch-genai", label: "Bosch GenAI" },
 		{ id: "openai-codex", label: "Codex" },
 		{ id: "openai", label: "OpenAI" },
-		{ id: "google", label: "Google Gemini" }, //IYH1HC add
+		{ id: "google", label: "Google Gemini" },
 		{ id: "anthropic", label: "Anthropic" },
 		{ id: "sap-openai", label: "SAP OpenAI" },
 		{ id: "sap-claude", label: "SAP Claude" },
 	];
-	//IYH1HC add: gate the picker by the service allowlist. null → all providers; otherwise keep configured order.
 	const allowedProviders = serviceFeatures.llmProviders;
 	const providers = allowedProviders ? allProviders.filter((p) => allowedProviders.includes(p.id)) : allProviders;
-	//IYH1HC add: if the persisted selection was filtered out, fall back to the first allowed provider.
 	if (providers.length > 0 && !providers.some((p) => p.id === selectedProvider)) {
 		selectedProvider = providers[0]!.id;
 		localStorage.setItem(providerKey, selectedProvider);
@@ -2244,7 +2232,7 @@ function renderProviderDialog() {
 	`;
 }
 
-//IYH1HC add: Bosch GenAI setup — manage multiple custom model blocks (LLM Farm).
+// Bosch GenAI setup — manage multiple custom model blocks (LLM Farm).
 // Each block { name, provider, endpoint, API key } points at a custom gateway endpoint;
 // the API key is encrypted server-side (same mechanism as the cloud providers). Saved
 // blocks appear by name in the chatbox model listbox.
@@ -2322,10 +2310,8 @@ function renderBoschGenAIConfig() {
 	`;
 }
 
-//IYH1HC add: one editable custom-model block. Fields auto-save on change; the API key
-// field is blank (placeholder only) and only sent when the user types a replacement.
 function renderBoschModelBlock(model: CustomModelConfig) {
-	const open = boschExpanded[model.id] === true; //IYH1HC add: default collapsed
+	const open = boschExpanded[model.id] === true;
 	return html`
 		<div class="rounded-lg border border-border bg-card">
 			<div class="flex items-center gap-2 px-3 py-2">
@@ -2383,9 +2369,6 @@ function renderBoschModelBlock(model: CustomModelConfig) {
 	`;
 }
 
-//IYH1HC add: provider setup — toggle-switch model list (search) + collapsible
-// API Keys section. Everything auto-saves: flipping a model toggle persists the
-// active set; typing a key + Enter/blur (or flipping the key toggle on) stores it.
 function renderLlmKeyAndModels() {
 	const provider = currentProviderConfig();
 	const hasKey = provider?.hasKey === true;
@@ -2559,13 +2542,11 @@ function renderWorkspaceSettingsDialog() {
 	if (!serviceFeatures.agentWorkers && workspaceSettingsTab === "workers") {
 		workspaceSettingsTab = "agent";
 	}
-	//IYH1HC add: when the Connection feature is disabled, the tab is hidden — bounce to Agent.
 	if (!serviceFeatures.connection && workspaceSettingsTab === "connection") {
 		workspaceSettingsTab = "agent";
 	}
 	const sap = workspaceSettings.sapConnection ?? {};
 	const promptFile = workspaceSettings.agent?.promptFile ?? "AGENTS.md";
-	//IYH1HC add: Agent + Sandbox always show; Connection and Workers are gated by feature flags.
 	const visibleTabs = 2 + (serviceFeatures.connection ? 1 : 0) + (serviceFeatures.agentWorkers ? 1 : 0);
 	const tabColumns = visibleTabs >= 4 ? "grid-cols-4" : visibleTabs === 3 ? "grid-cols-3" : "grid-cols-2";
 	return html`
@@ -2662,8 +2643,6 @@ function renderWorkspaceSettingsDialog() {
 
 function renderApp() {
 	if (!currentUser) {
-		//IYH1HC add: never flash the login form before auth resolves; when hideAuthUi
-		// is set (XSUAA edge auth on BTP) the login screen is suppressed entirely.
 		if (ssoConfig.hideAuthUi || !authResolved) {
 			render(
 				html`
@@ -2904,7 +2883,7 @@ function renderApp() {
 }
 
 // Initial render then load workspaces/sessions
-consumeSsoHash();        //IYH1HC add
-void refreshSsoConfig(); //IYH1HC add
+consumeSsoHash();
+void refreshSsoConfig();
 renderApp();
 void initializeAuth();

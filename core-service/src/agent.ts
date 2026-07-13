@@ -15,7 +15,7 @@ import { join } from "path";
 import * as log from "./log.js";
 import type { BotContext, ChannelInfo, UserInfo } from "./types.js";
 import type { ChannelStore } from "./store.js";
-import { detectSkillFromToolCall } from "./agent-events.js"; //IYH1HC stream add
+import { detectSkillFromToolCall } from "./agent-events.js";
 
 export interface PendingMessage {
 	userName: string;
@@ -115,7 +115,7 @@ function buildSystemPrompt(
 		channels.length > 0 ? channels.map((c) => `${c.id}\t#${c.name}`).join("\n") : "(no channels loaded)";
 
 	const userMappings =
-		users.length > 0 ? users.map((u) => `${u.id}\t@${u.userName}\t${u.displayName}`).join("\n") : "(no users loaded)";
+		users.length > 0 ? users.map((u) => `${u.displayName}\t@${u.id}\t${u.userName}`).join("\n") : "(no users loaded)";
 
 	const envDescription = isContainer
 		? `You are running inside a ${containerRuntime} container (Alpine Linux).
@@ -437,19 +437,13 @@ function createRunner(
 				}
 			};
 
-			//IYH1HC stream add: structured trail emitter — set only by the HTTP transport when
-			// the client opted in. When present, agent activity is forwarded as typed events
-			// (seq is assigned downstream by the HTTP context) and the legacy Slack-markdown
-			// flattening below is skipped. Slack never sets it, so its path is unchanged.
 			const emit = ctx.emitAgentEvent;
-			let turnIndex = -1; //IYH1HC stream add
-			let lastModel: { provider: string; id: string } | undefined; //IYH1HC stream add: for the run-scope usage event
+			let turnIndex = -1;
+			let lastModel: { provider: string; id: string } | undefined;
 
 			const events: CoreAgentEventHandlers = {
-				//IYH1HC stream comment onToolStart(toolName, label, args) {
 				onToolStart(toolName, label, args, toolCallId) {
 					log.logToolStart(logCtx, toolName, label, args);
-					//IYH1HC stream add
 					if (emit) {
 						emit({ type: "tool", seq: 0, phase: "start", toolCallId: toolCallId ?? "", toolName, label, args, ts: Date.now() });
 						const skill = detectSkillFromToolCall(toolName, args);
@@ -461,7 +455,6 @@ function createRunner(
 					enqueue(() => ctx.respond(`_→ ${label}_`, false), "tool label");
 				},
 
-				//IYH1HC stream comment onToolEnd(toolName, label, args, durationMs, resultText, isError) {
 				onToolEnd(toolName, label, args, durationMs, resultText, isError, toolCallId) {
 					if (isError) {
 						log.logToolError(logCtx, toolName, durationMs, resultText);
@@ -469,8 +462,6 @@ function createRunner(
 						log.logToolSuccess(logCtx, toolName, durationMs, resultText);
 					}
 
-					//IYH1HC stream add: full result goes out here; the HTTP context truncates the
-					// SSE copy while the trail store keeps the complete text for audit.
 					if (emit) {
 						emit({
 							type: "tool",
@@ -504,11 +495,9 @@ function createRunner(
 					}
 				},
 
-				//IYH1HC stream comment onToolUpdate(toolName, label, args, resultText) {
 				onToolUpdate(toolName, label, args, resultText, toolCallId) {
 					if (!resultText.trim()) return;
 					log.logInfo(`[${channelId}] ${toolName} update: ${truncate(resultText, 200)}`);
-					//IYH1HC stream add
 					if (emit) {
 						emit({ type: "tool", seq: 0, phase: "update", toolCallId: toolCallId ?? "", toolName, partialResult: resultText });
 						return;
@@ -524,7 +513,6 @@ function createRunner(
 
 				onMessage(text) {
 					log.logResponse(logCtx, text);
-					//IYH1HC stream add: content already streamed token-by-token as block events
 					if (emit) return;
 					enqueueMessage(text, "main", "response main");
 					enqueueMessage(text, "thread", "response thread", false);
@@ -532,7 +520,6 @@ function createRunner(
 
 				onThinking(thinking) {
 					log.logThinking(logCtx, thinking);
-					//IYH1HC stream add: thinking already streamed as block events
 					if (emit) return;
 					enqueueMessage(`_${thinking}_`, "main", "thinking main");
 					enqueueMessage(`_${thinking}_`, "thread", "thinking thread", false);
@@ -540,7 +527,6 @@ function createRunner(
 
 				onCompactionStart(reason) {
 					log.logInfo(`Auto-compaction started (reason: ${reason})`);
-					//IYH1HC stream add
 					if (emit) {
 						emit({ type: "compaction", seq: 0, phase: "start", reason });
 						return;
@@ -554,13 +540,11 @@ function createRunner(
 					} else if (aborted) {
 						log.logInfo("Auto-compaction aborted");
 					}
-					//IYH1HC stream add
 					emit?.({ type: "compaction", seq: 0, phase: "end", tokensBefore: result?.tokensBefore, aborted });
 				},
 
 				onRetry(attempt, maxAttempts, errorMessage) {
 					log.logWarning(`Retrying (${attempt}/${maxAttempts})`, errorMessage);
-					//IYH1HC stream add
 					if (emit) {
 						emit({ type: "retry", seq: 0, attempt, maxAttempts, errorMessage });
 						return;
@@ -571,7 +555,6 @@ function createRunner(
 					);
 				},
 
-				//IYH1HC stream add: token-level structured handlers — inert without emit.
 				onTurnStart() {
 					if (!emit) return;
 					turnIndex++;
@@ -592,9 +575,6 @@ function createRunner(
 				onToolCall(toolCallId, toolName, args) {
 					emit?.({ type: "tool", seq: 0, phase: "call", toolCallId, toolName, args, ts: Date.now() });
 				},
-				//IYH1HC stream comment onUsage(usage) {
-				//IYH1HC stream comment 	emit?.({ type: "usage", seq: 0, scope: "message", usage });
-				//IYH1HC stream comment },
 				onUsage(usage, _stopReason, model) {
 					if (model?.id) lastModel = model;
 					emit?.({ type: "usage", seq: 0, scope: "message", usage, model });
@@ -629,7 +609,7 @@ function createRunner(
 				attachments: ctx.message.attachments,
 				systemPrompt,
 				authFilePath: ctx.authFilePath,
-				model: ctx.model, //IYH1HC add: per-run model override from the web UI
+				model: ctx.model,
 				uploadFile: async (hostPath, title) => {
 					await ctx.uploadFile(hostPath, title);
 				},
@@ -670,8 +650,6 @@ function createRunner(
 				}
 			}
 
-			//IYH1HC stream add: final run usage for the structured trail — emitted regardless of
-			// the cost>0 gate below (custom gateways often report zero cost but real tokens).
 			if (emit) {
 				const messages = coreAgent.messages;
 				const lastAssistant = messages
@@ -689,7 +667,7 @@ function createRunner(
 					seq: 0,
 					scope: "run",
 					usage: result.usage,
-					model: lastModel, //IYH1HC stream add
+					model: lastModel,
 					contextTokens,
 					contextWindow: coreAgent.modelContextWindow,
 				});
@@ -713,8 +691,6 @@ function createRunner(
 				const contextWindow = coreAgent.modelContextWindow;
 
 				const summary = log.logUsageSummary(logCtx, result.usage, contextTokens, contextWindow);
-				//IYH1HC stream comment enqueue(() => ctx.respondInThread(summary), "usage summary");
-				//IYH1HC stream add: structured clients get the usage scope:"run" event instead
 				if (!emit) {
 					enqueue(() => ctx.respondInThread(summary), "usage summary");
 					await queueChain;
