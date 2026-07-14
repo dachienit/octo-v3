@@ -96,6 +96,9 @@ export interface BotHandler {
 		onStopping: () => Promise<void>,
 		onStopped: () => Promise<void>,
 	): Promise<void>;
+
+	/** Abort any active run and evict all in-memory state for a session (used by permanent delete). */
+	disposeSession?(channelId: string): Promise<void>;
 }
 
 // ============================================================================
