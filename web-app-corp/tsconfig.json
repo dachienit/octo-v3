@@ -10,7 +10,6 @@
 		"allowSyntheticDefaultImports": true,
 		"experimentalDecorators": true,
 		"useDefineForClassFields": false,
-		"baseUrl": ".",
 		"paths": {
 			"@octo/web-ui-corp": ["../web-ui-corp/src/index.ts"]
 		}
