@@ -36,7 +36,7 @@ if (_proxyUrl) {
 
 import { appendFileSync, existsSync, mkdirSync } from "fs";
 import { join, resolve } from "path";
-import { type AgentRunner, getOrCreateRunner } from "./agent.js";
+import { type AgentRunner, disposeChannelAgent, getOrCreateRunner } from "./agent.js";
 import { downloadChannel } from "./download.js";
 import { createEventsWatcher, createWorkspaceEventsWatcher } from "./events.js";
 import { createHttpContext, HttpServer } from "./http.js";
@@ -306,6 +306,24 @@ const handler: BotHandler = {
 			await onStopping();
 		}
 		// "Nothing running" case: the adapter already checked isRunning() before calling this
+	},
+
+	async disposeSession(channelId: string): Promise<void> {
+		const state = channelStates.get(channelId);
+		if (state?.running) {
+			state.stopRequested = true;
+			state.runner.abort();
+			// Bounded wait so the aborted run stops writing before the session dir is removed.
+			await new Promise<void>((resolve) => {
+				const timer = setTimeout(resolve, 5000);
+				state.onStopComplete = async () => {
+					clearTimeout(timer);
+					resolve();
+				};
+			});
+		}
+		channelStates.delete(channelId);
+		disposeChannelAgent(channelId);
 	},
 
 	async handleEvent(channelId: string, ctx: BotContext, _isEvent?: boolean): Promise<void> {

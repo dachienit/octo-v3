@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "fs";
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
@@ -499,6 +499,16 @@ export class WorkspaceStore {
 			};
 		}
 		return undefined;
+	}
+
+	/** Permanently remove a session directory. Returns the removed root for mirror cleanup. */
+	deleteSession(userId: string, sessionId: string): { workspaceId: string; sessionRoot: string } | undefined {
+		const session = this.findSession(sessionId);
+		if (!session) return undefined;
+		this.assertWorkspaceAccess(userId, session.workspaceId);
+		const sessionRoot = this.getSessionRoot(session.workspaceId, sessionId);
+		rmSync(sessionRoot, { recursive: true, force: true });
+		return { workspaceId: session.workspaceId, sessionRoot };
 	}
 
 	getWorkspaceRoot(workspaceId: string): string {

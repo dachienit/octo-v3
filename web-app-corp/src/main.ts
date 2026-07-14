@@ -70,6 +70,8 @@ let workspaceTemplates: WorkspaceTemplate[] = [];
 let workspaceId = initialRoute.workspaceId ?? localStorage.getItem("workspaceId") ?? "";
 let channelId = initialRoute.sessionId ?? (workspaceId ? sessionStorage.getItem(`sessionId:${workspaceId}`) || "" : "");
 let sessions: SessionInfo[] = [];
+let sessionFilter = "";
+let artifactFilter = "";
 let workspaceOpen = true;
 let workspaceTab: "artifacts" | "skills" = "artifacts";
 let workspaceTree: WorkspaceTree = { artifacts: [], skills: [] };
@@ -374,6 +376,24 @@ function normalizeWorkspaceArtifactFilename(path: string): string {
 	return path.startsWith(prefix) ? path.slice(prefix.length) : path.split("/").pop() || path;
 }
 
+async function deleteSession(id: string) {
+	const session = sessions.find((s) => s.channelId === id);
+	const label = session?.preview || "this session";
+	if (!confirm(`Delete session "${label}"? This permanently removes its messages and attachments. This cannot be undone.`)) return;
+	const result = await client.deleteSession(id);
+	if (!result.ok) {
+		alert(`Delete failed: ${result.error ?? "unknown error"}`);
+		return;
+	}
+	if (id === channelId) {
+		channelId = "";
+		chatPanel.channelId = "";
+		if (workspaceId) sessionStorage.removeItem(`sessionId:${workspaceId}`);
+	}
+	// loadSessions picks the most recent remaining session or auto-creates a new one.
+	await loadSessions();
+}
+
 function switchSession(id: string) {
 	channelId = id;
 	if (workspaceId) sessionStorage.setItem(`sessionId:${workspaceId}`, id);
@@ -395,6 +415,8 @@ async function switchWorkspace(id: string) {
 	acpJobs = [];
 	databaseTables.clear();
 	expandedFolders.clear();
+	sessionFilter = "";
+	artifactFilter = "";
 	await loadSessions();
 }
 
@@ -1204,6 +1226,12 @@ async function deleteProviderKey() {
 	}
 }
 
+function filteredSessions(): SessionInfo[] {
+	const q = sessionFilter.trim().toLowerCase();
+	if (!q) return sessions;
+	return sessions.filter((s) => (s.preview || "").toLowerCase().includes(q) || (s.title ?? "").toLowerCase().includes(q));
+}
+
 function filteredModels() {
 	const provider = currentProviderConfig();
 	if (!provider) return [];
@@ -1412,7 +1440,12 @@ function renderArtifacts() {
 	if (!hasFiles) {
 		return html`<div class="text-xs text-muted-foreground px-2 py-1">No artifacts</div>`;
 	}
-	return html`${renderTree(workspaceTree.artifacts, 0, true)}`;
+	const q = artifactFilter.trim().toLowerCase();
+	const nodes = q ? filterTree(workspaceTree.artifacts, q) : workspaceTree.artifacts;
+	if (nodes.length === 0) {
+		return html`<div class="text-xs text-muted-foreground px-2 py-1">No matching artifacts</div>`;
+	}
+	return html`${renderTree(nodes, 0, true, q.length > 0)}`;
 }
 
 function renderAcpWorkersPanel() {
@@ -1903,10 +1936,32 @@ function renderArtifactActions(path: string, isFolder: boolean) {
 			@click=${(e: Event) => { e.stopPropagation(); void deleteWorkspaceArtifact(path, isFolder); }}>${icon(Trash2, "xs")}</button>`;
 }
 
-function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false) {
+// Filter the loaded tree by name (case-insensitive). A directory-name match keeps
+// its whole subtree; a leaf also matches on the SAP ADT display label. Only operates
+// on already-loaded nodes — never triggers lazy ADT expansion.
+function filterTree(nodes: WorkspaceNode[], q: string): WorkspaceNode[] {
+	const out: WorkspaceNode[] = [];
+	for (const node of nodes) {
+		if (node.type === "directory") {
+			if (node.name.toLowerCase().includes(q)) {
+				out.push(node);
+				continue;
+			}
+			const children = filterTree(node.children ?? [], q);
+			if (children.length > 0) out.push({ ...node, children });
+			continue;
+		}
+		const sap = sapTreeLookup(node.path);
+		const label = sap ? sapDisplayName(node, sap.info) : node.name;
+		if (label.toLowerCase().includes(q) || node.name.toLowerCase().includes(q)) out.push(node);
+	}
+	return out;
+}
+
+function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false, forceOpen = false) {
 	return nodes.map((node) => {
 		if (node.type === "directory") {
-			const open = expandedFolders.has(node.path);
+			const open = forceOpen || expandedFolders.has(node.path);
 			const isSapFolder = isSapObjectTreeFolder(node.path);
 			const expanding = sapBusy === `expand:${node.path}`;
 			const count = isSapFolder ? countSapObjects(node) : -1;
@@ -1920,7 +1975,7 @@ function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false) {
 					</button>
 					${withActions && !isSapFolder ? renderArtifactActions(node.path, true) : ""}
 				</div>
-				${open && node.children ? html`<div>${renderTree(node.children, depth + 1, withActions)}</div>` : ""}
+				${open && node.children ? html`<div>${renderTree(node.children, depth + 1, withActions, forceOpen)}</div>` : ""}
 			</div>`;
 		}
 		if (isDuckDbFile(node.path)) {
@@ -2773,26 +2828,44 @@ function renderApp() {
 										title: "New session",
 									})}
 								</div>
+								<div class="px-2 pb-2 shrink-0">
+									<ui5-input
+										class="corp-ui5-input w-full"
+										placeholder="Search sessions"
+										show-clear-icon
+										value=${sessionFilter}
+										@input=${(e: Event) => { sessionFilter = getUi5Value(e); renderApp(); }}
+									></ui5-input>
+								</div>
 								<div class="flex-1 overflow-y-auto">
 									${sessions.length === 0
 										? html`<div class="px-3 py-4 text-xs text-muted-foreground italic">No sessions yet</div>`
-										: sessions.map(
-											(s) => html`
-												<button
-													class="w-full text-left px-3 py-2 hover:bg-accent transition-colors flex flex-col gap-0.5 ${s.channelId === channelId ? "bg-accent" : ""}"
-													@click=${() => switchSession(s.channelId)}
-												>
-													<div class="flex items-center gap-1.5 min-w-0">
-														${icon(MessageSquare, "xs")}
-														<span class="text-xs font-medium truncate flex-1">${s.preview || "Empty session"}</span>
+										: filteredSessions().length === 0
+											? html`<div class="px-3 py-4 text-xs text-muted-foreground italic">No matching sessions</div>`
+											: filteredSessions().map(
+												(s) => html`
+													<div class="group w-full px-3 py-2 hover:bg-accent transition-colors flex items-start gap-1 ${s.channelId === channelId ? "bg-accent" : ""}">
+														<button
+															class="flex-1 min-w-0 text-left flex flex-col gap-0.5"
+															@click=${() => switchSession(s.channelId)}
+														>
+															<div class="flex items-center gap-1.5 min-w-0">
+																${icon(MessageSquare, "xs")}
+																<span class="text-xs font-medium truncate flex-1">${s.preview || "Empty session"}</span>
+															</div>
+															<div class="text-xs text-muted-foreground flex gap-2 pl-4">
+																<span>${s.messageCount} msg${s.messageCount !== 1 ? "s" : ""}</span>
+																<span>${formatTime(s.lastModified)}</span>
+															</div>
+														</button>
+														<button
+															class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 mt-0.5 rounded hover:bg-destructive/10 text-destructive transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5"
+															title="Delete session"
+															@click=${(e: Event) => { e.stopPropagation(); void deleteSession(s.channelId); }}
+														>${icon(Trash2, "xs")}</button>
 													</div>
-													<div class="text-xs text-muted-foreground flex gap-2 pl-4">
-														<span>${s.messageCount} msg${s.messageCount !== 1 ? "s" : ""}</span>
-														<span>${formatTime(s.lastModified)}</span>
-													</div>
-												</button>
-											`,
-										)}
+												`,
+											)}
 								</div>
 							</div>
 						`
@@ -2851,6 +2924,19 @@ function renderApp() {
 												Skills
 											</ui5-button>
 										</div>
+										${workspaceTab === "artifacts"
+											? html`
+												<div class="pt-2">
+													<ui5-input
+														class="corp-ui5-input w-full"
+														placeholder="Search artifacts"
+														show-clear-icon
+														value=${artifactFilter}
+														@input=${(e: Event) => { artifactFilter = getUi5Value(e); renderApp(); }}
+													></ui5-input>
+												</div>
+											`
+											: ""}
 									</div>
 									<div class="flex-1 overflow-y-auto p-2">
 										${workspaceTab === "artifacts"
