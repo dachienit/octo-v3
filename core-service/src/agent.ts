@@ -357,6 +357,14 @@ function getMcpKey(servers: McpServerConfig[] | undefined): string {
 	return JSON.stringify(servers ?? []);
 }
 
+/** Evict the cached CoreAgent for a channel and close its MCP tools (permanent session delete). */
+export function disposeChannelAgent(channelId: string): void {
+	const entry = channelAgents.get(channelId);
+	if (!entry) return;
+	closeMcpTools(entry.mcpTools);
+	channelAgents.delete(channelId);
+}
+
 export async function getOrCreateRunner(
 	sandboxConfig: SandboxConfig,
 	channelId: string,

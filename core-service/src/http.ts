@@ -402,6 +402,8 @@ export class HttpServer {
 		app.get("/sessions/:id/acp-jobs", (req, res) => this.handleAcpJobs(req, decodeURIComponent(req.params.id), res));
 		app.post("/sessions/:id/acp-jobs/:jobId/cancel", (req, res) => this.handleCancelAcpJob(req, decodeURIComponent(req.params.id), decodeURIComponent(req.params.jobId), res));
 		app.get("/sessions",        (req, res) => this.handleSessions(req, res));
+		app.delete("/sessions/:id", (req, res) => { void this.handleDeleteSession(req, decodeURIComponent(req.params.id), res); });
+		app.delete("/workspaces/:workspaceId/sessions/:sessionId", (req, res) => { void this.handleDeleteSession(req, decodeURIComponent(req.params.sessionId), res); });
 		app.get("/messages/:id",    (req, res) => this.handleMessages(req, decodeURIComponent(req.params.id), res));
 		app.get("/sessions/:id/messages", (req, res) => this.handleMessages(req, decodeURIComponent(req.params.id), res));
 		app.get("/file",            (req, res) => this.handleFile(req, String(req.query.path ?? ""), res));
@@ -1831,6 +1833,32 @@ export class HttpServer {
 		const workspaceId = String(req.params.workspaceId);
 		try {
 			res.json(this.workspaceStore.listSessions(userId, workspaceId));
+		} catch (err) {
+			res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
+		}
+	}
+
+	// Permanently delete a session: abort any active run, evict in-memory state,
+	// remove the session dir, and propagate the delete to the object-store mirror
+	// (a workspace-scoped snapshot alone would restore it on next boot).
+	private async handleDeleteSession(req: express.Request, sessionId: string, res: express.Response): Promise<void> {
+		const userId = this.getUserId(req);
+		const session = this.workspaceStore.findSession(sessionId);
+		if (!session) {
+			res.status(404).json({ error: "Session not found" });
+			return;
+		}
+		try {
+			this.workspaceStore.assertWorkspaceAccess(userId, session.workspaceId);
+			await this.handler.disposeSession?.(sessionId);
+			const result = this.workspaceStore.deleteSession(userId, sessionId);
+			if (!result) {
+				res.status(404).json({ error: "Session not found" });
+				return;
+			}
+			void this.objectStore?.deleteObjectsUnder(result.sessionRoot)
+				.catch((err) => log.logWarning("[object-store] delete propagation error", err instanceof Error ? err.message : String(err)));
+			res.json({ ok: true });
 		} catch (err) {
 			res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
 		}

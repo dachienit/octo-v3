@@ -862,6 +862,19 @@ export class CoreServiceClient {
 		}
 	}
 
+	async deleteSession(sessionId: string): Promise<{ ok: boolean; error?: string }> {
+		try {
+			const response = await this.fetch(`/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" });
+			if (!response.ok) {
+				const data = await response.json().catch(() => ({}));
+				return { ok: false, error: (data as { error?: string }).error ?? `HTTP ${response.status}` };
+			}
+			return { ok: true };
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) };
+		}
+	}
+
 	// Fetch the file with the auth header, then trigger a browser download via an
 	// object URL (a plain anchor href would not carry the Bearer token).
 	async downloadWorkspaceFile(path: string, fileName?: string): Promise<boolean> {
