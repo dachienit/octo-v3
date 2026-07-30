@@ -13,6 +13,8 @@ export {
 	type SseEvent,
 	type SessionInfo,
 	type SessionRecord,
+	type SkillUploadFile,
+	type SkillUploadResult,
 	type SsoConfig,
 	type WorkspaceInfo,
 	type WorkspaceSandboxStatus,
@@ -143,7 +145,7 @@ export { GetCurrentTimeRenderer } from "./tools/renderers/GetCurrentTimeRenderer
 export type { ToolRenderer, ToolRenderResult } from "./tools/types.js";
 export type { Attachment } from "./utils/attachment-utils.js";
 // Utils
-export { loadAttachment } from "./utils/attachment-utils.js";
+export { bytesToBase64, fileToBase64, loadAttachment } from "./utils/attachment-utils.js";
 export { clearAuthToken, getAuthToken } from "./utils/auth-token.js";
 export { formatCost, formatModelCost, formatTokenCount, formatUsage } from "./utils/format.js";
 export { i18n, setLanguage, translations } from "./utils/i18n.js";
