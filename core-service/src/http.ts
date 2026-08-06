@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 import { Dirent, appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { createRequire } from "module";
-import { basename, extname, isAbsolute, join, relative, resolve } from "path";
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "path";
 import {
 	getModel,
 	getModels,
@@ -105,6 +105,14 @@ const BINARY_MIME_TYPES: Record<string, string> = {
 	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 	zip: "application/zip",
 };
+
+// Skill folder upload limits. The Express JSON body cap (50mb of base64 is roughly
+// 37mb of bytes) is the hard ceiling, so stay well below it.
+const MAX_SKILL_UPLOAD_FILES = 500;
+const MAX_SKILL_UPLOAD_BYTES = 25 * 1024 * 1024;
+// Junk that folder pickers hand over but a skill never needs.
+const SKILL_UPLOAD_SKIP_NAMES = new Set([".DS_Store", "Thumbs.db"]);
+const SKILL_UPLOAD_SKIP_DIRS = new Set([".git", "node_modules"]);
 
 export function createHttpContext(opts: {
 	channelId: string;
@@ -395,6 +403,7 @@ export class HttpServer {
 		app.post("/auth/agent-workers/:agent/logout", (req, res) => this.handleAgentWorkerLogout(req, res));
 		app.get("/workspaces/:workspaceId/sessions", (req, res) => this.handleWorkspaceSessions(req, res));
 		app.post("/workspaces/:workspaceId/sessions", (req, res) => this.handleCreateSession(req, res));
+		app.post("/workspaces/:workspaceId/skills", (req, res) => this.handleUploadSkill(req, res));
 		app.post("/sessions/:sessionId/messages", (req, res) => { void this.handleChat(req, res, req.params.sessionId); });
 		app.post("/chat",           (req, res) => { void this.handleChat(req, res); });
 		app.post("/stop",           (req, res) => { void this.handleStop(req, res); });
@@ -1041,8 +1050,9 @@ export class HttpServer {
 		return String(raw ?? "").trim().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 64);
 	}
 
-	// Returns the workspace role, or sends a 404/403 and returns undefined.
-	private assertSapAccess(req: express.Request, res: express.Response, requireWrite: boolean): { userId: string; workspaceId: string } | undefined {
+	// Resolves req.params.workspaceId against the caller's membership, or sends a
+	// 404/403 and returns undefined. Used by every workspace-scoped write handler.
+	private assertWorkspaceRole(req: express.Request, res: express.Response, requireWrite: boolean): { userId: string; workspaceId: string } | undefined {
 		const userId = this.getUserId(req);
 		const workspaceId = String(req.params.workspaceId);
 		let role: WorkspaceRole;
@@ -1061,7 +1071,7 @@ export class HttpServer {
 
 	// GET /workspaces/:id/sap-adt/destinations
 	private async handleSapListDestinations(req: express.Request, res: express.Response): Promise<void> {
-		const ctx = this.assertSapAccess(req, res, false);
+		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		const userJwt = this.extractUserJwt(req);
 		const result = await this.runAdtCli(ctx.userId, ["-q", "auth", "destinations", "list"], { userJwt });
@@ -1090,7 +1100,7 @@ export class HttpServer {
 
 	// GET /workspaces/:id/sap-adt/local-systems
 	private async handleSapListLocalSystems(req: express.Request, res: express.Response): Promise<void> {
-		const ctx = this.assertSapAccess(req, res, false);
+		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		try {
 			const systems: SapLocalSystem[] = listLocalSapSystems();
@@ -1161,7 +1171,7 @@ export class HttpServer {
 
 	// POST /workspaces/:id/sap-adt/connections
 	private async handleSapCreateConnection(req: express.Request, res: express.Response): Promise<void> {
-		const ctx = this.assertSapAccess(req, res, true);
+		const ctx = this.assertWorkspaceRole(req, res, true);
 		if (!ctx) return;
 		if (["local", "sso"].includes(String((req.body as { mode?: unknown }).mode ?? "").trim().toLowerCase())) {
 			await this.createLocalSsoConnection(ctx, req, res);
@@ -1224,7 +1234,7 @@ export class HttpServer {
 
 	// DELETE /workspaces/:id/sap-adt/connections/:name
 	private async handleSapDeleteConnection(req: express.Request, res: express.Response): Promise<void> {
-		const ctx = this.assertSapAccess(req, res, true);
+		const ctx = this.assertWorkspaceRole(req, res, true);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const userJwt = this.extractUserJwt(req);
@@ -1237,7 +1247,7 @@ export class HttpServer {
 
 	// POST /workspaces/:id/sap-adt/connections/:name/test
 	private async handleSapTestConnection(req: express.Request, res: express.Response): Promise<void> {
-		const ctx = this.assertSapAccess(req, res, false);
+		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const userJwt = this.extractUserJwt(req);
@@ -1255,7 +1265,7 @@ export class HttpServer {
 
 	// GET /workspaces/:id/sap-adt/connections/:name/nodes?package=$TMP[&parentType=][&parentName=]
 	private async handleSapListNodes(req: express.Request, res: express.Response): Promise<void> {
-		const ctx = this.assertSapAccess(req, res, false);
+		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const pkg = String(req.query.package ?? "$TMP");
@@ -1281,7 +1291,7 @@ export class HttpServer {
 
 	// GET /workspaces/:id/sap-adt/connections/:name/source?uri=...
 	private async handleSapGetSource(req: express.Request, res: express.Response): Promise<void> {
-		const ctx = this.assertSapAccess(req, res, false);
+		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const uri = String(req.query.uri ?? "");
@@ -1319,7 +1329,7 @@ export class HttpServer {
 
 	// POST /workspaces/:id/sap-adt/connections/:name/tree/expand  body { path }
 	private async handleSapExpandTree(req: express.Request, res: express.Response): Promise<void> {
-		const ctx = this.assertSapAccess(req, res, false);
+		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const connDir = this.sapConnDir(ctx.workspaceId, name);
@@ -1362,7 +1372,7 @@ export class HttpServer {
 
 	// POST /workspaces/:id/sap-adt/connections/:name/tree/hydrate  body { path }
 	private async handleSapHydrateFile(req: express.Request, res: express.Response): Promise<void> {
-		const ctx = this.assertSapAccess(req, res, false);
+		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const connDir = this.sapConnDir(ctx.workspaceId, name);
@@ -1396,7 +1406,7 @@ export class HttpServer {
 
 	// GET /workspaces/:id/sap-adt/connections/:name/tree/manifest
 	private handleSapTreeManifest(req: express.Request, res: express.Response): void {
-		const ctx = this.assertSapAccess(req, res, false);
+		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const connDir = this.sapConnDir(ctx.workspaceId, name);
@@ -2269,6 +2279,116 @@ export class HttpServer {
 			: this.objectStore?.deleteObject(resolved);
 		void propagate?.catch((err) => log.logWarning("[object-store] delete propagation error", err instanceof Error ? err.message : String(err)));
 		res.json({ ok: true });
+	}
+
+	// POST /workspaces/:workspaceId/skills
+	// Writes an uploaded skill folder into workspaces/<id>/skills/<name>/, preserving the
+	// client's relative paths. Bytes arrive base64-encoded in the JSON body, matching the
+	// chat attachment convention (there is no multipart parser in this service).
+	private handleUploadSkill(req: express.Request, res: express.Response): void {
+		const ctx = this.assertWorkspaceRole(req, res, true);
+		if (!ctx) return;
+
+		const { folderName, overwrite = false, files } = req.body as {
+			folderName?: unknown;
+			overwrite?: boolean;
+			files?: Array<{ path?: unknown; content?: unknown }>;
+		};
+
+		if (!Array.isArray(files) || files.length === 0) {
+			res.status(400).json({ error: "No files to upload" });
+			return;
+		}
+		if (files.length > MAX_SKILL_UPLOAD_FILES) {
+			res.status(413).json({ error: `Too many files (${files.length}); the limit is ${MAX_SKILL_UPLOAD_FILES}` });
+			return;
+		}
+
+		const skillName = this.sanitizeConnectionName(folderName);
+		if (!skillName || skillName === "." || skillName === "..") {
+			res.status(400).json({ error: "Invalid skill folder name" });
+			return;
+		}
+
+		const skillRoot = join(this.workspaceStore.getWorkspaceRoot(ctx.workspaceId), "skills", skillName);
+
+		// Validate and decode everything up front so a bad payload cannot leave a
+		// half-written skill behind. Paths are relative to the picked folder: absolute
+		// paths, drive letters and "." / ".." segments are all rejected rather than
+		// normalized away.
+		const planned: Array<{ abs: string; bytes: Buffer }> = [];
+		const skipped: string[] = [];
+		let totalBytes = 0;
+		for (const file of files) {
+			const raw = String(file?.path ?? "").replace(/\\/g, "/");
+			const segments = raw.split("/");
+			// Folder pickers prefix every path with the picked folder itself.
+			if (segments.length > 1 && this.sanitizeConnectionName(segments[0]) === skillName) segments.shift();
+			if (segments.length === 0 || segments.some((seg) => seg === "" || seg === "." || seg === ".." || seg.includes(":"))) {
+				res.status(400).json({ error: `Invalid file path: ${raw}` });
+				return;
+			}
+			if (SKILL_UPLOAD_SKIP_NAMES.has(segments[segments.length - 1]) || segments.some((seg) => SKILL_UPLOAD_SKIP_DIRS.has(seg))) {
+				skipped.push(segments.join("/"));
+				continue;
+			}
+			const abs = resolve(join(skillRoot, ...segments));
+			const rel = relative(skillRoot, abs);
+			if (!rel || rel.startsWith("..") || isAbsolute(rel)) {
+				res.status(400).json({ error: `Invalid file path: ${raw}` });
+				return;
+			}
+			const bytes = Buffer.from(String(file?.content ?? ""), "base64");
+			totalBytes += bytes.byteLength;
+			if (totalBytes > MAX_SKILL_UPLOAD_BYTES) {
+				res.status(413).json({ error: `Skill folder is too large; the limit is ${Math.floor(MAX_SKILL_UPLOAD_BYTES / (1024 * 1024))} MB` });
+				return;
+			}
+			planned.push({ abs, bytes });
+		}
+
+		if (planned.length === 0) {
+			res.status(400).json({ error: "No files to upload" });
+			return;
+		}
+
+		// Checked after validation so a malformed payload reports the real problem
+		// instead of a conflict on a name it was never allowed to write.
+		if (existsSync(skillRoot) && !overwrite) {
+			res.status(409).json({ error: `Skill "${skillName}" already exists`, code: "exists", skillName });
+			return;
+		}
+
+		try {
+			// Replace rather than merge, so files dropped from the new version do not
+			// linger. The mirror delete matters too: a workspace snapshot alone would
+			// restore the stale files on the next boot.
+			if (existsSync(skillRoot)) {
+				rmSync(skillRoot, { recursive: true, force: true });
+				void this.objectStore
+					?.deleteObjectsUnder(skillRoot)
+					.catch((err) => log.logWarning("[object-store] skill replace propagation error", err instanceof Error ? err.message : String(err)));
+			}
+			for (const entry of planned) {
+				mkdirSync(dirname(entry.abs), { recursive: true });
+				writeFileSync(entry.abs, entry.bytes);
+			}
+		} catch (err) {
+			res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+			return;
+		}
+
+		void this.objectStore
+			?.snapshot({ workspaceId: ctx.workspaceId })
+			.catch((err) => log.logWarning("[object-store] skill upload propagation error", err instanceof Error ? err.message : String(err)));
+
+		res.json({
+			ok: true,
+			skillName,
+			path: `workspaces/${ctx.workspaceId}/skills/${skillName}`,
+			fileCount: planned.length,
+			skipped,
+		});
 	}
 
 	private handleMessages(req: express.Request, channelId: string, res: express.Response): void {
