@@ -202,7 +202,7 @@ Maximum 5 events can be queued. Don't create excessive immediate or periodic eve
 `
 		: "";
 
-	return `You are Octo Agent, a Teams bot assistant. Be concise. No emojis.
+	return `You are Symphony Studio, a Teams bot assistant. Be concise. No emojis.
 
 ## Context
 - For current date/time, use: date

@@ -1,4 +1,4 @@
-import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, translations, type AcpJob, type AuthUser, type ConnectorStatus, type CoreServiceFeatures, type CustomModelConfig, type LlmConfig, type SapDestination, type SapLocalSystem, type SapTreeManifestEntry, type SessionInfo, type SsoConfig, type WorkspaceInfo, type WorkspaceNode, type WorkspaceSandboxStatus, type WorkspaceScheduledEvent, type WorkspaceSettings, type WorkspaceTableSummary, type WorkspaceTemplate, type WorkspaceTree } from "@octo/web-ui-corp";
+import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, fileToBase64, translations, type AcpJob, type AuthUser, type ConnectorStatus, type CoreServiceFeatures, type CustomModelConfig, type LlmConfig, type SapDestination, type SapLocalSystem, type SapTreeManifestEntry, type SessionInfo, type SkillUploadFile, type SsoConfig, type WorkspaceInfo, type WorkspaceNode, type WorkspaceSandboxStatus, type WorkspaceScheduledEvent, type WorkspaceSettings, type WorkspaceTableSummary, type WorkspaceTemplate, type WorkspaceTree } from "@octo/web-ui-corp";
 import { setTranslations } from "@mariozechner/mini-lit";
 import { html, render } from "lit";
 import { icon } from "@mariozechner/mini-lit";
@@ -116,6 +116,20 @@ let newWorkspaceName = "New workspace";
 let newWorkspaceTemplateId = "sap-cap";
 let newWorkspaceBusy = false;
 let newWorkspaceError = "";
+// Skill folder upload (Skills tab). Files are read in the browser, then confirmed in a
+// dialog before anything is sent, so a mis-picked folder never reaches the server.
+const MAX_SKILL_UPLOAD_FILES = 500;
+const MAX_SKILL_UPLOAD_BYTES = 25 * 1024 * 1024;
+const SKILL_UPLOAD_SKIP_NAMES = new Set([".DS_Store", "Thumbs.db"]);
+const SKILL_UPLOAD_SKIP_DIRS = new Set([".git", "node_modules"]);
+let skillUploadDialogOpen = false;
+let skillUploadReading = false;
+let skillUploadFolderName = "";
+let skillUploadFiles: SkillUploadFile[] = [];
+let skillUploadBytes = 0;
+let skillUploadSkipped: string[] = [];
+let skillUploadBusy = false;
+let skillUploadError = "";
 const databaseTables = new Map<string, WorkspaceTableSummary[]>();
 const expandedFolders = new Set<string>();
 const client = new CoreServiceClient(baseUrl, () => authToken);
@@ -127,7 +141,7 @@ const chatPanel = new CoreServiceChatPanel();
 chatPanel.baseUrl = baseUrl;
 chatPanel.channelId = channelId;
 chatPanel.userName = userName;
-chatPanel.agentName = "Octo Agent";
+chatPanel.agentName = "Symphony Studio";
 chatPanel.authToken = authToken;
 chatPanel.addEventListener("file-preview-open", () => {
 	if (workspaceOpen && sidebarOpen) {
@@ -353,7 +367,7 @@ async function loadWorkspace() {
 	renderApp();
 }
 
-async function deleteWorkspaceArtifact(path: string, isFolder = false) {
+async function deleteWorkspaceEntry(path: string, isFolder = false) {
 	const name = path.split("/").pop() ?? path;
 	const message = isFolder
 		? `Delete folder "${name}" and all its contents? This cannot be undone.`
@@ -364,11 +378,117 @@ async function deleteWorkspaceArtifact(path: string, isFolder = false) {
 	await loadWorkspace();
 }
 
-async function downloadWorkspaceArtifact(path: string, isFolder = false) {
+async function downloadWorkspaceEntry(path: string, isFolder = false) {
 	// Folders are downloaded as a .zip archive built by the server.
 	const zipName = isFolder ? `${path.split("/").pop() ?? "folder"}.zip` : undefined;
 	const ok = await client.downloadWorkspaceFile(path, zipName);
 	if (!ok) alert("Download failed");
+}
+
+function formatBytes(bytes: number): string {
+	if (bytes < 1024) return `${bytes} B`;
+	if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+	return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+// A folder picker hands over every file it found, each carrying its path relative to the
+// picked folder in webkitRelativePath. Read them all, then let the user confirm.
+async function onSkillFolderPicked(event: Event) {
+	const input = event.target as HTMLInputElement;
+	const picked = Array.from(input.files ?? []);
+	input.value = ""; // Reset so picking the same folder again still fires a change event.
+	if (picked.length === 0) return;
+
+	const relPathOf = (file: File) => (file.webkitRelativePath || file.name).replace(/\\/g, "/");
+	skillUploadFolderName = relPathOf(picked[0]).split("/")[0] || picked[0].name;
+	skillUploadSkipped = [];
+	skillUploadFiles = [];
+	skillUploadBytes = 0;
+	skillUploadError = "";
+	skillUploadBusy = false;
+
+	const wanted: Array<{ file: File; path: string }> = [];
+	for (const file of picked) {
+		const segments = relPathOf(file).split("/");
+		if (segments.length > 1) segments.shift(); // Drop the picked folder itself.
+		const rel = segments.join("/");
+		if (SKILL_UPLOAD_SKIP_NAMES.has(segments[segments.length - 1]) || segments.some((seg) => SKILL_UPLOAD_SKIP_DIRS.has(seg))) {
+			skillUploadSkipped.push(rel);
+			continue;
+		}
+		wanted.push({ file, path: rel });
+		skillUploadBytes += file.size;
+	}
+
+	skillUploadDialogOpen = true;
+	if (wanted.length === 0) {
+		skillUploadError = "That folder has no files to upload";
+		renderApp();
+		return;
+	}
+	if (wanted.length > MAX_SKILL_UPLOAD_FILES) {
+		skillUploadError = `That folder has ${wanted.length} files; the limit is ${MAX_SKILL_UPLOAD_FILES}`;
+		renderApp();
+		return;
+	}
+	if (skillUploadBytes > MAX_SKILL_UPLOAD_BYTES) {
+		skillUploadError = `That folder is ${formatBytes(skillUploadBytes)}; the limit is ${formatBytes(MAX_SKILL_UPLOAD_BYTES)}`;
+		renderApp();
+		return;
+	}
+
+	skillUploadReading = true;
+	renderApp();
+	try {
+		skillUploadFiles = await Promise.all(wanted.map(async (entry) => ({ path: entry.path, content: await fileToBase64(entry.file) })));
+	} catch (err) {
+		skillUploadError = `Could not read the folder: ${err instanceof Error ? err.message : String(err)}`;
+	} finally {
+		skillUploadReading = false;
+		renderApp();
+	}
+}
+
+function closeSkillUploadDialog() {
+	if (skillUploadBusy || skillUploadReading) return;
+	skillUploadDialogOpen = false;
+	skillUploadFiles = [];
+	skillUploadSkipped = [];
+	skillUploadError = "";
+	renderApp();
+}
+
+async function submitSkillUpload(event?: Event) {
+	event?.preventDefault();
+	if (skillUploadBusy || skillUploadReading || skillUploadFiles.length === 0 || !workspaceId) return;
+	skillUploadBusy = true;
+	skillUploadError = "";
+	renderApp();
+
+	let result = await client.uploadWorkspaceSkill(workspaceId, skillUploadFolderName, skillUploadFiles);
+	if (!result.ok && result.exists) {
+		const name = result.skillName ?? skillUploadFolderName;
+		if (!confirm(`Skill "${name}" already exists. Replace it entirely? Files not in the new folder will be deleted.`)) {
+			skillUploadBusy = false;
+			renderApp();
+			return;
+		}
+		result = await client.uploadWorkspaceSkill(workspaceId, skillUploadFolderName, skillUploadFiles, true);
+	}
+	if (!result.ok) {
+		skillUploadBusy = false;
+		skillUploadError = result.error ?? "Upload failed";
+		renderApp();
+		return;
+	}
+
+	skillUploadBusy = false;
+	skillUploadDialogOpen = false;
+	skillUploadFiles = [];
+	skillUploadSkipped = [];
+	workspaceTab = "skills";
+	if (result.path) expandedFolders.add(result.path);
+	await loadWorkspace();
 }
 
 function normalizeWorkspaceArtifactFilename(path: string): string {
@@ -1927,13 +2047,13 @@ function sapDisplayName(node: WorkspaceNode, info: SapTreeManifestEntry | undefi
 	return base.replace(/#/g, "/").toUpperCase();
 }
 
-// Hover-revealed download/delete buttons for one artifact tree row.
-function renderArtifactActions(path: string, isFolder: boolean) {
+// Hover-revealed download/delete buttons for one workspace tree row (artifacts or skills).
+function renderNodeActions(path: string, isFolder: boolean) {
 	return html`
 		<button class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-secondary text-muted-foreground transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title=${isFolder ? "Download as .zip" : "Download"}
-			@click=${(e: Event) => { e.stopPropagation(); void downloadWorkspaceArtifact(path, isFolder); }}>${icon(Download, "xs")}</button>
+			@click=${(e: Event) => { e.stopPropagation(); void downloadWorkspaceEntry(path, isFolder); }}>${icon(Download, "xs")}</button>
 		<button class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 text-destructive transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title="Delete"
-			@click=${(e: Event) => { e.stopPropagation(); void deleteWorkspaceArtifact(path, isFolder); }}>${icon(Trash2, "xs")}</button>`;
+			@click=${(e: Event) => { e.stopPropagation(); void deleteWorkspaceEntry(path, isFolder); }}>${icon(Trash2, "xs")}</button>`;
 }
 
 // Filter the loaded tree by name (case-insensitive). A directory-name match keeps
@@ -1973,7 +2093,7 @@ function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false, forc
 						<span class="truncate">${node.name}</span>
 						${count >= 0 ? html`<span class="shrink-0 text-[11px] text-muted-foreground">(${count})</span>` : ""}
 					</button>
-					${withActions && !isSapFolder ? renderArtifactActions(node.path, true) : ""}
+					${withActions && !isSapFolder ? renderNodeActions(node.path, true) : ""}
 				</div>
 				${open && node.children ? html`<div>${renderTree(node.children, depth + 1, withActions, forceOpen)}</div>` : ""}
 			</div>`;
@@ -1996,7 +2116,7 @@ function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false, forc
 				<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(fileIconFor(node.name), "xs")}</span>
 				<span class="truncate">${node.name}</span>
 			</button>
-			${withActions ? renderArtifactActions(node.path, false) : ""}
+			${withActions ? renderNodeActions(node.path, false) : ""}
 		</div>`;
 	});
 }
@@ -2193,6 +2313,52 @@ function renderCreateWorkspaceDialog() {
 						@click=${submitCreateWorkspace}
 					>
 						${newWorkspaceBusy ? "Creating..." : "Create"}
+					</ui5-button>
+				</div>
+			</form>
+		</div>
+	`;
+}
+
+function renderSkillUploadDialog() {
+	if (!skillUploadDialogOpen) return "";
+	const previewPaths = skillUploadFiles.slice(0, 8);
+	const canUpload = !skillUploadReading && !skillUploadBusy && skillUploadFiles.length > 0;
+	return html`
+		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" @click=${closeSkillUploadDialog}>
+			<form class="w-full max-w-xl rounded border border-border bg-background shadow-xl" @submit=${submitSkillUpload} @click=${(e: Event) => e.stopPropagation()}>
+				<div class="flex items-center justify-between border-b border-border px-4 py-3">
+					<div>
+						<div class="text-sm font-semibold">Upload skill folder</div>
+						<div class="text-xs text-muted-foreground">The whole folder is copied into this workspace's skills, keeping its structure.</div>
+					</div>
+					${Ui5Button({ className: "corp-tight-icon-button", ui5Icon: "decline", onClick: closeSkillUploadDialog, title: "Close" })}
+				</div>
+				<div class="flex flex-col gap-3 p-4">
+					<div class="grid gap-1 text-xs">
+						<div><span class="text-muted-foreground">Skill name:</span> <span class="font-mono">${skillUploadFolderName}</span></div>
+						<div>
+							<span class="text-muted-foreground">Contents:</span>
+							${skillUploadReading ? html`<span> reading files...</span>` : html`<span> ${skillUploadFiles.length} files, ${formatBytes(skillUploadBytes)}</span>`}
+						</div>
+					</div>
+					${previewPaths.length > 0 ? html`
+						<div class="max-h-[35vh] overflow-y-auto rounded border border-border p-3 font-mono text-xs">
+							${previewPaths.map((file) => html`<div class="truncate">${file.path}</div>`)}
+							${skillUploadFiles.length > previewPaths.length
+								? html`<div class="text-muted-foreground">and ${skillUploadFiles.length - previewPaths.length} more...</div>`
+								: ""}
+						</div>
+					` : ""}
+					${skillUploadSkipped.length > 0
+						? html`<div class="text-xs text-muted-foreground">Skipped ${skillUploadSkipped.length} file(s): ${skillUploadSkipped.slice(0, 3).join(", ")}${skillUploadSkipped.length > 3 ? ", ..." : ""}</div>`
+						: ""}
+					${skillUploadError ? html`<div class="text-xs text-destructive">${skillUploadError}</div>` : ""}
+				</div>
+				<div class="flex justify-end gap-2 border-t border-border px-4 py-3">
+					${Ui5Button({ children: "Cancel", onClick: closeSkillUploadDialog, disabled: skillUploadBusy || skillUploadReading })}
+					<ui5-button class="corp-ui5-button" design="Emphasized" ?disabled=${!canUpload} @click=${submitSkillUpload}>
+						${skillUploadBusy ? "Uploading..." : "Upload"}
 					</ui5-button>
 				</div>
 			</form>
@@ -2790,7 +2956,7 @@ function renderApp() {
 							onClick: toggleSidebar,
 							title: sidebarOpen ? "Collapse sessions" : "Expand sessions",
 						})}
-						<span class="corp-app-title text-base font-semibold text-foreground">Octo Agent</span>
+						<span class="corp-app-title text-base font-semibold text-foreground">Symphony Studio</span>
 					</div>
 					<div class="flex items-center gap-2">
 						${Ui5Button({
@@ -2936,12 +3102,31 @@ function renderApp() {
 													></ui5-input>
 												</div>
 											`
-											: ""}
+											: html`
+												<div class="pt-2">
+													${Ui5Button({
+														className: "corp-wide-button",
+														ui5Icon: "upload",
+														children: "Upload skill folder",
+														disabled: !workspaceId || skillUploadBusy || skillUploadReading,
+														onClick: () => document.getElementById("skill-folder-input")?.click(),
+														title: "Upload a folder as a workspace skill",
+													})}
+													<input
+														id="skill-folder-input"
+														type="file"
+														webkitdirectory
+														multiple
+														style="display: none;"
+														@change=${(e: Event) => void onSkillFolderPicked(e)}
+													/>
+												</div>
+											`}
 									</div>
 									<div class="flex-1 overflow-y-auto p-2">
 										${workspaceTab === "artifacts"
 											? renderArtifacts()
-											: html`${workspaceTree.skills.length > 0 ? renderTree(workspaceTree.skills) : html`<div class="text-xs text-muted-foreground px-2 py-1">No skills</div>`}`}
+											: html`${workspaceTree.skills.length > 0 ? renderTree(workspaceTree.skills, 0, true) : html`<div class="text-xs text-muted-foreground px-2 py-1">No skills</div>`}`}
 									</div>
 								</div>
 								${renderAcpWorkersPanel()}
@@ -2959,6 +3144,7 @@ function renderApp() {
 						: ""}
 				</div>
 				${renderCreateWorkspaceDialog()}
+				${renderSkillUploadDialog()}
 				${renderProviderDialog()}
 				${renderWorkspaceEventsDialog()}
 				${renderWorkspaceSettingsDialog()}

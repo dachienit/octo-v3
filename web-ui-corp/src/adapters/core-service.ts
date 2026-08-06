@@ -226,6 +226,21 @@ export type WorkspaceTree = {
 	skills: WorkspaceNode[];
 };
 
+export type SkillUploadFile = {
+	path: string; // relative to the picked folder, forward slashes
+	content: string; // base64, no data URL prefix
+};
+
+export type SkillUploadResult = {
+	ok: boolean;
+	error?: string;
+	exists?: boolean; // the skill name is already taken; retry with overwrite
+	skillName?: string;
+	path?: string;
+	fileCount?: number;
+	skipped?: string[];
+};
+
 export type SapConnection = {
 	name: string;
 	destinationName: string;
@@ -893,6 +908,44 @@ export class CoreServiceClient {
 			return true;
 		} catch {
 			return false;
+		}
+	}
+
+	// Upload a whole skill folder into workspaces/<id>/skills/<folderName>/. Paths are
+	// relative to the picked folder and file bytes are base64-encoded, because the service
+	// has no multipart parser. A 409 means the skill already exists — retry with
+	// overwrite: true to replace it.
+	async uploadWorkspaceSkill(
+		workspaceId: string,
+		folderName: string,
+		files: SkillUploadFile[],
+		overwrite = false,
+	): Promise<SkillUploadResult> {
+		try {
+			const response = await this.fetch(`/workspaces/${encodeURIComponent(workspaceId)}/skills`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ folderName, overwrite, files }),
+			});
+			const data = (await response.json().catch(() => ({}))) as {
+				error?: string;
+				code?: string;
+				skillName?: string;
+				path?: string;
+				fileCount?: number;
+				skipped?: string[];
+			};
+			if (!response.ok) {
+				return {
+					ok: false,
+					error: data.error ?? `HTTP ${response.status}`,
+					exists: response.status === 409 || data.code === "exists",
+					skillName: data.skillName,
+				};
+			}
+			return { ok: true, skillName: data.skillName, path: data.path, fileCount: data.fileCount, skipped: data.skipped };
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) };
 		}
 	}
 

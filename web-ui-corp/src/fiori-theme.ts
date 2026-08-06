@@ -21,6 +21,7 @@ import "@ui5/webcomponents-icons/dist/navigation-right-arrow.js";
 import "@ui5/webcomponents-icons/dist/navigation-down-arrow.js";
 import "@ui5/webcomponents-icons/dist/refresh.js";
 import "@ui5/webcomponents-icons/dist/settings.js";
+import "@ui5/webcomponents-icons/dist/upload.js";
 import { setTheme } from "@ui5/webcomponents-base/dist/config/Theme.js";
 
 export const CORPORATE_FIORI_THEME = "sap_horizon";

@@ -4,9 +4,9 @@
 // XSUAA-issued JWT to this service as `Authorization: Bearer <jwt>`. This module
 // validates that JWT (signature/issuer/expiry) using @sap/xssec against the bound
 // `xsuaa` service credentials, then extracts a stable identity that the auth layer
-// maps onto a local Octo user via the existing federated-identity mechanism.
+// maps onto a local Symphony user via the existing federated-identity mechanism.
 //
-// It is only active when OCTO_EDGE_AUTH=xsuaa, so local/dev runs are unaffected
+// It is only active when SYMPHONY_STUDIO_EDGE_AUTH=xsuaa, so local/dev runs are unaffected
 // and do not need the XSUAA binding present.
 
 export interface XsuaaIdentity {
@@ -24,7 +24,7 @@ let xsuaaService: any | undefined;
 let createSecurityContext: ((service: any, options: { token: string }) => Promise<unknown>) | undefined;
 
 export function isXsuaaEnabled(): boolean {
-	return process.env.OCTO_EDGE_AUTH === "xsuaa";
+	return process.env.SYMPHONY_STUDIO_EDGE_AUTH === "xsuaa";
 }
 
 async function ensureService(): Promise<boolean> {

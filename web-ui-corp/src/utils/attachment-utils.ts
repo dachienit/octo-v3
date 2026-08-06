@@ -17,6 +17,26 @@ export interface Attachment {
 }
 
 /**
+ * Encode bytes as base64 without a data URL prefix, in chunks so large files do not
+ * overflow the call stack.
+ */
+export function bytesToBase64(arrayBuffer: ArrayBuffer): string {
+	const uint8Array = new Uint8Array(arrayBuffer);
+	let binary = "";
+	const chunkSize = 0x8000; // Process in 32KB chunks to avoid stack overflow
+	for (let i = 0; i < uint8Array.length; i += chunkSize) {
+		const chunk = uint8Array.slice(i, i + chunkSize);
+		binary += String.fromCharCode(...chunk);
+	}
+	return btoa(binary);
+}
+
+/** Read a File/Blob and return its bytes base64-encoded. */
+export async function fileToBase64(source: Blob): Promise<string> {
+	return bytesToBase64(await source.arrayBuffer());
+}
+
+/**
  * Load an attachment from various sources
  * @param source - URL string, File, Blob, or ArrayBuffer
  * @param fileName - Optional filename override
@@ -64,14 +84,7 @@ export async function loadAttachment(
 	}
 
 	// Convert ArrayBuffer to base64 - handle large files properly
-	const uint8Array = new Uint8Array(arrayBuffer);
-	let binary = "";
-	const chunkSize = 0x8000; // Process in 32KB chunks to avoid stack overflow
-	for (let i = 0; i < uint8Array.length; i += chunkSize) {
-		const chunk = uint8Array.slice(i, i + chunkSize);
-		binary += String.fromCharCode(...chunk);
-	}
-	const base64Content = btoa(binary);
+	const base64Content = bytesToBase64(arrayBuffer);
 
 	// Detect type and process accordingly
 	const id = `${detectedFileName}_${Date.now()}_${Math.random()}`;
