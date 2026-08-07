@@ -2,16 +2,20 @@ import {
 	closeMcpTools,
 	CoreAgent,
 	createMcpTools,
+	formatSize,
 	formatSkillsForPrompt,
 	getMemory,
 	loadSkills,
+	isExtractableDocument,
+	readOutline,
 	type CoreAgentEventHandlers,
 	type McpServerConfig,
 	type SandboxConfig,
 } from "@octo/core-agent";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
-import { existsSync, readFileSync } from "fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
+import { getAppTitle } from "./branding.js";
 import * as log from "./log.js";
 import type { BotContext, ChannelInfo, UserInfo } from "./types.js";
 import type { ChannelStore } from "./store.js";
@@ -40,6 +44,8 @@ export interface RunnerOptions {
 	agentWorkersEnabled?: boolean;
 	remindersEnabled?: boolean;
 	mcpServers?: McpServerConfig[];
+	/** Workspace `settings.tools.enabled`; omitted means "never configured". */
+	enabledTools?: string[];
 }
 
 function truncate(text: string, maxLen: number): string {
@@ -94,6 +100,106 @@ function splitForSlack(text: string): string[] {
 	return parts;
 }
 
+/**
+ * Lists what the user has uploaded to this session, with size and — when the
+ * outline cache already knows — page, sheet or slide counts.
+ *
+ * This is the cheapest rung of the search ladder. It costs a few dozen tokens
+ * and removes the reflexive opening `glob` that used to spend a couple of
+ * thousand listing paths the model mostly did not need. Nothing here extracts a
+ * document: an unknown page count is simply left off.
+ */
+function buildAttachmentInventory(workspacePath: string, channelId: string): string {
+	const dir = join(workspacePath, "sessions", channelId, "attachments");
+	const files = collectAttachmentFiles(dir);
+	if (files.length === 0) return "";
+
+	const cacheDir = join(workspacePath, ".octo", "doc-index");
+	const rows: Array<{ line: string; mtimeMs: number }> = [];
+
+	if (files.length <= MAX_INVENTORY_ROWS) {
+		for (const file of files) {
+			let detail = formatSize(file.size);
+			const kind = isExtractableDocument(file.full);
+			if (kind) {
+				const outline = readOutline(cacheDir, file.full, { size: file.size, mtimeMs: file.mtimeMs });
+				const unit = kind === "pdf" ? "page" : kind === "pptx" ? "slide" : "sheet";
+				detail +=
+					outline?.unitCount !== undefined && outline.unitCount > 0
+						? `, ${kind}, ${outline.unitCount} ${unit}${outline.unitCount === 1 ? "" : "s"}`
+						: `, ${kind}`;
+			}
+			rows.push({ line: `${file.rel}\t${detail}`, mtimeMs: file.mtimeMs });
+		}
+	} else {
+		// An uploaded folder can hold dozens of files; listing every one would turn the
+		// cheapest rung of the ladder into an expensive one. Collapse each folder to a
+		// single row — the agent globs or greps it from there.
+		const folders = new Map<string, { count: number; size: number; mtimeMs: number }>();
+		for (const file of files) {
+			const cut = file.rel.indexOf("/");
+			if (cut === -1) {
+				rows.push({ line: `${file.rel}\t${formatSize(file.size)}`, mtimeMs: file.mtimeMs });
+				continue;
+			}
+			const top = file.rel.slice(0, cut);
+			const group = folders.get(top) ?? { count: 0, size: 0, mtimeMs: 0 };
+			group.count += 1;
+			group.size += file.size;
+			group.mtimeMs = Math.max(group.mtimeMs, file.mtimeMs);
+			folders.set(top, group);
+		}
+		for (const [name, group] of folders) {
+			rows.push({
+				line: `${name}/\t${group.count} file${group.count === 1 ? "" : "s"}, ${formatSize(group.size)}`,
+				mtimeMs: group.mtimeMs,
+			});
+		}
+	}
+	if (rows.length === 0) return "";
+
+	// Newest first, matching what `glob` reports, so "the file I just uploaded" is
+	// always the top line.
+	rows.sort((a, b) => b.mtimeMs - a.mtimeMs);
+	return rows.map((row) => row.line).join("\n");
+}
+
+/** Beyond this the inventory summarizes folders instead of naming every file in them. */
+const MAX_INVENTORY_ROWS = 40;
+
+type InventoryFile = { rel: string; full: string; size: number; mtimeMs: number };
+
+/**
+ * Every file under the session's attachments, with its path relative to that directory.
+ * Uploading a folder keeps its tree, so a flat readdir would report the folder and none
+ * of its contents.
+ */
+function collectAttachmentFiles(dir: string, prefix = "", out: InventoryFile[] = []): InventoryFile[] {
+	let names: string[];
+	try {
+		names = readdirSync(dir);
+	} catch {
+		return out;
+	}
+
+	for (const name of names) {
+		const full = join(dir, name);
+		const rel = prefix ? `${prefix}/${name}` : name;
+		let stat: ReturnType<typeof statSync>;
+		try {
+			stat = statSync(full);
+		} catch {
+			continue;
+		}
+		if (stat.isDirectory()) {
+			collectAttachmentFiles(full, rel, out);
+		} else if (stat.isFile()) {
+			out.push({ rel, full, size: stat.size, mtimeMs: stat.mtimeMs });
+		}
+	}
+	return out;
+}
+
 function buildSystemPrompt(
 	workspacePath: string,
 	channelId: string,
@@ -133,6 +239,8 @@ function buildSystemPrompt(
 		: `You are running directly on the host machine.
 - Bash working directory: ${workingDirectory}
 - Be careful with system modifications`;
+
+	const attachmentInventory = buildAttachmentInventory(workspacePath, channelId);
 
 	const workspaceInstructionsSection = workspaceInstructions.trim()
 		? `\n## Workspace Instructions\nThese workspace-specific instructions are loaded from AGENTS.md/agents.md/CLAUDE.md/claude.md in the workspace root and override general behavior when they conflict.\n\n${workspaceInstructions.trim()}\n`
@@ -202,12 +310,38 @@ Maximum 5 events can be queued. Don't create excessive immediate or periodic eve
 `
 		: "";
 
-	return `You are Octo Agent, a Teams bot assistant. Be concise. No emojis.
+	return `You are ${getAppTitle()}, a Teams bot assistant. Be concise. No emojis.
 
 ## Context
 - For current date/time, use: date
 - You have access to previous conversation context including tool results from prior turns.
 - For older history beyond your context, search log.jsonl (contains user messages and your final responses, but not tool results).
+
+## Grounding: the workspace outranks what you already know
+The artifacts folder and this session's attachments are the source of truth about this user's world. Your training data is not. When a file contradicts what you believe, **the file is right**, and you say which file it came from.
+
+**Search whenever the question is about something that could be in a file here** — an invoice, order, contract, report, spec, ticket, meeting note, dataset, or any specific figure, date, name, ID or status belonging to the user. Do this on the first turn, without being asked. A confident answer built from general knowledge is wrong in a way the user may not catch.
+
+The trap to avoid: recognizing the *kind* of thing being asked about and answering about the category instead of their instance. Knowing what a final invoice generally contains is not knowing what is in *their* final invoice. If the user names a document, a number, or a business object, assume the answer lives in a file and go find it.
+
+### How to search: cheapest step first
+Each step below costs roughly ten times the one before it. Do not skip ahead — pulling a whole document into context to find one paragraph is the most expensive mistake available to you, and it crowds out the conversation you are having.
+
+0. **Honour what the user pointed at.** A \`<mentions>\` block on their message means they tagged those paths deliberately with \`@\` — start there before searching anywhere else. \`read\` a \`file:\` mention; \`glob\` or \`grep\` a \`dir:\` mention rather than trying to read it. The paths are given to you, not the contents, so fetch only what you need.
+1. **Look at what you already have.** The attachments for this session are listed below, with their sizes and page counts. You do not need a \`glob\` to discover them.
+2. **\`grep\` to locate.** It searches pdf, docx, xlsx and pptx too, and tells you which page, sheet or slide matched. Try more than one wording, including the user's own words and language, and the obvious synonyms — a miss on the first phrasing is not an answer. Use \`output_mode="files_with_matches"\` when you only need to know *where* something is.
+3. **\`read\` to navigate.** A large document returns an outline of its pages rather than its text. That is the map, not a failure — read it and choose.
+4. **\`read\` again with \`pages=\`** for just the part you need: \`pages="27"\`, \`pages="3-7"\`, \`pages="2,9"\`, or a sheet name. Use \`pages="all"\` only when the question genuinely needs the whole document.
+
+Use \`glob\` when you need to discover files you have not been told about — it reports sizes, so you can tell a small note from a large report before opening either.
+
+**Source code takes the same ladder, with line numbers where a document would use pages.** \`glob\` to find candidate files, \`grep\` to get \`path:line\`, then \`read(offset=<that line>, limit=…)\` for the region around it. \`read\` prefixes every text line with its number, so the coordinate \`grep\` gave you is the one you get back and a second hit in the same file is one more \`offset\` away. Reading a whole source file to look at one method is the same mistake as pulling a whole PDF for one paragraph. Strip the \`42→\` prefix before you quote a line or hand it to \`edit\` — it is not in the file.
+
+**Delegate the wide sweeps.** When the answer needs more than about three documents read, or the search is open-ended, launch \`task\` with the \`doc-research\` subagent. It reads on its own context budget and returns the answer with citations, which keeps hundreds of pages out of this conversation.
+
+Then answer **from what the files say**, and name the file and page.
+
+If the search genuinely turns up nothing, say what you searched for and where, and ask — do not fill the gap from memory. If \`grep\` reports that it skipped a document (for example a scanned PDF with no text layer), tell the user that instead of treating the file as empty.
 
 ## Teams Formatting (mrkdwn, NOT Markdown)
 Bold: *text*, Italic: _text_, Code: \`code\`, Block: \`\`\`code\`\`\`, Links: <url|text>
@@ -236,6 +370,9 @@ ${workspacePathFwd}/
     └── skills/                  # Channel-specific tools
 
 Relative file paths in tools resolve inside \`${workingDirectory}/\`.
+
+\`glob\` and \`grep\` search two places by default: \`${workspacePathFwd}/artifacts/\` and this session's \`${channelPath}/attachments/\`. So a file the user just uploaded is already in scope — you do not need to pass a \`path\` to reach it, and you should not assume an upload is invisible to you. Pass \`path\` only to deliberately narrow the search; doing so searches that directory alone.
+${attachmentInventory ? `\n## Session Attachments\nFiles the user uploaded to this session, newest first. These are already in scope for \`glob\` and \`grep\`, and are usually what a question is about.\n\n${attachmentInventory}\n` : ""}
 
 ## File Outputs
 - Your working directory is the shared workspace artifacts folder: \`${workspacePathFwd}/artifacts/\`.
@@ -291,6 +428,12 @@ ${skills.length > 0 ? formatSkillsForPrompt(skills) : "(no skills installed yet)
 
 If a skill is listed above, it is available in this workspace. Do not claim a listed skill is unavailable and do not look for it as a tool.
 When the user asks to use a listed skill, or the request strongly matches a listed skill description, read that skill's \`SKILL.md\` from the listed location before answering unless the answer is only a trivial clarification.
+
+### Invoked skills
+A \`<skills>\` block on a user message means they invoked those skills explicitly by name (the \`/skill-name\` mechanic in the composer). That is not a hint to weigh like a mention — it is the instruction for the request:
+1. \`read\` each listed \`SKILL.md\` **first**, before any other tool call and before answering.
+2. Follow it for this request, including anything it says about scripts or references in its own directory.
+3. Do not ask whether the skill should be used, and do not answer from general knowledge instead. If a listed path cannot be read, say so plainly rather than improvising.
 Treat natural names as aliases for listed skill IDs. For example, "abap cds skill", "ABAP CDS", and "CDS skill" refer to \`sap-abap-cds\` when that skill is listed.
 
 ${eventsSection}
@@ -331,13 +474,32 @@ grep '"userName":"mario"' log.jsonl | tail -20 | jq -c '{date: .date[0:19], text
 \`\`\`
 
 ## Tools
-- bash: Run shell commands (primary tool). Install packages as needed.
-- read: Read files
+
+Files and shell
+- read: Read files. Text lines come back prefixed with their line number (\`  42→…\`), which is the same number \`grep\` reports — so use \`offset\` to land on a match instead of reading the file from the top. The prefix is not part of the file. For pdf, docx, xlsx and pptx it returns the document's extracted text with page/sheet/slide markers instead. A large document returns an outline of its pages rather than its body — pick from it and read again with \`pages="3-7"\` rather than pulling the whole document into context.
 - write: Create/overwrite files
-- edit: Surgical file edits
+- edit: Surgical file edits. \`oldText\` must match the file exactly, so strip the \`42→\` line-number prefix off anything you copied out of \`read\`.
+- bash: Run shell commands. Install packages as needed. Set run_in_background for long-running commands.
 - attach: Share files to Web or Teams
 
+Search — prefer these over running find/grep/dir through bash. They behave identically on the host and in the sandbox, whereas shell commands do not. Both cover the workspace artifacts folder and this session's attachments; see "Grounding" above for when to reach for them.
+- glob: Find files by pattern, newest first, with their size and (for documents) page count. Use it to discover files you have not been told about; the attachments for this session are already listed above.
+- grep: Search file contents by regular expression. It also looks inside pdf, docx, xlsx and pptx by extracting their text, names the page/sheet/slide that matched, and reports which documents it had to skip and why (for example a scanned PDF with no text layer). When looking for information that could be in an attachment or report, grep before answering at all — not just before concluding it is not there — and try more than one wording, including the user's own language. On a broad search it shows a few matches per file so one noisy file cannot hide the others; narrow with \`path\` or \`glob\` to see everything in one file.
+
+Background shells
+- bash_output: Read new output from a background shell
+- kill_shell: Stop a background shell
+
+Web
+- web_fetch: Read one http(s) URL as Markdown. Private and internal hosts are blocked; reach SAP systems through the sap-adt connector instead.
+
+Planning and delegation
+- todo_write: Keep the task list current for any work with several steps, so the user can see progress. Send the whole list each time and keep one item in_progress.
+- exit_plan_mode: In plan mode, present your plan and leave plan mode before making changes
+- task: Launch a subagent for self-contained work. It has its own context window, so use it for broad searches whose intermediate output you do not need. For questions that have to be answered out of several documents, use the \`doc-research\` type: it does the reading on its own budget and returns the answer with file and page citations.
+
 Each tool requires a "label" parameter (shown to user).
+
 `;
 }
 
@@ -351,10 +513,15 @@ function loadWorkspaceInstructions(workspacePath: string): string {
 
 // Cache one CoreAgent per channel/auth file. AgentSession owns a ModelRegistry
 // bound to its AuthStorage, so recreate the agent when a web user auth path changes.
-const channelAgents = new Map<string, { agent: CoreAgent; authFilePath?: string; agentWorkersEnabled?: boolean; remindersEnabled?: boolean; mcpKey: string; mcpTools: AgentTool<any>[] }>();
+const channelAgents = new Map<string, { agent: CoreAgent; authFilePath?: string; agentWorkersEnabled?: boolean; remindersEnabled?: boolean; mcpKey: string; toolsKey: string; mcpTools: AgentTool<any>[] }>();
 
 function getMcpKey(servers: McpServerConfig[] | undefined): string {
 	return JSON.stringify(servers ?? []);
+}
+
+/** The tool set is baked into the agent at construction, so a change must evict it. */
+export function getToolsKey(enabledTools: string[] | undefined): string {
+	return JSON.stringify(enabledTools ?? null);
 }
 
 /** Evict the cached CoreAgent for a channel and close its MCP tools (permanent session delete). */
@@ -362,6 +529,10 @@ export function disposeChannelAgent(channelId: string): void {
 	const entry = channelAgents.get(channelId);
 	if (!entry) return;
 	closeMcpTools(entry.mcpTools);
+	// Kills any background shells the session left running.
+	void entry.agent.dispose().catch((err) => {
+		console.warn(`Failed to dispose agent for ${channelId}: ${err instanceof Error ? err.message : String(err)}`);
+	});
 	channelAgents.delete(channelId);
 }
 
@@ -373,12 +544,14 @@ export async function getOrCreateRunner(
 ): Promise<AgentRunner> {
 	const existing = channelAgents.get(channelId);
 	const mcpKey = getMcpKey(options.mcpServers);
+	const toolsKey = getToolsKey(options.enabledTools);
 	if (
 		existing &&
 		existing.authFilePath === options.authFilePath &&
 		existing.agentWorkersEnabled === options.agentWorkersEnabled &&
 		existing.remindersEnabled === options.remindersEnabled &&
-		existing.mcpKey === mcpKey
+		existing.mcpKey === mcpKey &&
+		existing.toolsKey === toolsKey
 	) {
 		return createRunner(existing.agent, sandboxConfig, channelId, channelDir, options.remindersEnabled !== false);
 	}
@@ -394,8 +567,9 @@ export async function getOrCreateRunner(
 		usersRoot: options.usersRoot,
 		agentWorkersEnabled: options.agentWorkersEnabled,
 		extraTools,
+		enabledTools: options.enabledTools,
 	});
-	channelAgents.set(channelId, { agent, authFilePath: options.authFilePath, agentWorkersEnabled: options.agentWorkersEnabled, remindersEnabled: options.remindersEnabled, mcpKey, mcpTools: extraTools });
+	channelAgents.set(channelId, { agent, authFilePath: options.authFilePath, agentWorkersEnabled: options.agentWorkersEnabled, remindersEnabled: options.remindersEnabled, mcpKey, toolsKey, mcpTools: extraTools });
 	return createRunner(agent, sandboxConfig, channelId, channelDir, options.remindersEnabled !== false);
 }
 
@@ -615,6 +789,8 @@ function createRunner(
 				ts: ctx.message.ts,
 				userName: ctx.message.userName,
 				attachments: ctx.message.attachments,
+				mentions: ctx.message.mentions,
+				skills: ctx.message.skills,
 				systemPrompt,
 				authFilePath: ctx.authFilePath,
 				model: ctx.model,

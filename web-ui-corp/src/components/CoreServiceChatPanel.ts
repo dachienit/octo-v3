@@ -3,8 +3,9 @@ import { customElement, property, query, state } from "lit/decorators.js";
 import { createRef, ref } from "lit/directives/ref.js";
 import { icon } from "@mariozechner/mini-lit";
 import { Check, Download, Loader, Sparkles, X, Zap } from "lucide";
-import type { MessageEditor, QuickModelOption } from "./MessageEditor.js";
-import { CoreServiceClient, type ActiveModel, type AgentUsage, type AttachmentPayload, type ReplayBlock, type SseEvent, type WorkspaceTableRows } from "../adapters/core-service.js";
+import type { ComposerSkill, MessageEditor, QuickModelOption } from "./MessageEditor.js";
+import { CoreServiceClient, type ActiveModel, type AgentUsage, type AttachmentPayload, type MentionPayload, type ReplayBlock, type SseEvent, type WorkspaceTableRows } from "../adapters/core-service.js";
+import { buildMentionCandidates, type MentionCandidate } from "../utils/mention-utils.js";
 import "./ThinkingBlock.js";
 import type { Attachment } from "../utils/attachment-utils.js";
 import "./MessageEditor.js";
@@ -38,7 +39,7 @@ const BINARY_PREVIEW_UNSUPPORTED_EXTENSIONS = new Set([
 
 // Agent tools that can create/modify/delete workspace files — their completion
 // triggers a "workspace-changed" event so hosts can refresh the artifacts tree.
-const WORKSPACE_MUTATING_TOOLS = new Set(["write", "edit", "bash", "attach"]);
+const WORKSPACE_MUTATING_TOOLS = new Set(["write", "edit", "bash", "attach", "task"]);
 
 // ============================================================================
 // File viewer sub-component
@@ -245,7 +246,7 @@ type StreamBlock =
 	| { kind: "usage"; id: string; scope: "message" | "run"; usage: AgentUsage; model?: { provider: string; id: string }; contextTokens?: number; contextWindow?: number };
 
 type ChatMessage =
-	| { role: "user"; text: string; attachments?: string[] }
+	| { role: "user"; text: string; attachments?: string[]; mentions?: string[] }
 	| { role: "assistant"; text: string; thread?: string; files?: FileRef[]; blocks?: StreamBlock[]; usage?: AgentUsage; model?: string }
 	| { role: "error"; text: string };
 
@@ -338,10 +339,16 @@ export class CoreServiceChatPanel extends LitElement {
 	@state() private declare activeModels: ActiveModel[];
 	@state() private declare selectedModel: string;
 	@state() private declare selectedReasoning: string;
+	/** Files and folders the @ picker can offer; refreshed with the workspace tree. */
+	@state() private declare mentionCandidates: MentionCandidate[];
+	/** Workspace skills offered by the composer's `+` menu; from the same tree fetch. */
+	@state() private declare composerSkills: ComposerSkill[];
 
 	@query("message-editor") private declare _editor: MessageEditor;
 
 	private client!: CoreServiceClient;
+	/** Descriptions are fetched once per workspace load, on first open of the Skills menu. */
+	private skillDescriptionsLoaded = false;
 	private abortController?: AbortController;
 	private scrollContainer?: HTMLElement;
 	private autoScroll = true;
@@ -389,6 +396,8 @@ export class CoreServiceChatPanel extends LitElement {
 		this.activeModels = [];
 		this.selectedModel = localStorage.getItem("core-service-selected-model") || "";
 		this.selectedReasoning = localStorage.getItem("core-service-reasoning") || "off";
+		this.mentionCandidates = [];
+		this.composerSkills = [];
 	}
 
 	protected override createRenderRoot(): HTMLElement | DocumentFragment {
@@ -406,6 +415,7 @@ export class CoreServiceChatPanel extends LitElement {
 		this.style.minHeight = "0";
 		this.loadHistory();
 		this.loadActiveModels();
+		this.loadWorkspaceContext();
 	}
 
 	private async loadActiveModels() {
@@ -473,7 +483,67 @@ export class CoreServiceChatPanel extends LitElement {
 			this.lastScrollTop = 0;
 			this.observedContent = undefined;
 			this.loadHistory();
+			this.loadWorkspaceContext();
 		}
+	}
+
+	/**
+	 * Refreshes what `@` can tag and what the `+` menu can offer as skills. The workspace
+	 * tree is fetched whole and feeds both, so the picker filters in memory and never
+	 * issues a request while the user types.
+	 */
+	private async loadWorkspaceContext() {
+		if (!this.channelId) return;
+		try {
+			const tree = await this.client.getWorkspace(this.channelId);
+			this.mentionCandidates = buildMentionCandidates(tree);
+			// Each top-level directory under skills/ is one skill.
+			this.composerSkills = (tree?.skills ?? [])
+				.filter((node) => node.type === "directory")
+				.map((node) => ({ name: node.name, path: node.path }));
+			this.skillDescriptionsLoaded = false;
+		} catch {
+			// A picker that cannot load is not worth failing the chat over.
+			this.mentionCandidates = [];
+			this.composerSkills = [];
+		}
+	}
+
+	/** Lets the host refresh the composer's skills after installing one. */
+	async refreshWorkspaceContext() {
+		await this.loadWorkspaceContext();
+	}
+
+	/**
+	 * Descriptions live in each skill's SKILL.md frontmatter, one request apiece — so they
+	 * are fetched only when the Skills menu is actually opened, and a failure just leaves
+	 * the skill listed by name.
+	 */
+	private async loadSkillDescriptions() {
+		if (this.skillDescriptionsLoaded || this.composerSkills.length === 0) return;
+		this.skillDescriptionsLoaded = true;
+		const described = await Promise.all(
+			this.composerSkills.map(async (skill) => {
+				try {
+					const file = await this.client.getFileContent(`${skill.path}/SKILL.md`);
+					const match = file?.content.match(/^description:\s*(.+)$/m);
+					const description = match?.[1].trim().replace(/^["']|["']$/g, "");
+					return description ? { ...skill, description } : skill;
+				} catch {
+					return skill;
+				}
+			}),
+		);
+		this.composerSkills = described;
+	}
+
+	/** Inserts a mention from outside the composer, e.g. the workspace file tree. */
+	insertMention(path: string, type: "file" | "directory" = "file") {
+		const candidate =
+			this.mentionCandidates.find((c) => c.path === path || c.token === path) ??
+			this.mentionCandidates.find((c) => path.endsWith(`/${c.path}`) && c.type === type);
+		if (!candidate) return;
+		this._editor?.insertMention(candidate);
 	}
 
 	private async loadHistory() {
@@ -484,6 +554,7 @@ export class CoreServiceChatPanel extends LitElement {
 			thread: m.thread,
 			files: m.files,
 			attachments: m.attachments,
+			mentions: m.mentions,
 			blocks: m.role === "assistant" && m.blocks ? m.blocks.map((b, i) => this.replayBlockToStreamBlock(b, i)) : undefined,
 			usage: m.role === "assistant" ? m.usage : undefined,
 			model: m.role === "assistant" ? m.model : undefined,
@@ -552,12 +623,13 @@ export class CoreServiceChatPanel extends LitElement {
 		this.lastScrollTop = scrollTop;
 	};
 
-	private async handleSend(text: string, attachments: Attachment[] = []) {
+	private async handleSend(text: string, attachments: Attachment[] = [], mentions: MentionPayload[] = [], skills: string[] = []) {
 		if (!text.trim() && attachments.length === 0) return;
 		if (this.isStreaming) return;
 
 		const attachmentNames = attachments.map((a) => a.fileName);
-	this.messages = [...this.messages, { role: "user", text, attachments: attachmentNames.length > 0 ? attachmentNames : undefined }];
+		const mentionNames = mentions.map((m) => m.path.split("/").pop() ?? m.path);
+	this.messages = [...this.messages, { role: "user", text, attachments: attachmentNames.length > 0 ? attachmentNames : undefined, mentions: mentionNames.length > 0 ? mentionNames : undefined }];
 		if (this._editor) {
 			this._editor.value = "";
 			this._editor.attachments = [];
@@ -584,7 +656,7 @@ export class CoreServiceChatPanel extends LitElement {
 
 		this.abortController = new AbortController();
 		try {
-			for await (const event of this.client.chat(this.channelId, text, this.userName, this.abortController.signal, attachmentPayloads, this.parseSelectedModel())) {
+			for await (const event of this.client.chat(this.channelId, text, this.userName, this.abortController.signal, attachmentPayloads, this.parseSelectedModel(), mentions, skills)) {
 				this.handleSseEvent(event);
 			}
 		} catch (err: any) {
@@ -789,6 +861,8 @@ export class CoreServiceChatPanel extends LitElement {
 	// the artifacts tree). Bubbles/composed so listeners outside the shadow DOM see it.
 	private emitWorkspaceChanged() {
 		this.dispatchEvent(new CustomEvent("workspace-changed", { bubbles: true, composed: true }));
+		// A tool just created or removed files, so what @ can offer has changed too.
+		void this.loadWorkspaceContext();
 	}
 
 	private handleSseEvent(event: SseEvent) {
@@ -964,7 +1038,11 @@ export class CoreServiceChatPanel extends LitElement {
 											.onModelChange=${(v: string) => { this.onSelectModel(v); this.requestUpdate(); }}
 											.thinkingLevel=${this.selectedReasoning}
 											.onThinkingChange=${(level: string) => { this.onSelectReasoning(level); this.requestUpdate(); }}
-											.onSend=${(text: string, attachments: Attachment[]) => this.handleSend(text, attachments)}
+											.onSend=${(text: string, attachments: Attachment[], mentions: MentionPayload[], skills: string[]) => this.handleSend(text, attachments, mentions, skills)}
+											.mentionCandidates=${this.mentionCandidates}
+											.skills=${this.composerSkills}
+											.onSkillsMenuOpen=${() => void this.loadSkillDescriptions()}
+											.onSkillUpload=${() => this.dispatchEvent(new CustomEvent("skill-upload-request", { bubbles: true, composed: true }))}
 											.onAbort=${() => this.handleAbort()}
 										></message-editor>
 										${this.renderPoweredBy()}
@@ -994,7 +1072,11 @@ export class CoreServiceChatPanel extends LitElement {
 											.onModelChange=${(v: string) => { this.onSelectModel(v); this.requestUpdate(); }}
 											.thinkingLevel=${this.selectedReasoning}
 											.onThinkingChange=${(level: string) => { this.onSelectReasoning(level); this.requestUpdate(); }}
-											.onSend=${(text: string, attachments: Attachment[]) => this.handleSend(text, attachments)}
+											.onSend=${(text: string, attachments: Attachment[], mentions: MentionPayload[], skills: string[]) => this.handleSend(text, attachments, mentions, skills)}
+											.mentionCandidates=${this.mentionCandidates}
+											.skills=${this.composerSkills}
+											.onSkillsMenuOpen=${() => void this.loadSkillDescriptions()}
+											.onSkillUpload=${() => this.dispatchEvent(new CustomEvent("skill-upload-request", { bubbles: true, composed: true }))}
 											.onAbort=${() => this.handleAbort()}
 										></message-editor>
 										${this.renderPoweredBy()}
@@ -1199,6 +1281,11 @@ export class CoreServiceChatPanel extends LitElement {
 							${msg.attachments?.map((name) => html`
 								<div class="flex items-center gap-1.5 text-xs opacity-70">
 									<span>📎</span><span class="truncate max-w-xs">${name}</span>
+								</div>
+							`)}
+							${msg.mentions?.map((name) => html`
+								<div class="flex items-center gap-1.5 text-xs opacity-70">
+									<span>@</span><span class="truncate max-w-xs">${name}</span>
 								</div>
 							`)}
 							<markdown-block .content=${msg.text}></markdown-block>

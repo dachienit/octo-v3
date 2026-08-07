@@ -17,6 +17,48 @@ export interface Attachment {
 }
 
 /**
+ * Encode bytes as base64 without a data URL prefix, in chunks so large files do not
+ * overflow the call stack.
+ */
+export function bytesToBase64(arrayBuffer: ArrayBuffer): string {
+	const uint8Array = new Uint8Array(arrayBuffer);
+	let binary = "";
+	const chunkSize = 0x8000; // Process in 32KB chunks to avoid stack overflow
+	for (let i = 0; i < uint8Array.length; i += chunkSize) {
+		const chunk = uint8Array.slice(i, i + chunkSize);
+		binary += String.fromCharCode(...chunk);
+	}
+	return btoa(binary);
+}
+
+/** Read a File/Blob and return its bytes base64-encoded. */
+export async function fileToBase64(source: Blob): Promise<string> {
+	return bytesToBase64(await source.arrayBuffer());
+}
+
+/**
+ * Match a file against an `<input accept>` string. A folder picker ignores the
+ * attribute entirely, so the same filtering has to happen in JS: ".docx" matches by
+ * extension, "image/*" by mime prefix, anything else by exact mime type. An empty
+ * accept string accepts everything, mirroring the attribute's own semantics.
+ */
+export function matchesAccept(file: { name: string; type?: string }, accept: string): boolean {
+	const tokens = accept
+		.split(",")
+		.map((token) => token.trim().toLowerCase())
+		.filter(Boolean);
+	if (tokens.length === 0) return true;
+
+	const name = file.name.toLowerCase();
+	const mime = (file.type || "").toLowerCase();
+	return tokens.some((token) => {
+		if (token.startsWith(".")) return name.endsWith(token);
+		if (token.endsWith("/*")) return mime.startsWith(token.slice(0, -1));
+		return mime !== "" && mime === token;
+	});
+}
+
+/**
  * Load an attachment from various sources
  * @param source - URL string, File, Blob, or ArrayBuffer
  * @param fileName - Optional filename override
@@ -64,14 +106,7 @@ export async function loadAttachment(
 	}
 
 	// Convert ArrayBuffer to base64 - handle large files properly
-	const uint8Array = new Uint8Array(arrayBuffer);
-	let binary = "";
-	const chunkSize = 0x8000; // Process in 32KB chunks to avoid stack overflow
-	for (let i = 0; i < uint8Array.length; i += chunkSize) {
-		const chunk = uint8Array.slice(i, i + chunkSize);
-		binary += String.fromCharCode(...chunk);
-	}
-	const base64Content = btoa(binary);
+	const base64Content = bytesToBase64(arrayBuffer);
 
 	// Detect type and process accordingly
 	const id = `${detectedFileName}_${Date.now()}_${Math.random()}`;

@@ -55,14 +55,22 @@ modules:
       CORE_SERVICE_OBJECTSTORE_GATEWAY_URL: ""
       CORE_SERVICE_OBJECTSTORE_PREFIX: ""
 
-      CORE_SERVICE_AGENT_WORKERS_ENABLED: "true"
-      CORE_SERVICE_REMINDERS_ENABLED: "true"
-      CORE_SERVICE_CONNECTION_ENABLED: "true"
+      CORE_SERVICE_AGENT_WORKERS_ENABLED: "false"
+      CORE_SERVICE_REMINDERS_ENABLED: "false"
+      CORE_SERVICE_CONNECTION_ENABLED: "false"
+
+      # Set to false/0/off/no to hide the workspace settings Tools tab. Whatever a
+      # workspace already stored in settings.tools.enabled keeps being enforced.
+      CORE_SERVICE_TOOLS_ENABLED: "true"
+
       # Optional allowlist of LLM providers shown in the UI picker (comma-separated ids). Unset = all.
       # Ids: bosch-genai, openai-codex, openai, google, anthropic, sap-openai, sap-claude
-      CORE_SERVICE_LLM_PROVIDERS: "bosch-genai, openai-codex, openai, google, anthropic, sap-openai, sap-claude"
-      # Optional browser tab title for the web app. Unset = keep the index.html default ("Octo Web App").
+      CORE_SERVICE_LLM_PROVIDERS: "bosch-genai"
+      # Product name in the browser tab, the agent's name in chat, and the system
+      # prompt. Unset = "Octo".
       CORE_SERVICE_APP_TITLE: "Octo Agent"
+      # Label in the web app header bar. Unset = falls back to CORE_SERVICE_APP_TITLE.
+      CORE_SERVICE_APP_HEADER: "Octo Agent"
     provides:
       - name: octo-srv-api
         properties:
