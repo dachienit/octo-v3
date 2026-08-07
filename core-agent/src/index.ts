@@ -35,8 +35,16 @@ export type { BackgroundShellSnapshot, BackgroundShellStatus } from "./backgroun
 export { forgetSessionState, formatTodos, SessionStateStore } from "./session-state.js";
 export type { AgentMode, TodoItem, TodoStatus } from "./session-state.js";
 export { checkPlanMode, isReadOnlyCommand } from "./plan-mode.js";
-export { DEFAULT_ENABLED_TOOLS, isCatalogTool, resolveEnabledTools, TOOL_CATALOG } from "./tools/catalog.js";
+export {
+	DEFAULT_ENABLED_TOOLS,
+	isCatalogTool,
+	resolveEnabledTools,
+	TOOL_CATALOG,
+	TOOL_PROMPT_GROUPS,
+} from "./tools/catalog.js";
 export type { ToolCatalogEntry } from "./tools/catalog.js";
+export { renderToolsPrompt } from "./tools/prompt.js";
+export type { ToolPromptEntry } from "./tools/prompt.js";
 export { loadSubagentDefinitions } from "./subagent/definitions.js";
 export type { SubagentDefinition } from "./subagent/definitions.js";
 export type { SubagentRuntime } from "./subagent/runner.js";

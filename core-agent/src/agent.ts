@@ -1,4 +1,4 @@
-import { Agent, type AgentEvent } from "@earendil-works/pi-agent-core";
+import { Agent, type AgentEvent, type AgentTool } from "@earendil-works/pi-agent-core";
 import { getModel, getModels, type ImageContent } from "@earendil-works/pi-ai";
 import {
 	AgentSession,
@@ -275,6 +275,8 @@ export class CoreAgent {
 	private readonly sessionState: SessionStateStore;
 	/** Primitive tools this workspace allows; see `resolveEnabledTools`. */
 	private readonly enabledTools: ReadonlySet<string>;
+	/** Every tool registered for this session, primitives plus MCP; see `listTools`. */
+	private readonly tools: AgentTool<any>[];
 
 	// Upload fn updated before each run; accessed by the attach tool
 	private currentUploadFn: ((path: string, title?: string) => Promise<void>) | null = null;
@@ -369,7 +371,8 @@ export class CoreAgent {
 								}),
 						},
 		});
-		const tools = options.extraTools ? [...primitiveTools, ...options.extraTools] : primitiveTools;
+		this.tools = options.extraTools ? [...primitiveTools, ...options.extraTools] : primitiveTools;
+		const tools = this.tools;
 
 		const contextFile = join(options.channelDir, "context.jsonl");
 		this.sessionManager = SessionManager.open(contextFile);
@@ -639,6 +642,29 @@ export class CoreAgent {
 	}
 
 	/**
+	 * Loads extensions and their tools once. `run` calls this, but the caller
+	 * builds the system prompt first and needs the extension tools listed there,
+	 * so it is callable on its own. Idempotent.
+	 */
+	async ensureResourcesLoaded(): Promise<void> {
+		if (this.resourcesLoaded) return;
+		await this.session.reload();
+		this.resourcesLoaded = true;
+	}
+
+	/**
+	 * Every tool the model can call this session: the primitives and MCP tools
+	 * fixed at construction, plus whatever an extension registered (ACP). Reads
+	 * the live agent state so extension tools are included; falls back to the
+	 * constructed set before `ensureResourcesLoaded` has run.
+	 */
+	listTools(): { name: string; description: string }[] {
+		const live = (this.agentInstance.state as any).tools as AgentTool<any>[] | undefined;
+		const source = live && live.length > 0 ? live : this.tools;
+		return source.map((tool) => ({ name: tool.name, description: tool.description ?? "" }));
+	}
+
+	/**
 	 * Run the agent for one message. Builds the user message, calls the agentic loop,
 	 * and returns the result. Event callbacks fire synchronously during the loop.
 	 */
@@ -646,10 +672,7 @@ export class CoreAgent {
 		await mkdir(this.channelDir, { recursive: true });
 		if (input.authFilePath) this.useAuthFilePath(input.authFilePath);
 		if (input.mode) this.sessionState.setMode(input.mode);
-		if (!this.resourcesLoaded) {
-			await this.session.reload();
-			this.resourcesLoaded = true;
-		}
+		await this.ensureResourcesLoaded();
 
 		if (input.model) {
 			const provider = input.model.provider;

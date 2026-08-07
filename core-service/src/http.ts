@@ -1870,7 +1870,8 @@ export class HttpServer {
 	private handleToolCatalog(_req: express.Request, res: express.Response): void {
 		const webSearchConfigured = resolveWebSearchConfig() !== undefined;
 		res.json({
-			tools: TOOL_CATALOG.map((entry) => ({
+			// `promptGuidance` is prose for the model, not the UI; drop it.
+			tools: TOOL_CATALOG.map(({ promptGuidance: _promptGuidance, ...entry }) => ({
 				...entry,
 				available: entry.name === "web_search" ? webSearchConfigured : true,
 				unavailableReason:
