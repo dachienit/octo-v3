@@ -16,9 +16,15 @@ import { existsSync, mkdirSync, readFileSync } from "fs";
 import { mkdir, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { dirname, isAbsolute, join, relative } from "path";
+import { killSessionShells } from "./background-shells.js";
+import { configureOutlineCache } from "./documents/outline-cache.js";
 import { createAcpOrchestratorExtension } from "./extensions/acp-orchestrator.js";
+import { resolveWebSearchConfig } from "./net/search-providers.js";
+import { checkPlanMode } from "./plan-mode.js";
 import { createExecutor, type Executor } from "./sandbox.js";
+import { type AgentMode, forgetSessionState, SessionStateStore, type TodoItem } from "./session-state.js";
 import { AgentSettingsManager } from "./settings.js";
+import { isCatalogTool, resolveEnabledTools } from "./tools/catalog.js";
 import { createPrimitiveTools } from "./tools/index.js";
 import type { CoreAgentEventHandlers, CoreAgentOptions, CoreAgentRunInput, CoreAgentRunResult } from "./types.js";
 
@@ -265,6 +271,10 @@ export class CoreAgent {
 	private resourcesLoaded = false;
 	private authStorage: AuthStorage;
 	private authFilePath: string;
+	/** Task list and permission mode for this session. */
+	private readonly sessionState: SessionStateStore;
+	/** Primitive tools this workspace allows; see `resolveEnabledTools`. */
+	private readonly enabledTools: ReadonlySet<string>;
 
 	// Upload fn updated before each run; accessed by the attach tool
 	private currentUploadFn: ((path: string, title?: string) => Promise<void>) | null = null;
@@ -293,6 +303,9 @@ export class CoreAgent {
 		this.hostWorkspacePath = hostWorkspacePath;
 		const hostArtifactsDir = join(hostWorkspacePath, "artifacts");
 		mkdirSync(hostArtifactsDir, { recursive: true });
+		// Document outlines are cached beside the workspace so the attachment
+		// inventory in the system prompt costs nothing to build.
+		configureOutlineCache(hostWorkspacePath);
 		const sandboxConfig = options.sandboxConfig;
 		const isContainerSandbox = isContainerSandboxConfig(sandboxConfig);
 		const containerWorkspacePath = isContainerSandbox
@@ -301,27 +314,85 @@ export class CoreAgent {
 		const executorCwd = isContainerSandbox
 			? `${containerWorkspacePath}/artifacts`
 			: hostArtifactsDir;
-		this.executor = createExecutor(sandboxConfig, executorCwd);
+		// The cwd is the workspace's shared artifacts folder, but files the user
+		// dropped into this session land in its attachments folder, one level
+		// outside it. Without this a grep for something the user just uploaded
+		// finds nothing, so searches cover both. Only this session's attachments
+		// are added — sibling sessions stay out of reach.
+		const searchRoots = [
+			isContainerSandbox
+				? `${containerWorkspacePath}/sessions/${channelId}/attachments`
+				: join(options.channelDir, "attachments"),
+		];
+		this.executor = createExecutor(sandboxConfig, executorCwd, searchRoots);
 		this.workspacePath = isContainerSandbox
 			? containerWorkspacePath
 			: this.executor.getWorkspacePath(hostWorkspacePath);
 
-		const primitiveTools = createPrimitiveTools(this.executor, () => this.currentUploadFn, hostArtifactsDir);
+		this.sessionState = new SessionStateStore(channelId, options.channelDir);
+
+		this.authFilePath = options.authFilePath ?? defaultAuthFilePath;
+		this.authStorage = this.createAuthStorage(this.authFilePath);
+		const modelRegistry = ModelRegistry.create(this.authStorage);
+		const getApiKey = async () =>
+			this.runApiKey ?? getLlmApiKey(this.authStorage, this.authFilePath, this.runProvider ?? llmProvider);
+
+		this.enabledTools = resolveEnabledTools(options.enabledTools);
+
+		const primitiveTools = createPrimitiveTools({
+			executor: this.executor,
+			enabledTools: this.enabledTools,
+			getUploadFn: () => this.currentUploadFn,
+			attachCwd: hostArtifactsDir,
+			sessionId: channelId,
+			sessionState: this.sessionState,
+			webSearch: resolveWebSearchConfig(),
+			subagent:
+				options.subagentsEnabled === false
+					? undefined
+					: {
+							hostWorkspacePath,
+							channelDir: options.channelDir,
+							// Nested agents reuse the parent's model, transport and credentials;
+							// only the system prompt, tool set and message list differ.
+							createAgent: (systemPrompt, subagentTools) =>
+								new Agent({
+									initialState: {
+										// Read the live parent state so a per-run model override applies.
+										systemPrompt,
+										model: (this.agentInstance.state as any).model ?? model,
+										thinkingLevel: "off",
+										tools: subagentTools,
+									},
+									convertToLlm,
+									getApiKey,
+								}),
+						},
+		});
 		const tools = options.extraTools ? [...primitiveTools, ...options.extraTools] : primitiveTools;
 
 		const contextFile = join(options.channelDir, "context.jsonl");
 		this.sessionManager = SessionManager.open(contextFile);
 		const settingsManager = new AgentSettingsManager(join(options.channelDir, ".."));
 
-		this.authFilePath = options.authFilePath ?? defaultAuthFilePath;
-		this.authStorage = this.createAuthStorage(this.authFilePath);
-		const modelRegistry = ModelRegistry.create(this.authStorage);
-
 		this.agentInstance = new Agent({
 			initialState: { systemPrompt: "", model, thinkingLevel: "off", tools },
 			convertToLlm,
-			getApiKey: async () =>
-				this.runApiKey ?? getLlmApiKey(this.authStorage, this.authFilePath, this.runProvider ?? llmProvider),
+			getApiKey,
+			// Plan mode and per-workspace tool gating are enforced here rather than
+			// inside each tool, so a tool cannot forget the check and new tools are
+			// denied by default.
+			beforeToolCall: async ({ toolCall, args }) => {
+				// Defence in depth: the disabled tool is already absent from the tool
+				// array, but `baseToolsOverride` and the resource loader can put tools
+				// back. Only catalog tools are gated — MCP and ACP tools are not.
+				if (isCatalogTool(toolCall.name) && !this.enabledTools.has(toolCall.name)) {
+					return { block: true, reason: `The ${toolCall.name} tool is disabled for this workspace.` };
+				}
+				if (this.sessionState.getMode() !== "plan") return undefined;
+				const decision = checkPlanMode(toolCall.name, args);
+				return decision.blocked ? { block: true, reason: decision.reason } : undefined;
+			},
 		});
 
 		const loadedSession = this.sessionManager.buildSessionContext();
@@ -504,8 +575,12 @@ export class CoreAgent {
 				if (msg.role === "user" && msg.content !== undefined) {
 					const normalize = (text: string) => {
 						let n = text.replace(/^\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\] /, "");
-						const idx = n.indexOf("\n\n<attachments>\n");
-						if (idx !== -1) n = n.substring(0, idx);
+						// Every trailing block is appended by this agent, not typed by
+						// the user, so none of them may take part in the duplicate comparison.
+						for (const marker of ["\n\n<attachments>\n", "\n\n<mentions>\n", "\n\n<skills>\n"]) {
+							const idx = n.indexOf(marker);
+							if (idx !== -1) n = n.substring(0, idx);
+						}
 						return n;
 					};
 					if (typeof msg.content === "string") {
@@ -570,6 +645,7 @@ export class CoreAgent {
 	async run(input: CoreAgentRunInput): Promise<CoreAgentRunResult> {
 		await mkdir(this.channelDir, { recursive: true });
 		if (input.authFilePath) this.useAuthFilePath(input.authFilePath);
+		if (input.mode) this.sessionState.setMode(input.mode);
 		if (!this.resourcesLoaded) {
 			await this.session.reload();
 			this.resourcesLoaded = true;
@@ -671,6 +747,30 @@ export class CoreAgent {
 			userMessage += `\n\n<attachments>\n${nonImagePaths.join("\n")}\n</attachments>`;
 		}
 
+		// Mentions are kept in their own block rather than folded into attachments:
+		// an attachment is a file the user handed over, a mention is a pointer to
+		// something already in the workspace — and a mention can be a directory,
+		// which is why each line is tagged. The contents are deliberately not read
+		// here; the agent decides what it needs, so pointing at a 300-page report
+		// costs a path rather than the report.
+		const mentionLines = (input.mentions || []).map(
+			(mention) => `${mention.type === "directory" ? "dir" : "file"}: ${this.workspacePath}/${mention.local}`,
+		);
+		if (mentionLines.length > 0) {
+			userMessage += `\n\n<mentions>\n${mentionLines.join("\n")}\n</mentions>`;
+		}
+
+		// A `/skill` invocation is not a hint like a mention is: the user picked the skill,
+		// so the instructions are to be read and followed for this request. The block still
+		// carries paths rather than the SKILL.md text — the agent reads what it needs, and
+		// a skill that pulls in scripts or references gets them from its own directory.
+		const skillLines = (input.skills || []).map(
+			(skill) => `${skill.name}: ${this.workspacePath}/${skill.local}`,
+		);
+		if (skillLines.length > 0) {
+			userMessage += `\n\n<skills>\n${skillLines.join("\n")}\n</skills>`;
+		}
+
 		// Debug snapshot
 		await writeFile(
 			join(this.channelDir, "last_prompt.jsonl"),
@@ -703,6 +803,25 @@ export class CoreAgent {
 
 	abort(): void {
 		this.session.abort();
+	}
+
+	/** Current permission mode; "plan" restricts the agent to read-only tools. */
+	getMode(): AgentMode {
+		return this.sessionState.getMode();
+	}
+
+	setMode(mode: AgentMode): void {
+		this.sessionState.setMode(mode);
+	}
+
+	getTodos(): TodoItem[] {
+		return this.sessionState.getTodos();
+	}
+
+	/** Releases session-scoped resources. Call when a session is deleted. */
+	async dispose(): Promise<void> {
+		await killSessionShells(this.channelId);
+		forgetSessionState(this.channelId);
 	}
 
 	get messages() {

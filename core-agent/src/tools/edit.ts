@@ -95,7 +95,7 @@ export function createEditTool(executor: Executor): AgentTool<typeof editSchema>
 		name: "edit",
 		label: "edit",
 		description:
-			"Edit a file by replacing exact text. The oldText must match exactly (including whitespace). Use this for precise, surgical edits.",
+			'Edit a file by replacing exact text. The oldText must match exactly (including whitespace). Use this for precise, surgical edits. When you copy oldText out of a read result, strip the line-number prefix first: read returns "  42→const x = 1" but the file contains only "const x = 1", and leaving the prefix in place is the usual reason a match fails.',
 		parameters: editSchema,
 		execute: async (
 			_toolCallId: string,
@@ -110,8 +110,15 @@ export function createEditTool(executor: Executor): AgentTool<typeof editSchema>
 			}
 
 			if (!content.includes(oldText)) {
+				// By far the most common cause once `read` started numbering lines, and
+				// the one the model can act on immediately — so name it rather than
+				// leaving it to be rediscovered by trial and error.
+				const looksNumbered = oldText.split("\n").some((line) => /^\s*\d+→/.test(line));
+				const hint = looksNumbered
+					? " The text still carries the line-number prefix from read (e.g. \"  42→\"); strip it and try again — it is not part of the file."
+					: "";
 				throw new Error(
-					`Could not find the exact text in ${path}. The old text must match exactly including all whitespace and newlines.`,
+					`Could not find the exact text in ${path}. The old text must match exactly including all whitespace and newlines.${hint}`,
 				);
 			}
 

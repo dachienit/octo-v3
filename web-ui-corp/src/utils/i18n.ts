@@ -172,6 +172,8 @@ declare module "@mariozechner/mini-lit" {
 		messages: string;
 		tokens: string;
 		"Drop files here": string;
+		"No matching files": string;
+		attachments: string;
 		// Providers & Models
 		"Providers & Models": string;
 		"Cloud Providers": string;
@@ -212,6 +214,18 @@ declare module "@mariozechner/mini-lit" {
 		Default: string;
 		None: string;
 		Send: string;
+		// IYH1HC add: composer "+" menu (files / folder / skills)
+		"Add files or photos": string;
+		"Add folder": string;
+		Skills: string;
+		"No skills yet": string;
+		"No matching skills": string;
+		"Browser Skills": string;
+		"That folder has no attachable files": string;
+		files: string;
+		"files skipped": string;
+		Attach: string;
+		"Show less": string;
 	}
 }
 
@@ -397,6 +411,8 @@ export const translations = {
 		tokens: "tokens",
 		Delete: "Delete",
 		"Drop files here": "Drop files here",
+		"No matching files": "No matching files",
+		attachments: "attachments",
 		"Command failed:": "Command failed:",
 		// Providers & Models
 		"Providers & Models": "Providers & Models",
@@ -441,6 +457,18 @@ export const translations = {
 		Default: "Default", // IYH1HC add
 		None: "None", // IYH1HC add
 		Send: "Send", // IYH1HC add
+		// IYH1HC add: composer "+" menu
+		"Add files or photos": "Add files or photos",
+		"Add folder": "Add folder",
+		Skills: "Skills",
+		"No skills yet": "No skills yet",
+		"No matching skills": "No matching skills",
+		"Browser Skills": "Browser Skills",
+		"That folder has no attachable files": "That folder has no attachable files",
+		files: "files",
+		"files skipped": "files skipped",
+		Attach: "Attach",
+		"Show less": "Show less",
 	},
 	de: {
 		...defaultGerman,
@@ -623,6 +651,8 @@ export const translations = {
 		tokens: "Tokens",
 		Delete: "Löschen",
 		"Drop files here": "Dateien hier ablegen",
+		"No matching files": "Keine passenden Dateien",
+		attachments: "Anhänge",
 		"Command failed:": "Befehl fehlgeschlagen:",
 		// Providers & Models
 		"Providers & Models": "Anbieter & Modelle",
@@ -667,6 +697,18 @@ export const translations = {
 		Default: "Standard", // IYH1HC add
 		None: "Keine", // IYH1HC add
 		Send: "Senden", // IYH1HC add
+		// IYH1HC add: composer "+" menu
+		"Add files or photos": "Dateien oder Fotos hinzufügen",
+		"Add folder": "Ordner hinzufügen",
+		Skills: "Skills",
+		"No skills yet": "Noch keine Skills",
+		"No matching skills": "Keine passenden Skills",
+		"Browser Skills": "Skill-Ordner hochladen",
+		"That folder has no attachable files": "Dieser Ordner enthält keine anhängbaren Dateien",
+		files: "Dateien",
+		"files skipped": "Dateien übersprungen",
+		Attach: "Anhängen",
+		"Show less": "Weniger anzeigen",
 	},
 };
 

@@ -47,6 +47,17 @@ export interface BotContext {
 		channel: string;
 		ts: string;
 		attachments: Array<{ local: string }>;
+		/**
+		 * Files and folders the user pointed at with `@`. Unlike attachments these
+		 * already live in the workspace, so they travel as paths only — never bytes —
+		 * and they can be directories.
+		 */
+		mentions?: Array<{ local: string; type: "file" | "directory" }>;
+		/**
+		 * Skills the user invoked explicitly with `/name`. Like mentions these are
+		 * pointers — the SKILL.md path — not the instructions themselves.
+		 */
+		skills?: Array<{ name: string; local: string }>;
 	};
 	/** Auth JSON path for the user who sent this message */
 	authFilePath?: string;

@@ -1,8 +1,8 @@
-import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, fileToBase64, translations, type AcpJob, type AuthUser, type ConnectorStatus, type CoreServiceFeatures, type CustomModelConfig, type LlmConfig, type SapDestination, type SapLocalSystem, type SapTreeManifestEntry, type SessionInfo, type SkillUploadFile, type SsoConfig, type WorkspaceInfo, type WorkspaceNode, type WorkspaceSandboxStatus, type WorkspaceScheduledEvent, type WorkspaceSettings, type WorkspaceTableSummary, type WorkspaceTemplate, type WorkspaceTree } from "@octo/web-ui-corp";
+import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, DEFAULT_APP_TITLE, fileToBase64, translations, type AcpJob, type AuthUser, type ConnectorStatus, type CoreServiceFeatures, type CustomModelConfig, type LlmConfig, type SapDestination, type SapLocalSystem, type SapTreeManifestEntry, type SessionInfo, type SkillUploadFile, type SsoConfig, type ToolCatalogEntry, type WorkspaceInfo, type WorkspaceNode, type WorkspaceSandboxStatus, type WorkspaceScheduledEvent, type WorkspaceSettings, type WorkspaceTableSummary, type WorkspaceTemplate, type WorkspaceTree } from "@octo/web-ui-corp";
 import { setTranslations } from "@mariozechner/mini-lit";
 import { html, render } from "lit";
 import { icon } from "@mariozechner/mini-lit";
-import { Box, Brackets, ChevronDown, ChevronRight, Database, Download, Eye, File, FileArchive, FileAudio, FileCode, FileCog, FileImage, FileJson, FilePlay, FileSpreadsheet, FileTerminal, FileText, Folder, FolderCog, FolderOpen, KeyRound, LoaderCircle, LogOut, MessageSquare, Plug, Plus, Presentation, ShieldCheck, SquareTerminal, Table2, Tag, Tags, Trash2 } from "lucide";
+import { AtSign, Box, Brackets, ChevronDown, ChevronRight, Database, Download, Eye, File, FileArchive, FileAudio, FileCode, FileCog, FileImage, FileJson, FilePlay, FileSpreadsheet, FileTerminal, FileText, Folder, FolderCog, FolderOpen, KeyRound, LoaderCircle, LogOut, MessageSquare, Plug, Plus, Presentation, ShieldCheck, SquareTerminal, Table2, Tag, Tags, Trash2 } from "lucide";
 import "./app.css";
 
 applyAppTheme();
@@ -32,7 +32,12 @@ let themeMenuOpen = false;
 let providerDialogOpen = false;
 let createWorkspaceDialogOpen = false;
 let workspaceSettingsDialogOpen = false;
-let workspaceSettingsTab: "agent" | "connection" | "workers" | "sandbox" = "agent";
+let workspaceSettingsTab: "agent" | "connection" | "tools" | "workers" | "sandbox" = "agent";
+// Tools tab: the catalog comes from the server, the draft is the unsaved selection.
+let toolCatalog: ToolCatalogEntry[] = [];
+let toolCatalogLoaded = false;
+let toolFilter = "";
+let workspaceToolsDraft = new Set<string>();
 let workspaceEventsDialogOpen = false;
 let selectedProvider = localStorage.getItem(providerKey) || "openai-codex";
 let codexConfigured = false;
@@ -41,7 +46,7 @@ let codexLoginUrl = "";
 let codexLoginCode = "";
 let codexAuthError = "";
 let codexAuthBusy = false;
-let serviceFeatures: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null };
+let serviceFeatures: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, tools: true, llmProviders: null, appTitle: DEFAULT_APP_TITLE, appHeader: DEFAULT_APP_TITLE };
 let llmConfig: LlmConfig = { providers: [] };
 let llmConfigLoading = false;
 let providerKeyInput = "";
@@ -141,7 +146,7 @@ const chatPanel = new CoreServiceChatPanel();
 chatPanel.baseUrl = baseUrl;
 chatPanel.channelId = channelId;
 chatPanel.userName = userName;
-chatPanel.agentName = "Symphony Studio";
+chatPanel.agentName = serviceFeatures.appTitle;
 chatPanel.authToken = authToken;
 chatPanel.addEventListener("file-preview-open", () => {
 	if (workspaceOpen && sidebarOpen) {
@@ -157,6 +162,15 @@ chatPanel.addEventListener("workspace-changed", () => {
 		workspaceRefreshTimer = undefined;
 		void loadWorkspace();
 	}, 1000);
+});
+// The composer's "+" menu offers "Browser Skills"; the picker, the confirmation
+// dialog and the replace prompt already live here, so the chat just asks for them.
+chatPanel.addEventListener("skill-upload-request", () => {
+	if (!workspaceId) {
+		alert("Open a workspace first");
+		return;
+	}
+	document.getElementById("skill-folder-input")?.click();
 });
 
 const app = document.getElementById("app");
@@ -192,8 +206,11 @@ function setAppTheme(theme: AppTheme) {
 	applyAppTheme();
 }
 
+// The service owns the product name (CORE_SERVICE_APP_TITLE), so a deployment can
+// rebrand without a frontend build. Called right after getFeatures().
 function applyAppTitle() {
-	if (serviceFeatures.appTitle) document.title = serviceFeatures.appTitle;
+	document.title = serviceFeatures.appTitle;
+	chatPanel.agentName = serviceFeatures.appTitle;
 }
 
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
@@ -489,6 +506,8 @@ async function submitSkillUpload(event?: Event) {
 	workspaceTab = "skills";
 	if (result.path) expandedFolders.add(result.path);
 	await loadWorkspace();
+	// So the composer's Skills menu lists the new skill without a reload.
+	await chatPanel.refreshWorkspaceContext();
 }
 
 function normalizeWorkspaceArtifactFilename(path: string): string {
@@ -1076,8 +1095,9 @@ async function openWorkspaceSettingsDialog() {
 	workspaceSettingsError = "";
 	workspaceSettingsBusy = true;
 	renderApp();
-	const [settings] = await Promise.all([
+	const [settings, catalog] = await Promise.all([
 		client.getWorkspaceSettings(workspaceId),
+		loadToolCatalog(),
 		refreshBusinessConnectors(false),
 		serviceFeatures.agentWorkers ? refreshAgentWorkers(false) : Promise.resolve(),
 		refreshWorkspaceSandbox(false),
@@ -1085,8 +1105,36 @@ async function openWorkspaceSettingsDialog() {
 	workspaceSettings = settings;
 	workspaceAgentPromptDraft = workspaceSettings.agent?.prompt ?? "";
 	workspaceMcpServersDraft = cloneMcpServers(workspaceSettings);
+	workspaceToolsDraft = resolveEnabledTools(workspaceSettings.tools?.enabled, catalog);
+	toolFilter = "";
 	workspaceSettingsBusy = false;
 	renderApp();
+}
+
+async function loadToolCatalog(): Promise<ToolCatalogEntry[]> {
+	if (!serviceFeatures.tools) return [];
+	if (toolCatalogLoaded) return toolCatalog;
+	toolCatalog = await client.getToolCatalog();
+	toolCatalogLoaded = toolCatalog.length > 0;
+	// A draft seeded against an empty catalog resolves to nothing, which would
+	// silently disable every tool on save. Re-seed once the real catalog lands.
+	if (toolCatalogLoaded) {
+		workspaceToolsDraft = resolveEnabledTools(workspaceSettings.tools?.enabled, toolCatalog);
+	}
+	return toolCatalog;
+}
+
+/**
+ * Mirrors resolveEnabledTools in core-agent: an unset list, or one holding a
+ * name the catalog does not know, means the workspace predates the Tools tab
+ * and falls back to the defaults. An empty list is honored as "all off".
+ */
+function resolveEnabledTools(configured: string[] | undefined, catalog: ToolCatalogEntry[]): Set<string> {
+	const defaults = () => new Set(catalog.filter((tool) => tool.defaultEnabled).map((tool) => tool.name));
+	if (!configured || catalog.length === 0) return defaults();
+	const known = new Set(catalog.map((tool) => tool.name));
+	if (configured.some((name) => !known.has(name))) return defaults();
+	return new Set(configured);
 }
 
 async function openAgentWorkerSettingsDialog() {
@@ -1097,14 +1145,17 @@ async function openAgentWorkerSettingsDialog() {
 	workspaceSettingsError = "";
 	workspaceSettingsBusy = true;
 	renderApp();
-	const [settings] = await Promise.all([
+	const [settings, catalog] = await Promise.all([
 		client.getWorkspaceSettings(workspaceId),
+		loadToolCatalog(),
 		refreshAgentWorkers(false),
 		refreshWorkspaceSandbox(false),
 	]);
 	workspaceSettings = settings;
 	workspaceAgentPromptDraft = workspaceSettings.agent?.prompt ?? "";
 	workspaceMcpServersDraft = cloneMcpServers(workspaceSettings);
+	workspaceToolsDraft = resolveEnabledTools(workspaceSettings.tools?.enabled, catalog);
+	toolFilter = "";
 	workspaceSettingsBusy = false;
 	renderApp();
 }
@@ -1198,7 +1249,9 @@ async function saveWorkspaceSettings(event: Event) {
 				destinationName: String(data.get("sapDestinationName") || ""),
 			}
 			: workspaceSettings.sapConnection,
-		tools: workspaceSettings.tools,
+		// Never write the draft when the catalog is missing — it would resolve to
+		// an empty list and read back as "the user turned everything off".
+		tools: workspaceSettingsTab === "tools" && toolCatalogLoaded ? { enabled: [...workspaceToolsDraft] } : workspaceSettings.tools,
 		connectors: workspaceSettingsTab === "connection"
 			? {
 				allowed: data.getAll("allowedConnectors").map(String),
@@ -1487,6 +1540,12 @@ async function toggleFolder(path: string) {
 	}
 	expandedFolders.add(path);
 	renderApp();
+}
+
+// Drops an @-mention for a tree row into the composer. The chat panel owns the
+// candidate list, so it resolves the tree path to the matching candidate itself.
+function mentionWorkspaceEntry(path: string, isFolder: boolean) {
+	(chatPanel as any)?.insertMention?.(path, isFolder ? "directory" : "file");
 }
 
 async function openWorkspaceFile(path: string) {
@@ -2050,6 +2109,8 @@ function sapDisplayName(node: WorkspaceNode, info: SapTreeManifestEntry | undefi
 // Hover-revealed download/delete buttons for one workspace tree row (artifacts or skills).
 function renderNodeActions(path: string, isFolder: boolean) {
 	return html`
+		<button class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-secondary text-muted-foreground transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title="Mention in chat"
+			@click=${(e: Event) => { e.stopPropagation(); mentionWorkspaceEntry(path, isFolder); }}>${icon(AtSign, "xs")}</button>
 		<button class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-secondary text-muted-foreground transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title=${isFolder ? "Download as .zip" : "Download"}
 			@click=${(e: Event) => { e.stopPropagation(); void downloadWorkspaceEntry(path, isFolder); }}>${icon(Download, "xs")}</button>
 		<button class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/10 text-destructive transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title="Delete"
@@ -2329,7 +2390,7 @@ function renderSkillUploadDialog() {
 			<form class="w-full max-w-xl rounded border border-border bg-background shadow-xl" @submit=${submitSkillUpload} @click=${(e: Event) => e.stopPropagation()}>
 				<div class="flex items-center justify-between border-b border-border px-4 py-3">
 					<div>
-						<div class="text-sm font-semibold">Upload skill folder</div>
+						<div class="text-sm font-semibold">Browser Skills</div>
 						<div class="text-xs text-muted-foreground">The whole folder is copied into this workspace's skills, keeping its structure.</div>
 					</div>
 					${Ui5Button({ className: "corp-tight-icon-button", ui5Icon: "decline", onClick: closeSkillUploadDialog, title: "Close" })}
@@ -2710,6 +2771,98 @@ function renderLlmKeyAndModels() {
 	`;
 }
 
+function filteredTools(): ToolCatalogEntry[] {
+	const query = toolFilter.trim().toLowerCase();
+	if (!query) return toolCatalog;
+	return toolCatalog.filter((tool) =>
+		`${tool.name} ${tool.label} ${tool.group} ${tool.description}`.toLowerCase().includes(query),
+	);
+}
+
+function setToolEnabled(name: string, enabled: boolean) {
+	const next = new Set(workspaceToolsDraft);
+	if (enabled) next.add(name);
+	else next.delete(name);
+	workspaceToolsDraft = next;
+	renderApp();
+}
+
+// Select all / Deselect all act on the filtered rows, so they do what the user
+// sees rather than silently touching tools hidden by the search box.
+function setFilteredToolsEnabled(enabled: boolean) {
+	const next = new Set(workspaceToolsDraft);
+	for (const tool of filteredTools()) {
+		if (enabled) {
+			if (tool.available) next.add(tool.name);
+		} else {
+			next.delete(tool.name);
+		}
+	}
+	workspaceToolsDraft = next;
+	renderApp();
+}
+
+function renderToolSettings() {
+	const visible = filteredTools();
+	const enabledCount = toolCatalog.filter((tool) => workspaceToolsDraft.has(tool.name)).length;
+
+	return html`
+		<section class="flex min-h-[52vh] flex-col gap-3">
+			<div>
+				<div class="text-sm font-medium">Tools</div>
+				<div class="text-xs text-muted-foreground">
+					The agent only sees, and may only call, the tools enabled here. Applies to this workspace and its subagents.
+				</div>
+			</div>
+			<div class="rounded-lg border border-border bg-card">
+				<div class="flex items-center gap-2 px-3 py-2">
+					<span class="text-sm font-semibold">Available tools</span>
+					<span class="text-xs text-muted-foreground">${enabledCount} of ${toolCatalog.length} enabled</span>
+					<span class="ml-auto"></span>
+					${Ui5Button({ children: "Select all", onClick: () => setFilteredToolsEnabled(true) })}
+					${Ui5Button({ children: "Deselect all", onClick: () => setFilteredToolsEnabled(false) })}
+				</div>
+				<div class="px-3 pb-2">
+					<ui5-input
+						class="corp-ui5-input"
+						placeholder="Search tool"
+						show-clear-icon
+						value=${toolFilter}
+						@input=${(e: Event) => { toolFilter = getUi5Value(e); renderApp(); }}
+					></ui5-input>
+				</div>
+				${toolCatalog.length === 0
+					? html`<div class="px-3 py-4 text-center text-xs italic text-muted-foreground">Could not load the tool catalog.</div>`
+					: html`
+						<div class="max-h-[38vh] overflow-y-auto">
+							${visible.length === 0
+								? html`<div class="px-3 py-3 text-center text-xs italic text-muted-foreground">No match.</div>`
+								: visible.map((tool) => html`
+									<div class="flex items-center gap-3 border-t border-border px-3 py-2">
+										<div class="min-w-0 flex-1">
+											<div class="flex items-center gap-2">
+												<span class="corp-mono truncate text-sm">${tool.name}</span>
+												<span class="shrink-0 text-xs text-muted-foreground">${tool.group}</span>
+											</div>
+											<div class="truncate text-xs text-muted-foreground" title=${tool.description}>
+												${tool.available ? tool.description : tool.unavailableReason ?? tool.description}
+											</div>
+										</div>
+										<ui5-switch
+											class="corp-ui5-switch"
+											?checked=${workspaceToolsDraft.has(tool.name)}
+											?disabled=${!tool.available}
+											@change=${(e: Event) => setToolEnabled(tool.name, (e.target as HTMLInputElement & { checked: boolean }).checked)}
+										></ui5-switch>
+									</div>
+								`)}
+						</div>
+					`}
+			</div>
+		</section>
+	`;
+}
+
 function renderMcpSettings() {
 	return html`
 		<section class="mt-6 flex flex-col gap-3 border-t border-border pt-5">
@@ -2766,10 +2919,13 @@ function renderWorkspaceSettingsDialog() {
 	if (!serviceFeatures.connection && workspaceSettingsTab === "connection") {
 		workspaceSettingsTab = "agent";
 	}
+	if (!serviceFeatures.tools && workspaceSettingsTab === "tools") {
+		workspaceSettingsTab = "agent";
+	}
 	const sap = workspaceSettings.sapConnection ?? {};
 	const promptFile = workspaceSettings.agent?.promptFile ?? "AGENTS.md";
-	const visibleTabs = 2 + (serviceFeatures.connection ? 1 : 0) + (serviceFeatures.agentWorkers ? 1 : 0);
-	const tabColumns = visibleTabs >= 4 ? "grid-cols-4" : visibleTabs === 3 ? "grid-cols-3" : "grid-cols-2";
+	const visibleTabs = 2 + (serviceFeatures.connection ? 1 : 0) + (serviceFeatures.tools ? 1 : 0) + (serviceFeatures.agentWorkers ? 1 : 0);
+	const tabColumns = visibleTabs >= 5 ? "grid-cols-5" : visibleTabs === 4 ? "grid-cols-4" : visibleTabs === 3 ? "grid-cols-3" : "grid-cols-2";
 	return html`
 		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" @click=${closeWorkspaceSettingsDialog}>
 			<form class="w-full max-w-2xl rounded border border-border bg-background shadow-xl" @submit=${saveWorkspaceSettings} @click=${(e: Event) => e.stopPropagation()}>
@@ -2793,6 +2949,15 @@ function renderWorkspaceSettingsDialog() {
 								@click=${() => { workspaceSettingsTab = "connection"; if (sapConnMode === "local") { if (!sapLocalSystemsLoaded) void loadLocalSystems(); } else if (!sapDestinationsLoaded) { void loadSapDestinations(); } renderApp(); }}
 							>
 								Connection
+							</ui5-button>
+						` : ""}
+						${serviceFeatures.tools ? html`
+							<ui5-button
+								class="corp-ui5-button corp-tab-button"
+								design=${workspaceSettingsTab === "tools" ? "Emphasized" : "Transparent"}
+								@click=${() => { workspaceSettingsTab = "tools"; void loadToolCatalog().then(renderApp); renderApp(); }}
+							>
+								Tools
 							</ui5-button>
 						` : ""}
 						${serviceFeatures.agentWorkers ? html`
@@ -2835,7 +3000,10 @@ function renderWorkspaceSettingsDialog() {
 										</section>
 									`
 									: workspaceSettingsTab === "connection"
-											? html`${renderBusinessConnectorSettings(sap)}${renderMcpSettings()}`										: workspaceSettingsTab === "workers"
+											? html`${renderBusinessConnectorSettings(sap)}${renderMcpSettings()}`
+											: workspaceSettingsTab === "tools"
+											? renderToolSettings()
+											: workspaceSettingsTab === "workers"
 											? renderAgentWorkerSettings()
 											: renderSandboxSettings()}
 							</div>
@@ -2956,7 +3124,7 @@ function renderApp() {
 							onClick: toggleSidebar,
 							title: sidebarOpen ? "Collapse sessions" : "Expand sessions",
 						})}
-						<span class="corp-app-title text-base font-semibold text-foreground">Symphony Studio</span>
+						<span class="corp-app-title text-base font-semibold text-foreground">${serviceFeatures.appHeader}</span>
 					</div>
 					<div class="flex items-center gap-2">
 						${Ui5Button({
@@ -3107,19 +3275,11 @@ function renderApp() {
 													${Ui5Button({
 														className: "corp-wide-button",
 														ui5Icon: "upload",
-														children: "Upload skill folder",
+														children: "Browser Skills",
 														disabled: !workspaceId || skillUploadBusy || skillUploadReading,
 														onClick: () => document.getElementById("skill-folder-input")?.click(),
 														title: "Upload a folder as a workspace skill",
 													})}
-													<input
-														id="skill-folder-input"
-														type="file"
-														webkitdirectory
-														multiple
-														style="display: none;"
-														@change=${(e: Event) => void onSkillFolderPicked(e)}
-													/>
 												</div>
 											`}
 									</div>
@@ -3143,6 +3303,16 @@ function renderApp() {
 						`
 						: ""}
 				</div>
+				<!-- Skill folder picker. Lives at the app root, not inside the Skills tab:
+				     the chat composer's "+" menu triggers it too, with the sidebar closed. -->
+				<input
+					id="skill-folder-input"
+					type="file"
+					webkitdirectory
+					multiple
+					style="display: none;"
+					@change=${(e: Event) => void onSkillFolderPicked(e)}
+				/>
 				${renderCreateWorkspaceDialog()}
 				${renderSkillUploadDialog()}
 				${renderProviderDialog()}

@@ -8,8 +8,40 @@ export type {
 	CoreAgentOAuthPrompt,
 } from "./auth.js";
 export type { ExtensionAPI, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
-export { createExecutor, parseSandboxArg, validateSandbox } from "./sandbox.js";
-export type { Executor, ExecOptions, ExecResult, SandboxConfig } from "./sandbox.js";
+export { createExecutor, killProcessTree, parseSandboxArg, validateSandbox } from "./sandbox.js";
+export type { Executor, ExecOptions, ExecResult, SandboxConfig, SpawnOptions } from "./sandbox.js";
+export type { GlobEntry, GlobOptions, GlobResult, GrepOptions, GrepOutputMode, GrepResult } from "./search/types.js";
+export {
+	clearDocumentCache,
+	extractDocumentBuffer,
+	extractDocumentText,
+	isExtractableDocument,
+	MAX_DOCUMENT_BYTES,
+} from "./documents/extract.js";
+export { describeEmptyReason } from "./documents/types.js";
+export type { DocumentKind, DocumentSegment, EmptyReason, ExtractedDocument } from "./documents/types.js";
+export { buildOutline, OUTLINE_THRESHOLD_BYTES, renderOutline, shouldOutline } from "./documents/outline.js";
+export type { DocumentOutline, OutlineRow } from "./documents/outline.js";
+export { configureOutlineCache, getOutlineCacheDir, readOutline, writeOutline } from "./documents/outline-cache.js";
+export { formatSize } from "./tools/truncate.js";
+export type { CachedOutline } from "./documents/outline-cache.js";
+export {
+	getBackgroundShell,
+	killBackgroundShell,
+	killSessionShells,
+	listBackgroundShells,
+} from "./background-shells.js";
+export type { BackgroundShellSnapshot, BackgroundShellStatus } from "./background-shells.js";
+export { forgetSessionState, formatTodos, SessionStateStore } from "./session-state.js";
+export type { AgentMode, TodoItem, TodoStatus } from "./session-state.js";
+export { checkPlanMode, isReadOnlyCommand } from "./plan-mode.js";
+export { DEFAULT_ENABLED_TOOLS, isCatalogTool, resolveEnabledTools, TOOL_CATALOG } from "./tools/catalog.js";
+export type { ToolCatalogEntry } from "./tools/catalog.js";
+export { loadSubagentDefinitions } from "./subagent/definitions.js";
+export type { SubagentDefinition } from "./subagent/definitions.js";
+export type { SubagentRuntime } from "./subagent/runner.js";
+export { resolveWebSearchConfig } from "./net/search-providers.js";
+export type { SearchProviderName, WebSearchConfig } from "./net/search-providers.js";
 export {
 	CONNECTOR_RUNTIMES,
 	connectorHomeHasFiles,

@@ -1,3 +1,4 @@
+import { DEFAULT_ENABLED_TOOLS } from "@octo/core-agent";
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -134,7 +135,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
 				content: "",
 			},
 		],
-		settings: { tools: { enabled: ["shell", "code", "tests"] }, connectors: { allowed: ["github", "codex", "claude", "gemini"] } },
+		settings: { tools: { enabled: [...DEFAULT_ENABLED_TOOLS] }, connectors: { allowed: ["github", "codex", "claude", "gemini"] } },
 		agentPrompt: "This is a general-purpose workspace.",
 	},
 	{
@@ -150,7 +151,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
 				content: "",
 			},
 		],
-		settings: { tools: { enabled: ["shell", "code", "tests"] }, connectors: { allowed: ["github", "sap-adt", "codex", "claude", "gemini"] } },
+		settings: { tools: { enabled: [...DEFAULT_ENABLED_TOOLS] }, connectors: { allowed: ["github", "sap-adt", "codex", "claude", "gemini"] } },
 		agentPrompt: "This is an SAP CAP workspace. Use the vendored SAP CAP skills under skills/sap-cap-capire for CAP modeling, services, handlers, Fiori annotations, deployment, and troubleshooting.",
 	},
 	{
@@ -172,7 +173,7 @@ export const WORKSPACE_TEMPLATES: WorkspaceTemplate[] = [
 				content: "",
 			},
 		],
-		settings: { tools: { enabled: ["shell", "code", "tests"] }, connectors: { allowed: ["sap-adt", "github", "codex", "claude", "gemini"] } },
+		settings: { tools: { enabled: [...DEFAULT_ENABLED_TOOLS] }, connectors: { allowed: ["sap-adt", "github", "codex", "claude", "gemini"] } },
 		agentPrompt: "This is an SAP ABAP workspace. Use the vendored SAP ABAP skills under skills/sap-abap and skills/sap-abap-cds for ABAP development, ABAP Cloud, RAP, CDS views, SQL, testing, and performance work.",
 	},
 ];
