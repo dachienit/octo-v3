@@ -5,7 +5,7 @@
   "sandboxImage": "octo/sandbox:local",
   "settings": {
     "tools": {
-      "enabled": ["shell", "code", "tests"]
+      "enabled": ["read", "write", "edit", "bash", "attach", "glob", "grep", "bash_output", "kill_shell", "web_fetch", "todo_write", "exit_plan_mode", "task"]
     },
     "connectors": {
       "allowed": ["github", "sap-adt", "codex", "claude", "gemini"]

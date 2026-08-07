@@ -42,6 +42,10 @@ export class AttachmentTile extends LitElement {
 			this.attachment.fileName.toLowerCase().endsWith(".xlsx") ||
 			this.attachment.fileName.toLowerCase().endsWith(".xls");
 
+		// A folder attachment carries its relative path as its name; the tile is 64px wide
+		// and truncates from the start, so show the basename and keep the path in the title.
+		const label = this.attachment.fileName.split("/").pop() || this.attachment.fileName;
+
 		// Choose the appropriate icon
 		const getDocumentIcon = () => {
 			if (isExcel) return icon(FileSpreadsheet, "md");
@@ -82,11 +86,7 @@ export class AttachmentTile extends LitElement {
 							>
 								${getDocumentIcon()}
 								<div class="text-[10px] text-center truncate w-full">
-									${
-										this.attachment.fileName.length > 10
-											? `${this.attachment.fileName.substring(0, 8)}...`
-											: this.attachment.fileName
-									}
+									${label.length > 10 ? `${label.substring(0, 8)}...` : label}
 								</div>
 							</div>
 						`

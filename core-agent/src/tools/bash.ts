@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { Type } from "typebox";
+import { startBackgroundShell } from "../background-shells.js";
 import type { Executor } from "../sandbox.js";
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_LINES, formatSize, type TruncationResult, truncateTail } from "./truncate.js";
 
@@ -16,24 +17,54 @@ const bashSchema = Type.Object({
 	label: Type.String({ description: "Brief description of what this command does (shown to user)" }),
 	command: Type.String({ description: "Bash command to execute" }),
 	timeout: Type.Optional(Type.Number({ description: "Timeout in seconds (optional, no default timeout)" })),
+	run_in_background: Type.Optional(
+		Type.Boolean({
+			description:
+				"Start the command in the background and return a shell id immediately instead of waiting. Use bash_output to collect its output and kill_shell to stop it.",
+		}),
+	),
 });
 
 interface BashToolDetails {
 	truncation?: TruncationResult;
 	fullOutputPath?: string;
+	shellId?: string;
+	background?: boolean;
 }
 
-export function createBashTool(executor: Executor): AgentTool<typeof bashSchema> {
+export interface BashToolOptions {
+	/** Session identifier background shells are scoped to. */
+	sessionId: string;
+}
+
+export function createBashTool(executor: Executor, options: BashToolOptions): AgentTool<typeof bashSchema> {
 	return {
 		name: "bash",
 		label: "bash",
-		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds.`,
+		description: `Execute a bash command in the current working directory. Returns stdout and stderr. Output is truncated to last ${DEFAULT_MAX_LINES} lines or ${DEFAULT_MAX_BYTES / 1024}KB (whichever is hit first). If truncated, full output is saved to a temp file. Optionally provide a timeout in seconds, or set run_in_background to start a long-running command and poll it with bash_output.`,
 		parameters: bashSchema,
 		execute: async (
 			_toolCallId: string,
-			{ command, timeout }: { label: string; command: string; timeout?: number },
+			{
+				command,
+				timeout,
+				run_in_background,
+			}: { label: string; command: string; timeout?: number; run_in_background?: boolean },
 			signal?: AbortSignal,
 		) => {
+			if (run_in_background) {
+				const shell = startBackgroundShell({ executor, sessionId: options.sessionId, command });
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Started in background with shell id ${shell.id}. Use bash_output with bash_id "${shell.id}" to read its output, and kill_shell to stop it.`,
+						},
+					],
+					details: { shellId: shell.id, background: true } satisfies BashToolDetails,
+				};
+			}
+
 			let tempFilePath: string | undefined;
 			let tempFileStream: ReturnType<typeof createWriteStream> | undefined;
 

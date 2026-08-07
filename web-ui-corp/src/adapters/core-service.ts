@@ -26,6 +26,8 @@ export type HistoryMessage = {
 	role: "user" | "assistant";
 	text: string;
 	attachments?: string[];
+	/** Basenames of files/folders tagged with @ on this turn. */
+	mentions?: string[];
 	thread?: string;
 	files?: Array<{ path: string; title?: string }>;
 	blocks?: ReplayBlock[];
@@ -182,12 +184,20 @@ export type ConnectorStatus = AgentWorkerStatus & {
 	};
 };
 
+/** Product name used until the service reports its own, and when it cannot be reached. */
+export const DEFAULT_APP_TITLE = "Octo";
+
 export type CoreServiceFeatures = {
 	agentWorkers: boolean;
 	reminders: boolean;
 	connection: boolean;
+	/** Whether the workspace settings Tools tab is shown. */
+	tools: boolean;
 	llmProviders: string[] | null;
-	appTitle: string | null;
+	/** Browser tab title and the agent's name in chat. */
+	appTitle: string;
+	/** Label in the app header bar. */
+	appHeader: string;
 };
 
 export type AgentWorkerLoginStart = {
@@ -224,6 +234,35 @@ export type WorkspaceNode = {
 export type WorkspaceTree = {
 	artifacts: WorkspaceNode[];
 	skills: WorkspaceNode[];
+	/**
+	 * This session's uploads. Optional because an older server does not send it —
+	 * the @-mention picker is the only consumer, and it degrades to artifacts-only.
+	 */
+	attachments?: WorkspaceNode[];
+};
+
+/** A file or folder the user can tag with `@`. */
+export type MentionScope = "artifacts" | "attachments";
+
+export type MentionPayload = {
+	scope: MentionScope;
+	/** Path relative to the scope's root — never a filesystem path. */
+	path: string;
+};
+
+export type SkillUploadFile = {
+	path: string; // relative to the picked folder, forward slashes
+	content: string; // base64, no data URL prefix
+};
+
+export type SkillUploadResult = {
+	ok: boolean;
+	error?: string;
+	exists?: boolean; // the skill name is already taken; retry with overwrite
+	skillName?: string;
+	path?: string;
+	fileCount?: number;
+	skipped?: string[];
 };
 
 export type SapConnection = {
@@ -295,6 +334,18 @@ export type WorkspaceSettings = {
 	mcp?: {
 		servers?: Array<{ name: string; command: string; enabled?: boolean }>;
 	};
+};
+
+/** One row of the workspace settings Tools tab; served by GET /tools. */
+export type ToolCatalogEntry = {
+	name: string;
+	label: string;
+	group: string;
+	description: string;
+	defaultEnabled: boolean;
+	/** False when the backing capability is not configured on the server. */
+	available: boolean;
+	unavailableReason?: string;
 };
 
 export type WorkspaceTemplate = {
@@ -605,12 +656,15 @@ export class CoreServiceClient {
 		signal?: AbortSignal,
 		attachments?: AttachmentPayload[],
 		model?: { provider: string; modelId: string },
+		mentions?: MentionPayload[],
+		/** Skill names the message invoked with `/name`; the server resolves them to SKILL.md paths. */
+		skills?: string[],
 	): AsyncGenerator<SseEvent> {
 		const userQuery = userName ? `?userId=${encodeURIComponent(userName)}` : "";
 		const response = await this.fetch(`/sessions/${encodeURIComponent(channelId)}/messages${userQuery}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ text, userName, attachments, model, structured: true }),
+			body: JSON.stringify({ text, userName, attachments, mentions, skills, model, structured: true }),
 			signal,
 		});
 
@@ -685,19 +739,24 @@ export class CoreServiceClient {
 	}
 
 	async getFeatures(): Promise<CoreServiceFeatures> {
+		const fallback: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, tools: true, llmProviders: null, appTitle: DEFAULT_APP_TITLE, appHeader: DEFAULT_APP_TITLE };
 		try {
 			const response = await this.fetch("/features");
-			if (!response.ok) return { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null };
+			if (!response.ok) return fallback;
 			const data = await response.json() as { features?: Partial<CoreServiceFeatures> };
+			const appTitle = typeof data.features?.appTitle === "string" && data.features.appTitle ? data.features.appTitle : DEFAULT_APP_TITLE;
 			return {
 				agentWorkers: data.features?.agentWorkers !== false,
 				reminders: data.features?.reminders !== false,
 				connection: data.features?.connection !== false,
+				tools: data.features?.tools !== false,
 				llmProviders: Array.isArray(data.features?.llmProviders) ? data.features.llmProviders : null,
-				appTitle: typeof data.features?.appTitle === "string" ? data.features.appTitle : null,
+				appTitle,
+				// An older service does not send appHeader; the title is the sane stand-in.
+				appHeader: typeof data.features?.appHeader === "string" && data.features.appHeader ? data.features.appHeader : appTitle,
 			};
 		} catch {
-			return { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null };
+			return fallback;
 		}
 	}
 
@@ -896,6 +955,44 @@ export class CoreServiceClient {
 		}
 	}
 
+	// Upload a whole skill folder into workspaces/<id>/skills/<folderName>/. Paths are
+	// relative to the picked folder and file bytes are base64-encoded, because the service
+	// has no multipart parser. A 409 means the skill already exists — retry with
+	// overwrite: true to replace it.
+	async uploadWorkspaceSkill(
+		workspaceId: string,
+		folderName: string,
+		files: SkillUploadFile[],
+		overwrite = false,
+	): Promise<SkillUploadResult> {
+		try {
+			const response = await this.fetch(`/workspaces/${encodeURIComponent(workspaceId)}/skills`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ folderName, overwrite, files }),
+			});
+			const data = (await response.json().catch(() => ({}))) as {
+				error?: string;
+				code?: string;
+				skillName?: string;
+				path?: string;
+				fileCount?: number;
+				skipped?: string[];
+			};
+			if (!response.ok) {
+				return {
+					ok: false,
+					error: data.error ?? `HTTP ${response.status}`,
+					exists: response.status === 409 || data.code === "exists",
+					skillName: data.skillName,
+				};
+			}
+			return { ok: true, skillName: data.skillName, path: data.path, fileCount: data.fileCount, skipped: data.skipped };
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) };
+		}
+	}
+
 	async getWorkspace(channelId: string): Promise<WorkspaceTree | null> {
 		try {
 			const response = await this.fetch(`/sessions/${encodeURIComponent(channelId)}/workspace`);
@@ -985,6 +1082,18 @@ export class CoreServiceClient {
 			return response.json();
 		} catch {
 			return {};
+		}
+	}
+
+	/** The primitive tool catalog backing the Tools tab. Global, not per workspace. */
+	async getToolCatalog(): Promise<ToolCatalogEntry[]> {
+		try {
+			const response = await this.fetch("/tools");
+			if (!response.ok) return [];
+			const body = (await response.json()) as { tools?: ToolCatalogEntry[] };
+			return body.tools ?? [];
+		} catch {
+			return [];
 		}
 	}
 

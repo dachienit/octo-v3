@@ -36,7 +36,8 @@ if (_proxyUrl) {
 
 import { appendFileSync, existsSync, mkdirSync } from "fs";
 import { join, resolve } from "path";
-import { type AgentRunner, disposeChannelAgent, getOrCreateRunner } from "./agent.js";
+import { type AgentRunner, disposeChannelAgent, getOrCreateRunner, getToolsKey } from "./agent.js";
+import { getAppHeader, getAppTitle } from "./branding.js";
 import { downloadChannel } from "./download.js";
 import { createEventsWatcher, createWorkspaceEventsWatcher } from "./events.js";
 import { createHttpContext, HttpServer } from "./http.js";
@@ -58,11 +59,13 @@ const MOM_SLACK_BOT_TOKEN = process.env.MOM_SLACK_BOT_TOKEN;
 const AGENT_WORKERS_ENABLED = !["0", "false", "off", "no"].includes((process.env.CORE_SERVICE_AGENT_WORKERS_ENABLED ?? "true").toLowerCase());
 const REMINDERS_ENABLED = !["0", "false", "off", "no"].includes((process.env.CORE_SERVICE_REMINDERS_ENABLED ?? "true").toLowerCase());
 const CONNECTION_ENABLED = !["0", "false", "off", "no"].includes((process.env.CORE_SERVICE_CONNECTION_ENABLED ?? "true").toLowerCase());
+// Hides the Tools tab only. A workspace's stored `settings.tools.enabled` still
+// applies, so hiding the screen cannot silently re-enable a tool an admin turned off.
+const TOOLS_ENABLED = !["0", "false", "off", "no"].includes((process.env.CORE_SERVICE_TOOLS_ENABLED ?? "true").toLowerCase());
 const LLM_PROVIDERS_ALLOWLIST = (process.env.CORE_SERVICE_LLM_PROVIDERS ?? "")
 	.split(",")
 	.map((id) => id.trim())
 	.filter(Boolean);
-const APP_TITLE = (process.env.CORE_SERVICE_APP_TITLE ?? "").trim();
 
 interface ParsedArgs {
 	workingDir?: string;
@@ -204,6 +207,7 @@ interface ChannelState {
 	runner: AgentRunner;
 	authFilePath?: string;
 	mcpKey: string;
+	toolsKey: string;
 	agentWorkersEnabled: boolean;
 	remindersEnabled: boolean;
 	store: ChannelStore;
@@ -230,11 +234,16 @@ function getRunnerOptions(userId: string, workspaceId: string, authFilePath?: st
 		agentWorkersEnabled: AGENT_WORKERS_ENABLED,
 		remindersEnabled: REMINDERS_ENABLED,
 		mcpServers: workspaceStore.getWorkspaceSettings(userId, workspaceId).mcp?.servers,
+		enabledTools: workspaceStore.getWorkspaceSettings(userId, workspaceId).tools?.enabled,
 	};
 }
 
 function getWorkspaceMcpKey(userId: string, workspaceId: string): string {
 	return JSON.stringify(workspaceStore.getWorkspaceSettings(userId, workspaceId).mcp?.servers ?? []);
+}
+
+function getWorkspaceToolsKey(userId: string, workspaceId: string): string {
+	return getToolsKey(workspaceStore.getWorkspaceSettings(userId, workspaceId).tools?.enabled);
 }
 async function getState(sessionId: string, userId = "web-user", authFilePath?: string): Promise<ChannelState> {
 	const session = workspaceStore.ensureSession({ sessionId, userId });
@@ -254,6 +263,7 @@ async function getState(sessionId: string, userId = "web-user", authFilePath?: s
 			running: false,
 			runner: await getOrCreateRunner(sessionSandbox, sessionId, channelDir, getRunnerOptions(userId, session.workspaceId, authFilePath)),//getOrCreateRunner(sessionSandbox, sessionId, channelDir, { authFilePath, userId, usersRoot: join(workingDir, "users"), agentWorkersEnabled: AGENT_WORKERS_ENABLED, remindersEnabled: REMINDERS_ENABLED }),
 			authFilePath,mcpKey: getWorkspaceMcpKey(userId, session.workspaceId),
+			toolsKey: getWorkspaceToolsKey(userId, session.workspaceId),
 			agentWorkersEnabled: AGENT_WORKERS_ENABLED,
 			remindersEnabled: REMINDERS_ENABLED,
 			store: new ChannelStore({ workingDir: join(workspaceRoot, "sessions"), botToken: MOM_SLACK_BOT_TOKEN || "" }),
@@ -272,10 +282,12 @@ async function getState(sessionId: string, userId = "web-user", authFilePath?: s
 			image: workspaceStore.getWorkspaceSandboxImage(session.workspaceId),
 		});
 		const mcpKey = getWorkspaceMcpKey(userId, session.workspaceId);
-		if (state.authFilePath !== authFilePath || state.agentWorkersEnabled !== AGENT_WORKERS_ENABLED || state.remindersEnabled !== REMINDERS_ENABLED || state.mcpKey !== mcpKey) {
+		const toolsKey = getWorkspaceToolsKey(userId, session.workspaceId);
+		if (state.authFilePath !== authFilePath || state.agentWorkersEnabled !== AGENT_WORKERS_ENABLED || state.remindersEnabled !== REMINDERS_ENABLED || state.mcpKey !== mcpKey || state.toolsKey !== toolsKey) {
 			state.runner = await getOrCreateRunner(sessionSandbox, sessionId, channelDir, getRunnerOptions(userId, session.workspaceId, authFilePath));
 			state.authFilePath = authFilePath;
 			state.mcpKey = mcpKey;
+			state.toolsKey = toolsKey;
 			state.agentWorkersEnabled = AGENT_WORKERS_ENABLED;
 			state.remindersEnabled = REMINDERS_ENABLED;
 		}
@@ -446,7 +458,7 @@ if (hasHttp) {
 		workingDir,
 		workspaceStore,
 		sandboxConfig: sandbox,
-		features: { agentWorkers: AGENT_WORKERS_ENABLED, reminders: REMINDERS_ENABLED, connection: CONNECTION_ENABLED, llmProviders: LLM_PROVIDERS_ALLOWLIST.length > 0 ? LLM_PROVIDERS_ALLOWLIST : null, appTitle: APP_TITLE || null },
+		features: { agentWorkers: AGENT_WORKERS_ENABLED, reminders: REMINDERS_ENABLED, connection: CONNECTION_ENABLED, tools: TOOLS_ENABLED, llmProviders: LLM_PROVIDERS_ALLOWLIST.length > 0 ? LLM_PROVIDERS_ALLOWLIST : null, appTitle: getAppTitle(), appHeader: getAppHeader() },
 		handler,
 		getObjectStoreStatus: () => objectStore?.status(),
 		objectStore,
