@@ -265,21 +265,6 @@ export type SkillUploadResult = {
 	skipped?: string[];
 };
 
-export type SkillUploadFile = {
-	path: string; // relative to the picked folder, forward slashes
-	content: string; // base64, no data URL prefix
-};
-
-export type SkillUploadResult = {
-	ok: boolean;
-	error?: string;
-	exists?: boolean; // the skill name is already taken; retry with overwrite
-	skillName?: string;
-	path?: string;
-	fileCount?: number;
-	skipped?: string[];
-};
-
 export type SapConnection = {
 	name: string;
 	destinationName: string;
