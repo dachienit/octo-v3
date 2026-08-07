@@ -13,8 +13,16 @@ export interface CoreAgentOptions {
 	usersRoot?: string;
 	/** Enable ACP-compatible delegated worker agents */
 	agentWorkersEnabled?: boolean;
+	/** Enable the `task` tool (in-process nested subagents). Defaults to enabled. */
+	subagentsEnabled?: boolean;
 	/** Additional tools beyond the primitive set */
 	extraTools?: AgentTool<any>[];
+	/**
+	 * Primitive tool names the workspace has enabled (`settings.tools.enabled`).
+	 * Omitted means "never configured" and falls back to the catalog defaults.
+	 * Does not apply to `extraTools`, which MCP gates on its own.
+	 */
+	enabledTools?: string[];
 }
 
 export interface CoreAgentRunInput {
@@ -26,10 +34,30 @@ export interface CoreAgentRunInput {
 	userName?: string;
 	/** Attachments with relative paths under the workspace */
 	attachments?: Array<{ local: string }>;
+	/**
+	 * Files and folders the user pointed at with `@`, as paths relative to the
+	 * workspace. These already exist in the workspace, so they are passed as
+	 * pointers the agent may read on demand — never as inlined content — and a
+	 * mention can be a directory, which an attachment never is.
+	 */
+	mentions?: Array<{ local: string; type: "file" | "directory" }>;
+	/**
+	 * Skills the user invoked explicitly (the `/name` mechanic in the composer), as the
+	 * workspace-relative path of each SKILL.md. Like mentions these are pointers, but
+	 * unlike mentions they are an instruction: the agent is expected to read them and
+	 * follow them for this request rather than decide whether they are relevant.
+	 */
+	skills?: Array<{ name: string; local: string }>;
 	/** Full system prompt for this run */
 	systemPrompt: string;
 	/** User-specific auth JSON path for this run */
 	authFilePath?: string;
+	/**
+	 * Permission mode for this run. "plan" restricts the agent to read-only tools
+	 * until it calls `exit_plan_mode`. Omitted leaves the session's current mode
+	 * unchanged.
+	 */
+	mode?: "default" | "plan";
 	/**
 	 * IYH1HC add: per-run model override. When present, the agent runs this model
 	 * (resolved via pi-ai getModel, falling back to a stub) and uses `apiKey`

@@ -3,6 +3,7 @@ export { configureFioriTheme, CORPORATE_FIORI_DARK_THEME, CORPORATE_FIORI_THEME 
 // Core service HTTP SSE adapter
 export {
 	CoreServiceClient,
+	DEFAULT_APP_TITLE,
 	type AuthUser,
 	type AcpJob,
 	type AgentWorkerLoginStart,
@@ -16,6 +17,7 @@ export {
 	type SkillUploadFile,
 	type SkillUploadResult,
 	type SsoConfig,
+	type ToolCatalogEntry,
 	type WorkspaceInfo,
 	type WorkspaceSandboxStatus,
 	type WorkspaceScheduledEvent,
@@ -49,7 +51,7 @@ export { AttachmentTile } from "./components/AttachmentTile.js";
 export { ConsoleBlock } from "./components/ConsoleBlock.js";
 export { ExpandableSection } from "./components/ExpandableSection.js";
 export { Input } from "./components/Input.js";
-export { MessageEditor } from "./components/MessageEditor.js";
+export { type ComposerSkill, MessageEditor } from "./components/MessageEditor.js";
 export { MessageList } from "./components/MessageList.js";
 // Message components
 export type { ArtifactMessage, UserMessageWithAttachments } from "./components/Messages.js";

@@ -26,6 +26,8 @@ export type HistoryMessage = {
 	role: "user" | "assistant";
 	text: string;
 	attachments?: string[];
+	/** Basenames of files/folders tagged with @ on this turn. */
+	mentions?: string[];
 	thread?: string;
 	files?: Array<{ path: string; title?: string }>;
 	blocks?: ReplayBlock[];
@@ -182,12 +184,20 @@ export type ConnectorStatus = AgentWorkerStatus & {
 	};
 };
 
+/** Product name used until the service reports its own, and when it cannot be reached. */
+export const DEFAULT_APP_TITLE = "Octo";
+
 export type CoreServiceFeatures = {
 	agentWorkers: boolean;
 	reminders: boolean;
 	connection: boolean;
+	/** Whether the workspace settings Tools tab is shown. */
+	tools: boolean;
 	llmProviders: string[] | null;
-	appTitle: string | null;
+	/** Browser tab title and the agent's name in chat. */
+	appTitle: string;
+	/** Label in the app header bar. */
+	appHeader: string;
 };
 
 export type AgentWorkerLoginStart = {
@@ -224,6 +234,20 @@ export type WorkspaceNode = {
 export type WorkspaceTree = {
 	artifacts: WorkspaceNode[];
 	skills: WorkspaceNode[];
+	/**
+	 * This session's uploads. Optional because an older server does not send it —
+	 * the @-mention picker is the only consumer, and it degrades to artifacts-only.
+	 */
+	attachments?: WorkspaceNode[];
+};
+
+/** A file or folder the user can tag with `@`. */
+export type MentionScope = "artifacts" | "attachments";
+
+export type MentionPayload = {
+	scope: MentionScope;
+	/** Path relative to the scope's root — never a filesystem path. */
+	path: string;
 };
 
 export type SkillUploadFile = {
@@ -310,6 +334,18 @@ export type WorkspaceSettings = {
 	mcp?: {
 		servers?: Array<{ name: string; command: string; enabled?: boolean }>;
 	};
+};
+
+/** One row of the workspace settings Tools tab; served by GET /tools. */
+export type ToolCatalogEntry = {
+	name: string;
+	label: string;
+	group: string;
+	description: string;
+	defaultEnabled: boolean;
+	/** False when the backing capability is not configured on the server. */
+	available: boolean;
+	unavailableReason?: string;
 };
 
 export type WorkspaceTemplate = {
@@ -620,12 +656,15 @@ export class CoreServiceClient {
 		signal?: AbortSignal,
 		attachments?: AttachmentPayload[],
 		model?: { provider: string; modelId: string },
+		mentions?: MentionPayload[],
+		/** Skill names the message invoked with `/name`; the server resolves them to SKILL.md paths. */
+		skills?: string[],
 	): AsyncGenerator<SseEvent> {
 		const userQuery = userName ? `?userId=${encodeURIComponent(userName)}` : "";
 		const response = await this.fetch(`/sessions/${encodeURIComponent(channelId)}/messages${userQuery}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ text, userName, attachments, model, structured: true }),
+			body: JSON.stringify({ text, userName, attachments, mentions, skills, model, structured: true }),
 			signal,
 		});
 
@@ -700,19 +739,24 @@ export class CoreServiceClient {
 	}
 
 	async getFeatures(): Promise<CoreServiceFeatures> {
+		const fallback: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, tools: true, llmProviders: null, appTitle: DEFAULT_APP_TITLE, appHeader: DEFAULT_APP_TITLE };
 		try {
 			const response = await this.fetch("/features");
-			if (!response.ok) return { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null };
+			if (!response.ok) return fallback;
 			const data = await response.json() as { features?: Partial<CoreServiceFeatures> };
+			const appTitle = typeof data.features?.appTitle === "string" && data.features.appTitle ? data.features.appTitle : DEFAULT_APP_TITLE;
 			return {
 				agentWorkers: data.features?.agentWorkers !== false,
 				reminders: data.features?.reminders !== false,
 				connection: data.features?.connection !== false,
+				tools: data.features?.tools !== false,
 				llmProviders: Array.isArray(data.features?.llmProviders) ? data.features.llmProviders : null,
-				appTitle: typeof data.features?.appTitle === "string" ? data.features.appTitle : null,
+				appTitle,
+				// An older service does not send appHeader; the title is the sane stand-in.
+				appHeader: typeof data.features?.appHeader === "string" && data.features.appHeader ? data.features.appHeader : appTitle,
 			};
 		} catch {
-			return { agentWorkers: true, reminders: true, connection: true, llmProviders: null, appTitle: null };
+			return fallback;
 		}
 	}
 
@@ -1038,6 +1082,18 @@ export class CoreServiceClient {
 			return response.json();
 		} catch {
 			return {};
+		}
+	}
+
+	/** The primitive tool catalog backing the Tools tab. Global, not per workspace. */
+	async getToolCatalog(): Promise<ToolCatalogEntry[]> {
+		try {
+			const response = await this.fetch("/tools");
+			if (!response.ok) return [];
+			const body = (await response.json()) as { tools?: ToolCatalogEntry[] };
+			return body.tools ?? [];
+		} catch {
+			return [];
 		}
 	}
 

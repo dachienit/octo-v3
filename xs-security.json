@@ -1,7 +1,7 @@
 {
-  "xsappname": "symphony",
+  "xsappname": "octo",
   "tenant-mode": "dedicated",
-  "description": "Symphony AI Agent security descriptor (XSUAA / IAS). Authentication only — no role/scope authorization yet.",
+  "description": "AI Agent security descriptor (XSUAA / IAS). Authentication only — no role/scope authorization yet.",
   "scopes": [
     {
       "name": "uaa.user",

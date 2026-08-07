@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
-import { Dirent, appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { Dirent, type Stats, appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "path";
 import {
@@ -14,12 +14,16 @@ import {
 	listAcpJobs,
 	listConnectorRuntimes,
 	loginProvider,
+	resolveWebSearchConfig,
 	safeConnectorUserId,
+	SessionStateStore,
+	TOOL_CATALOG,
 	type ConnectorRuntime,
 } from "@octo/core-agent";
 import express from "express";
 import JSZip from "jszip";
 import { CoreServiceAuth } from "./auth.js";
+import { getAppHeader, getAppTitle } from "./branding.js";
 import { decryptSecret, encryptSecret } from "./crypto.js";
 import { prepareBoschAnthropicEndpoint, prepareBoschGoogleEndpoint, prepareBoschOpenAIEndpoint } from "./extensions/bosch-genai-adapter.js";
 import { GithubSsoProvider, loadSsoConfig } from "./sso.js";
@@ -106,6 +110,19 @@ const BINARY_MIME_TYPES: Record<string, string> = {
 	zip: "application/zip",
 };
 
+/**
+ * An `@`-mention from the composer: a scope plus a path relative to it. Deliberately
+ * not a filesystem path — the server maps the scope to a root itself, so a client
+ * cannot name a location the scopes do not reach.
+ */
+type MentionPayload = { scope?: "artifacts" | "attachments"; path?: string };
+
+/** More than this in one message is a mistake, not an intent. */
+const MAX_MENTIONS = 20;
+
+/** Same reasoning for `/skill` invocations: a message driven by ten skills has no driver. */
+const MAX_SKILL_INVOCATIONS = 5;
+
 // Skill folder upload limits. The Express JSON body cap (50mb of base64 is roughly
 // 37mb of bytes) is the hard ceiling, so stay well below it.
 const MAX_SKILL_UPLOAD_FILES = 500;
@@ -122,12 +139,14 @@ export function createHttpContext(opts: {
 	send: SseEmitter;
 	workingDir: string;
 	attachments?: Array<{ local: string }>;
+	mentions?: Array<{ local: string; type: "file" | "directory" }>;
+	skills?: Array<{ name: string; local: string }>;
 	userId?: string;
 	authFilePath?: string;
-	model?: { provider: string; modelId: string; apiKey?: string; baseUrl?: string; apiType?: string }; 
-	structured?: boolean; 
+	model?: { provider: string; modelId: string; apiKey?: string; baseUrl?: string; apiType?: string };
+	structured?: boolean;
 }): BotContext {
-	const { channelId, userName, text, ts, send, workingDir, attachments = [], userId = "web-user", authFilePath, model, structured = false } = opts;
+	const { channelId, userName, text, ts, send, workingDir, attachments = [], mentions = [], skills = [], userId = "web-user", authFilePath, model, structured = false } = opts;
 
 	const logToFile = (entry: object) => {
 		const dir = join(workingDir, "sessions", channelId);
@@ -194,6 +213,8 @@ export function createHttpContext(opts: {
 			channel: channelId,
 			ts,
 			attachments,
+			mentions,
+			skills,
 		},
 		authFilePath,
 		model,
@@ -287,7 +308,7 @@ export class HttpServer {
 	private handler: BotHandler;
 	private workspaceStore: WorkspaceStore;
 	private sandboxConfig: SandboxConfig;
-	private features: { agentWorkers: boolean; reminders: boolean; connection: boolean; llmProviders: string[] | null; appTitle: string | null };
+	private features: { agentWorkers: boolean; reminders: boolean; connection: boolean; tools: boolean; llmProviders: string[] | null; appTitle: string; appHeader: string };
 	private auth: CoreServiceAuth;
 	private pendingAuthLogins = new Map<string, PendingAuthLogin>();
 	private sso: GithubSsoProvider | null;
@@ -295,7 +316,7 @@ export class HttpServer {
 	private getObjectStoreStatus?: () => unknown;
 	private objectStore?: ObjectStoreGateway;
 
-	constructor(config: { port: number; workingDir: string; handler: BotHandler; workspaceStore: WorkspaceStore; sandboxConfig: SandboxConfig; features?: { agentWorkers?: boolean; reminders?: boolean; connection?: boolean; llmProviders?: string[] | null; appTitle?: string | null }; getObjectStoreStatus?: () => unknown; objectStore?: ObjectStoreGateway }) {
+	constructor(config: { port: number; workingDir: string; handler: BotHandler; workspaceStore: WorkspaceStore; sandboxConfig: SandboxConfig; features?: { agentWorkers?: boolean; reminders?: boolean; connection?: boolean; tools?: boolean; llmProviders?: string[] | null; appTitle?: string; appHeader?: string }; getObjectStoreStatus?: () => unknown; objectStore?: ObjectStoreGateway }) {
 		this.port = config.port;
 		this.workingDir = config.workingDir;
 		this.handler = config.handler;
@@ -307,8 +328,10 @@ export class HttpServer {
 			agentWorkers: config.features?.agentWorkers !== false,
 			reminders: config.features?.reminders !== false,
 			connection: config.features?.connection !== false,
+			tools: config.features?.tools !== false,
 			llmProviders: config.features?.llmProviders ?? null,
-			appTitle: config.features?.appTitle ?? null,
+			appTitle: config.features?.appTitle ?? getAppTitle(),
+			appHeader: config.features?.appHeader ?? getAppHeader(),
 		};
 		this.auth = new CoreServiceAuth(config.workingDir);
 		const ssoConfig = loadSsoConfig();
@@ -379,6 +402,7 @@ export class HttpServer {
 		app.post("/auth/openai-codex/login", (req, res) => { void this.handleCodexLogin(req, res); });
 		app.get("/auth/openai-codex/login/:loginId", (req, res) => this.handleCodexLoginStatus(req, res));
 		app.post("/auth/openai-codex/login/:loginId/code", (req, res) => this.handleCodexLoginCode(req, res));
+		app.get("/tools", (req, res) => this.handleToolCatalog(req, res));
 		app.get("/llm/config", (req, res) => this.handleLlmConfig(req, res));
 		app.get("/llm/active-models", (req, res) => this.handleLlmActiveModels(req, res));
 		app.put("/llm/providers/:provider/key", (req, res) => this.handleSetProviderKey(req, res));
@@ -408,6 +432,8 @@ export class HttpServer {
 		app.post("/chat",           (req, res) => { void this.handleChat(req, res); });
 		app.post("/stop",           (req, res) => { void this.handleStop(req, res); });
 		app.get("/status/:id",      (req, res) => this.handleStatus(req, req.params.id, res));
+		app.get("/sessions/:id/mode", (req, res) => this.handleSessionMode(req, decodeURIComponent(req.params.id), res));
+		app.patch("/sessions/:id/mode", (req, res) => this.handleSetSessionMode(req, decodeURIComponent(req.params.id), res));
 		app.get("/sessions/:id/acp-jobs", (req, res) => this.handleAcpJobs(req, decodeURIComponent(req.params.id), res));
 		app.post("/sessions/:id/acp-jobs/:jobId/cancel", (req, res) => this.handleCancelAcpJob(req, decodeURIComponent(req.params.id), decodeURIComponent(req.params.jobId), res));
 		app.get("/sessions",        (req, res) => this.handleSessions(req, res));
@@ -446,35 +472,174 @@ export class HttpServer {
 		return join(dir, "auth.json");
 	}
 
-	private resolveReadableWorkspaceFile(req: express.Request, filePath: string, res: express.Response): string | undefined {
-		if (!filePath) {
-			res.status(400).json({ error: "Missing path" });
-			return undefined;
-		}
+	/**
+	 * The containment check behind every path a client supplies: normalize, require
+	 * the result to sit inside `<dataRoot>/workspaces/<wsId>/`, and require the user
+	 * to be a member of that workspace.
+	 *
+	 * Pure — it reports a failure instead of writing one. Route handlers that serve a
+	 * single file want an HTTP response (see `resolveReadableWorkspaceFile`), but
+	 * validating a *list* of paths must be able to drop one entry and keep going.
+	 */
+	private resolveWorkspacePathForUser(
+		req: express.Request,
+		filePath: string,
+	): { ok: true; resolved: string; workspaceId: string } | { ok: false; status: number; error: string } {
+		if (!filePath) return { ok: false, status: 400, error: "Missing path" };
 
 		const root = resolve(this.workingDir);
 		const resolved = resolve(isAbsolute(filePath) ? filePath : join(this.workingDir, filePath));
 
 		const relFromRoot = relative(root, resolved);
 		if (relFromRoot === "" || relFromRoot.startsWith("..") || isAbsolute(relFromRoot)) {
-			res.status(403).json({ error: "Forbidden" });
-			return undefined;
+			return { ok: false, status: 403, error: "Forbidden" };
 		}
 
 		const workspaceRoot = resolve(join(this.workingDir, "workspaces"));
 		const relFromWorkspaces = relative(workspaceRoot, resolved);
 		if (relFromWorkspaces === "" || relFromWorkspaces.startsWith("..") || isAbsolute(relFromWorkspaces)) {
-			res.status(403).json({ error: "Forbidden" });
-			return undefined;
+			return { ok: false, status: 403, error: "Forbidden" };
 		}
 
 		const workspaceId = relFromWorkspaces.split(/[\\/]/)[0];
 		try {
 			this.workspaceStore.assertWorkspaceAccess(this.getUserId(req), workspaceId);
 		} catch (err) {
-			res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
+			return { ok: false, status: 403, error: err instanceof Error ? err.message : String(err) };
+		}
+		return { ok: true, resolved, workspaceId };
+	}
+
+	private resolveReadableWorkspaceFile(req: express.Request, filePath: string, res: express.Response): string | undefined {
+		const outcome = this.resolveWorkspacePathForUser(req, filePath);
+		if (!outcome.ok) {
+			res.status(outcome.status).json({ error: outcome.error });
 			return undefined;
 		}
+		return outcome.resolved;
+	}
+
+	/**
+	 * Turns the `@`-mentions a client sent into workspace-relative paths the agent
+	 * can resolve.
+	 *
+	 * The client sends a scope plus a path relative to that scope, never a
+	 * filesystem path, so the server owns the mapping to a root. Every result still
+	 * goes through the containment guard, because a scope-relative path can climb
+	 * out with `..` just as easily. A mention that fails validation, or names
+	 * something that no longer exists, is **dropped** rather than failing the whole
+	 * message — the user's text is still worth delivering.
+	 */
+	private resolveMentions(
+		req: express.Request,
+		mentions: MentionPayload[],
+		workspaceRoot: string,
+		sessionId: string,
+	): Array<{ local: string; type: "file" | "directory" }> {
+		const resolved: Array<{ local: string; type: "file" | "directory" }> = [];
+
+		for (const mention of mentions.slice(0, MAX_MENTIONS)) {
+			if (!mention || typeof mention.path !== "string" || !mention.path) continue;
+
+			const scopeRoot =
+				mention.scope === "attachments" ? join("sessions", sessionId, "attachments") : "artifacts";
+			const relativeToWorkspace = join(scopeRoot, mention.path);
+
+			const outcome = this.resolveWorkspacePathForUser(req, join(workspaceRoot, relativeToWorkspace));
+			if (!outcome.ok) {
+				log.logWarning("[mentions] dropped", `${mention.scope}:${mention.path} (${outcome.error})`);
+				continue;
+			}
+
+			// The workspace guard alone would still let `../` walk from this session's
+			// attachments into a sibling session's, which is precisely the boundary
+			// `glob`/`grep` refuse to cross. Require the result to stay in its scope.
+			const relFromScope = relative(resolve(join(workspaceRoot, scopeRoot)), outcome.resolved);
+			if (relFromScope.startsWith("..") || isAbsolute(relFromScope)) {
+				log.logWarning("[mentions] dropped", `${mention.scope}:${mention.path} (outside its scope)`);
+				continue;
+			}
+
+			let stat: Stats;
+			try {
+				stat = statSync(outcome.resolved);
+			} catch {
+				log.logWarning("[mentions] dropped", `${mention.scope}:${mention.path} (not found)`);
+				continue;
+			}
+
+			const local = relativeToWorkspace.replace(/\\/g, "/");
+			if (resolved.some((entry) => entry.local === local)) continue;
+			resolved.push({ local, type: stat.isDirectory() ? "directory" : "file" });
+		}
+
+		return resolved;
+	}
+
+	/**
+	 * Writes one uploaded file under the session's attachments and returns the path it was
+	 * stored at, relative to that directory — or null when the client's name cannot be
+	 * trusted, in which case the file is dropped rather than the message failing.
+	 *
+	 * A folder upload sends each file's path relative to the picked folder, so the tree is
+	 * rebuilt here instead of being flattened into the filename: the agent then greps and
+	 * globs it the way it would any other directory. Every segment is sanitized, `.`/`..`
+	 * and drive letters are rejected outright, and the result still has to resolve inside
+	 * the attachments directory. Only the first segment carries the batch stamp, so a folder
+	 * stays one folder and re-uploading it does not overwrite the earlier copy.
+	 */
+	private storeAttachment(attachDir: string, fileName: unknown, content: unknown, stamp: number): string | null {
+		const raw = String(fileName ?? "").replace(/\\/g, "/");
+		const segments = raw.split("/").filter((segment) => segment !== "");
+		if (segments.length === 0) return null;
+		if (segments.some((segment) => segment === "." || segment === ".." || segment.includes(":"))) return null;
+
+		const safeSegments = segments.map((segment) => segment.replace(/[^a-zA-Z0-9._-]/g, "_"));
+		// Re-check after sanitizing: "…" and friends survive the character filter.
+		if (safeSegments.some((segment) => segment === "." || segment === "..")) return null;
+		safeSegments[0] = `${stamp}_${safeSegments[0]}`;
+
+		const abs = resolve(join(attachDir, ...safeSegments));
+		const rel = relative(resolve(attachDir), abs);
+		if (!rel || rel.startsWith("..") || isAbsolute(rel)) return null;
+
+		try {
+			mkdirSync(dirname(abs), { recursive: true });
+			writeFileSync(abs, Buffer.from(String(content ?? ""), "base64"));
+		} catch (err) {
+			log.logWarning("[attachments] write failed", err instanceof Error ? err.message : String(err));
+			return null;
+		}
+		return safeSegments.join("/");
+	}
+
+	/**
+	 * Turns the `/name` skill invocations a client sent into workspace-relative SKILL.md
+	 * paths. Session skills override workspace skills, matching how the agent loads them.
+	 *
+	 * The client sends names, never paths, so the server owns the mapping — and a name that
+	 * resolves to nothing is dropped with a warning rather than failing the message.
+	 */
+	private resolveSkills(skills: string[], workspaceRoot: string, sessionId: string): Array<{ name: string; local: string }> {
+		const resolved: Array<{ name: string; local: string }> = [];
+
+		for (const raw of skills.slice(0, MAX_SKILL_INVOCATIONS)) {
+			const name = this.sanitizeConnectionName(raw);
+			if (!name || name === "." || name === "..") continue;
+			if (resolved.some((entry) => entry.name === name)) continue;
+
+			const candidates = [
+				join("sessions", sessionId, "skills", name),
+				join("skills", name),
+			];
+			const scope = candidates.find((candidate) => existsSync(join(workspaceRoot, candidate, "SKILL.md")));
+			if (!scope) {
+				log.logWarning("[skills] dropped", `${String(raw)} (no SKILL.md)`);
+				continue;
+			}
+			resolved.push({ name, local: `${scope.replace(/\\/g, "/")}/SKILL.md` });
+		}
+
 		return resolved;
 	}
 
@@ -858,7 +1023,7 @@ export class HttpServer {
 	}
 
 	private handleFeatures(res: express.Response): void {
-		res.json({ features: { agentWorkers: this.features.agentWorkers, reminders: this.features.reminders, connection: this.features.connection, llmProviders: this.features.llmProviders, appTitle: this.features.appTitle } });
+		res.json({ features: { agentWorkers: this.features.agentWorkers, reminders: this.features.reminders, connection: this.features.connection, tools: this.features.tools, llmProviders: this.features.llmProviders, appTitle: this.features.appTitle, appHeader: this.features.appHeader } });
 	}
 
 	private handleConnectors(req: express.Request, res: express.Response): void {
@@ -1696,6 +1861,26 @@ export class HttpServer {
 		res.status(201).json(workspace);
 	}
 
+	/**
+	 * The primitive tool catalog for the workspace settings Tools tab. Global,
+	 * not workspace-scoped — a workspace stores only which of these it enables.
+	 * `available` is false for a tool whose backing capability is not configured,
+	 * so the UI can stop the user enabling something that will never register.
+	 */
+	private handleToolCatalog(_req: express.Request, res: express.Response): void {
+		const webSearchConfigured = resolveWebSearchConfig() !== undefined;
+		res.json({
+			tools: TOOL_CATALOG.map((entry) => ({
+				...entry,
+				available: entry.name === "web_search" ? webSearchConfigured : true,
+				unavailableReason:
+					entry.name === "web_search" && !webSearchConfigured
+						? "Set WEB_SEARCH_PROVIDER and WEB_SEARCH_API_KEY to enable web search."
+						: undefined,
+			})),
+		});
+	}
+
 	private handleWorkspaceSettings(req: express.Request, res: express.Response): void {
 		try {
 			res.json(this.workspaceStore.getWorkspaceSettings(this.getUserId(req), String(req.params.workspaceId)));
@@ -1888,8 +2073,11 @@ export class HttpServer {
 
 	private async handleChat(req: express.Request, res: express.Response, routeSessionId?: string): Promise<void> {
 		type AttachmentPayload = { fileName: string; mimeType: string; content: string };
-		const { channelId, sessionId: bodySessionId, workspaceId, text, userName = "user", attachments = [], model: modelSel, structured = false } = req.body as {
+		const { channelId, sessionId: bodySessionId, workspaceId, text, userName = "user", attachments = [], mentions = [], skills = [], model: modelSel, structured = false } = req.body as {
 			channelId?: string; sessionId?: string; workspaceId?: string; text?: string; userName?: string; attachments?: AttachmentPayload[];
+			mentions?: MentionPayload[];
+			/** Skill names the user invoked with `/name`. */
+			skills?: string[];
 			model?: { provider?: string; modelId?: string };
 			structured?: boolean;
 		};
@@ -2003,13 +2191,21 @@ export class HttpServer {
 		if (attachments.length > 0) {
 			const attachDir = join(channelDir, "attachments");
 			if (!existsSync(attachDir)) mkdirSync(attachDir, { recursive: true });
+			// One stamp for the whole batch: a picked folder keeps its files together under
+			// a single stamped root instead of scattering them across per-file directories.
+			const stamp = Date.now();
 			for (const att of attachments) {
-				const safeName = `${Date.now()}_${att.fileName.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-				const filePath = join(attachDir, safeName);
-				writeFileSync(filePath, Buffer.from(att.content, "base64"));
-				savedAttachments.push({ local: `sessions/${sessionId}/attachments/${safeName}` });
+				const stored = this.storeAttachment(attachDir, att.fileName, att.content, stamp);
+				if (!stored) {
+					log.logWarning("[attachments] dropped", String(att.fileName));
+					continue;
+				}
+				savedAttachments.push({ local: `sessions/${sessionId}/attachments/${stored}` });
 			}
 		}
+
+		const resolvedMentions = mentions.length > 0 ? this.resolveMentions(req, mentions, workspaceRoot, sessionId) : [];
+		const resolvedSkills = skills.length > 0 ? this.resolveSkills(skills, workspaceRoot, sessionId) : [];
 
 		const ctx = createHttpContext({
 			channelId: sessionId,
@@ -2019,6 +2215,8 @@ export class HttpServer {
 			send,
 			workingDir: workspaceRoot,
 			attachments: savedAttachments,
+			mentions: resolvedMentions,
+			skills: resolvedSkills,
 			userId,
 			authFilePath: this.getUserAuthFilePath(userId),
 			model: resolvedModel,
@@ -2027,7 +2225,7 @@ export class HttpServer {
 
 		appendFileSync(
 			join(channelDir, "log.jsonl"),
-			`${JSON.stringify({ date: new Date().toISOString(), ts, user: userId, userName: resolvedUserName, text, attachments: savedAttachments, isBot: false })}\n`,
+			`${JSON.stringify({ date: new Date().toISOString(), ts, user: userId, userName: resolvedUserName, text, attachments: savedAttachments, mentions: resolvedMentions, skills: resolvedSkills, isBot: false })}\n`,
 		);
 
 		log.logInfo(`[${sessionId}] HTTP: Starting run: ${text.substring(0, 50)}`);
@@ -2100,6 +2298,40 @@ export class HttpServer {
 			return undefined;
 		}
 		return session;
+	}
+
+	/** Resolves the session-state store for a session, or null when unauthorized. */
+	private getSessionStateStore(
+		req: express.Request,
+		channelId: string,
+		res: express.Response,
+	): SessionStateStore | null {
+		const session = this.getAuthorizedSession(req, channelId, res);
+		if (!session) return null;
+		const workspaceRoot = this.workspaceStore.getWorkspaceRoot(session.workspaceId);
+		return new SessionStateStore(channelId, join(workspaceRoot, "sessions", channelId));
+	}
+
+	private handleSessionMode(req: express.Request, channelId: string, res: express.Response): void {
+		const store = this.getSessionStateStore(req, channelId, res);
+		if (!store) return;
+		res.json({ mode: store.getMode(), todos: store.getTodos() });
+	}
+
+	/**
+	 * Switches a session between normal and plan mode. In plan mode the agent is
+	 * restricted to read-only tools until it calls `exit_plan_mode`.
+	 */
+	private handleSetSessionMode(req: express.Request, channelId: string, res: express.Response): void {
+		const requested = (req.body as { mode?: unknown } | undefined)?.mode;
+		if (requested !== "plan" && requested !== "default") {
+			res.status(400).json({ ok: false, error: 'mode must be "plan" or "default"' });
+			return;
+		}
+		const store = this.getSessionStateStore(req, channelId, res);
+		if (!store) return;
+		store.setMode(requested);
+		res.json({ ok: true, mode: store.getMode() });
 	}
 
 	private handleAcpJobs(req: express.Request, channelId: string, res: express.Response): void {
@@ -2187,10 +2419,15 @@ export class HttpServer {
 		const workspaceRoot = this.workspaceStore.getWorkspaceRoot(session.workspaceId);
 		const artifactsRoot = join(workspaceRoot, "artifacts");
 		const workspaceSkillsRoot = join(workspaceRoot, "skills");
+		// This session's uploads. Not rendered in the sidebar, but the @-mention
+		// picker needs them: a file uploaded earlier in the conversation is exactly
+		// the kind of thing a user wants to point at again.
+		const attachmentsRoot = join(workspaceRoot, "sessions", channelId, "attachments");
 
 		res.json({
 			artifacts: makeTree(artifactsRoot, `workspaces/${session.workspaceId}/artifacts`),
 			skills: makeTree(workspaceSkillsRoot, `workspaces/${session.workspaceId}/skills`),
+			attachments: makeTree(attachmentsRoot, `workspaces/${session.workspaceId}/sessions/${channelId}/attachments`),
 		});
 	}
 
@@ -2412,6 +2649,8 @@ export class HttpServer {
 			role: "user" | "assistant";
 			text: string;
 			attachments?: string[];
+			/** Basenames of files/folders the user tagged with @ on this turn. */
+			mentions?: string[];
 			thread?: string;
 			files?: Array<{ path: string; title?: string }>;
 			blocks?: ReplayBlock[];
@@ -2466,7 +2705,7 @@ export class HttpServer {
 
 				type ToolCall = { id: string; name: string; label?: string; args: Record<string, any> };
 				type ToolResult = { toolCallId: string; toolName: string; text: string; isError: boolean };
-				type Turn = { userText: string; attachments: string[]; toolCalls: ToolCall[]; toolResults: ToolResult[]; assistantTexts: string[]; blocks: ReplayBlock[]; usage?: AgentUsage; model?: string };
+				type Turn = { userText: string; attachments: string[]; mentions: string[]; toolCalls: ToolCall[]; toolResults: ToolResult[]; assistantTexts: string[]; blocks: ReplayBlock[]; usage?: AgentUsage; model?: string };
 				const normalizeAttachedFilePath = (rawPath: string): string => {
 					const dockerWorkspacePrefix = `/workspace/workspaces/${session.workspaceId}/`;
 					if (rawPath === `/workspace/workspaces/${session.workspaceId}`) return workspaceRoot;
@@ -2484,11 +2723,38 @@ export class HttpServer {
 				const stripPrefix = (text: string) =>
 					text.replace(/^(?:\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}\] )?\[[^\]]+\]: /, "");
 
-				const extractAttachments = (text: string): { text: string; attachments: string[] } => {
-					const match = text.match(/<attachments>\n([\s\S]*?)\n<\/attachments>/);
-					if (!match) return { text, attachments: [] };
-					const names = match[1].split("\n").filter(Boolean).map((p) => p.split(/[/\\]/).pop() ?? p);
-					return { text: text.replace(/\n\n<attachments>[\s\S]*?<\/attachments>/, "").trim(), attachments: names };
+				const basenameOf = (p: string) => p.split(/[/\\]/).pop() ?? p;
+
+				/**
+				 * Both trailing blocks are appended to the user message by the agent, so
+				 * they must be lifted back out here or they render as message text.
+				 * Mention lines carry a `file:`/`dir:` tag that is stripped for display.
+				 */
+				const extractAttachments = (text: string): { text: string; attachments: string[]; mentions: string[] } => {
+					let rest = text;
+					let attachments: string[] = [];
+					let mentions: string[] = [];
+
+					const attachMatch = rest.match(/<attachments>\n([\s\S]*?)\n<\/attachments>/);
+					if (attachMatch) {
+						attachments = attachMatch[1].split("\n").filter(Boolean).map(basenameOf);
+						rest = rest.replace(/\n\n<attachments>[\s\S]*?<\/attachments>/, "");
+					}
+
+					const mentionMatch = rest.match(/<mentions>\n([\s\S]*?)\n<\/mentions>/);
+					if (mentionMatch) {
+						mentions = mentionMatch[1]
+							.split("\n")
+							.filter(Boolean)
+							.map((line) => basenameOf(line.replace(/^(?:file|dir):\s*/, "")));
+						rest = rest.replace(/\n\n<mentions>[\s\S]*?<\/mentions>/, "");
+					}
+
+					// Skills need no chips of their own: the `/name` the user typed is still
+					// in the text. Only the appended block has to go.
+					rest = rest.replace(/\n\n<skills>[\s\S]*?<\/skills>/, "");
+
+					return { text: rest.trim(), attachments, mentions };
 				};
 
 				const turns: Turn[] = [];
@@ -2500,8 +2766,8 @@ export class HttpServer {
 					if (msg.role === "user") {
 						const textPart = (msg.content as any[])?.find((c: any) => c.type === "text");
 						if (!textPart?.text) continue;
-						const { text: cleanText, attachments } = extractAttachments(stripPrefix(textPart.text));
-						turns.push({ userText: cleanText, attachments, toolCalls: [], toolResults: [], assistantTexts: [], blocks: [] });
+						const { text: cleanText, attachments, mentions: turnMentions } = extractAttachments(stripPrefix(textPart.text));
+						turns.push({ userText: cleanText, attachments, mentions: turnMentions, toolCalls: [], toolResults: [], assistantTexts: [], blocks: [] });
 					} else if (msg.role === "assistant") {
 						if (turns.length === 0) continue;
 						const turn = turns[turns.length - 1];
@@ -2562,7 +2828,12 @@ export class HttpServer {
 				}
 
 				for (const turn of turns) {
-					messages.push({ role: "user", text: turn.userText, attachments: turn.attachments.length > 0 ? turn.attachments : undefined });
+					messages.push({
+						role: "user",
+						text: turn.userText,
+						attachments: turn.attachments.length > 0 ? turn.attachments : undefined,
+						mentions: turn.mentions.length > 0 ? turn.mentions : undefined,
+					});
 
 					const mainText = turn.assistantTexts[turn.assistantTexts.length - 1] ?? "";
 					const threadParts: string[] = [];

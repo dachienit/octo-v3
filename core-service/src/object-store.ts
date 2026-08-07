@@ -81,7 +81,7 @@ export function resolveObjectStoreGateway(dataRoot: string): ObjectStoreGateway 
 	if (!rawPrefix || !rawPrefix.trim()) {
 		throw new Error(
 			"[object-store] CORE_SERVICE_OBJECTSTORE_GATEWAY_URL is set but CORE_SERVICE_OBJECTSTORE_PREFIX is missing — " +
-				"set it to the full key prefix bound to the gateway API key (e.g. \"robert-bosch-gmbh-rb-bd-vn-hub-d-bt234d00/cortex_studio/\").",
+				"set it to the full key prefix bound to the gateway API key.",
 		);
 	}
 	return new ObjectStoreGateway({

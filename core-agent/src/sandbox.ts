@@ -1,7 +1,11 @@
 //import { spawn } from "child_process";
+import { randomBytes } from "node:crypto";
 import { mkdir, readFile as fsReadFile, writeFile as fsWriteFile } from "node:fs/promises";
-import { dirname, isAbsolute, posix, resolve } from "node:path";
-import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+import { tmpdir } from "node:os";
+import { dirname, isAbsolute, join, posix, resolve } from "node:path";
+import { spawn, type ChildProcess, type ChildProcessWithoutNullStreams } from "child_process";
+import { SearchSupport } from "./search/runner.js";
+import type { GlobOptions, GlobResult, GrepOptions, GrepResult } from "./search/types.js";
 
 export type ContainerRuntime = "docker" | "podman" | "octo-box";
 export type SandboxConfig = { type: "host" } | {
@@ -81,20 +85,48 @@ function execSimple(cmd: string, args: string[]): Promise<string> {
 	});
 }
 
-export function createExecutor(config: SandboxConfig, cwd?: string): Executor {
+/**
+ * `searchRoots` are extra directories `glob`/`grep` cover on top of `cwd` when
+ * the model does not name a path. They do not affect `bash`, `read` or `write`.
+ */
+export function createExecutor(config: SandboxConfig, cwd?: string, searchRoots: string[] = []): Executor {
 	if (config.type === "host") {
-		return new HostExecutor(cwd);
+		return new HostExecutor(cwd, searchRoots);
 	}
 	if (!config.container) throw new Error(`${config.type} executor requires a resolved container name`);
-	return new ContainerExecutor(config.type, config.container, cwd);
+	return new ContainerExecutor(config.type, config.container, cwd, searchRoots);
 }
 
 export interface Executor {
 	exec(command: string, options?: ExecOptions): Promise<ExecResult>;
 	spawn(command: string, args?: string[], options?: SpawnOptions): ChildProcessWithoutNullStreams;
+	/**
+	 * Spawn a long-running command through the environment's shell and return the
+	 * live handle. Unlike `spawn`, the command string is shell-interpreted, so
+	 * pipes and redirects work. Used for background shells; stdin is closed, so
+	 * the returned handle has no writable stdin.
+	 */
+	spawnShell(command: string, options?: SpawnOptions): ChildProcess;
+	/**
+	 * Best-effort termination of a process tree started by `spawnShell`, including
+	 * children. Each implementation owns the platform details (process groups and
+	 * `taskkill` on the host, killing the in-container tree for containers).
+	 */
+	terminateShell(child: ChildProcess): Promise<void>;
 	getWorkspacePath(hostPath: string): string;
+	/**
+	 * Resolves a tool argument against the executor's working directory, the same
+	 * way `readFile` does. Exposed so callers can key caches on a canonical path:
+	 * `glob` reports absolute paths while a model typically passes a relative one,
+	 * and the two must agree on what names the same file.
+	 */
+	resolvePath(path: string): string;
 	readFile(path: string): Promise<Buffer>;
 	writeFile(path: string, content: string): Promise<void>;
+	/** Find files by glob pattern, newest first. */
+	glob(options: GlobOptions): Promise<GlobResult>;
+	/** Search file contents by regular expression. */
+	grep(options: GrepOptions): Promise<GrepResult>;
 }
 
 export interface ExecOptions {
@@ -114,77 +146,110 @@ export interface ExecResult {
 	code: number;
 }
 
-class HostExecutor implements Executor {
-	constructor(private cwd?: string) {}
+/** Shell invocation for the host platform, shared by `exec` and `spawnShell`. */
+function hostShell(): { shell: string; shellArgs: string[]; isWin: boolean } {
+	const isWin = process.platform === "win32";
+	return {
+		isWin,
+		shell: isWin ? "powershell" : "sh",
+		shellArgs: isWin ? ["-NoProfile", "-NonInteractive", "-Command"] : ["-c"],
+	};
+}
 
-	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
-		return new Promise((resolve, reject) => {
-			const isWin = process.platform === "win32";
-			const shell = isWin ? "powershell" : "sh";
-			const shellArgs = isWin ? ["-NoProfile", "-NonInteractive", "-Command"] : ["-c"];
+/**
+ * Runs a process to completion and collects its output.
+ *
+ * Takes an argv array rather than a command string on purpose: passing a
+ * composed string through a host shell means the payload has to survive that
+ * shell's quoting rules, and PowerShell's differ from POSIX. Callers that need a
+ * shell add it themselves as argv[0].
+ */
+function runProcess(
+	file: string,
+	args: string[],
+	options?: ExecOptions & { cwd?: string; detached?: boolean },
+): Promise<ExecResult> {
+	return new Promise((resolve, reject) => {
+		const child = spawn(file, args, {
+			cwd: options?.cwd,
+			detached: options?.detached ?? false,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
 
-			const child = spawn(shell, [...shellArgs, command], {
-				cwd: this.cwd,
-				detached: !isWin,
-				stdio: ["ignore", "pipe", "pipe"],
-			});
+		let stdout = "";
+		let stderr = "";
+		let timedOut = false;
 
-			let stdout = "";
-			let stderr = "";
-			let timedOut = false;
+		const timeoutHandle =
+			options?.timeout && options.timeout > 0
+				? setTimeout(() => {
+						timedOut = true;
+						killProcessTree(child.pid);
+					}, options.timeout * 1000)
+				: undefined;
 
-			const timeoutHandle =
-				options?.timeout && options.timeout > 0
-					? setTimeout(() => {
-							timedOut = true;
-							killProcessTree(child.pid!);
-						}, options.timeout * 1000)
-					: undefined;
+		const onAbort = () => killProcessTree(child.pid);
 
-			const onAbort = () => {
-				if (child.pid) killProcessTree(child.pid);
-			};
+		if (options?.signal) {
+			if (options.signal.aborted) {
+				onAbort();
+			} else {
+				options.signal.addEventListener("abort", onAbort, { once: true });
+			}
+		}
 
+		child.stdout?.on("data", (data) => {
+			stdout += data.toString();
+			if (stdout.length > 10 * 1024 * 1024) {
+				stdout = stdout.slice(0, 10 * 1024 * 1024);
+			}
+		});
+
+		child.stderr?.on("data", (data) => {
+			stderr += data.toString();
+			if (stderr.length > 10 * 1024 * 1024) {
+				stderr = stderr.slice(0, 10 * 1024 * 1024);
+			}
+		});
+
+		child.on("close", (code) => {
+			if (timeoutHandle) clearTimeout(timeoutHandle);
 			if (options?.signal) {
-				if (options.signal.aborted) {
-					onAbort();
-				} else {
-					options.signal.addEventListener("abort", onAbort, { once: true });
-				}
+				options.signal.removeEventListener("abort", onAbort);
 			}
 
-			child.stdout?.on("data", (data) => {
-				stdout += data.toString();
-				if (stdout.length > 10 * 1024 * 1024) {
-					stdout = stdout.slice(0, 10 * 1024 * 1024);
-				}
-			});
+			if (options?.signal?.aborted) {
+				reject(new Error(`${stdout}\n${stderr}\nCommand aborted`.trim()));
+				return;
+			}
 
-			child.stderr?.on("data", (data) => {
-				stderr += data.toString();
-				if (stderr.length > 10 * 1024 * 1024) {
-					stderr = stderr.slice(0, 10 * 1024 * 1024);
-				}
-			});
+			if (timedOut) {
+				reject(new Error(`${stdout}\n${stderr}\nCommand timed out after ${options?.timeout} seconds`.trim()));
+				return;
+			}
 
-			child.on("close", (code) => {
-				if (timeoutHandle) clearTimeout(timeoutHandle);
-				if (options?.signal) {
-					options.signal.removeEventListener("abort", onAbort);
-				}
+			resolve({ stdout, stderr, code: code ?? 0 });
+		});
+	});
+}
 
-				if (options?.signal?.aborted) {
-					reject(new Error(`${stdout}\n${stderr}\nCommand aborted`.trim()));
-					return;
-				}
+class HostExecutor implements Executor {
+	private readonly search = new SearchSupport(this, {
+		scriptDir: tmpdir(),
+		joinPath: join,
+		resolveCwd: () => this.cwd ?? process.cwd(),
+		resolveExtraRoots: () => this.searchRoots,
+	});
 
-				if (timedOut) {
-					reject(new Error(`${stdout}\n${stderr}\nCommand timed out after ${options?.timeout} seconds`.trim()));
-					return;
-				}
+	constructor(private cwd?: string, private readonly searchRoots: string[] = []) {}
 
-				resolve({ stdout, stderr, code: code ?? 0 });
-			});
+	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
+		const { shell, shellArgs, isWin } = hostShell();
+		return runProcess(shell, [...shellArgs, command], {
+			...options,
+			cwd: this.cwd,
+			// A process group on POSIX lets the whole tree be killed on timeout.
+			detached: !isWin,
 		});
 	}
 
@@ -192,7 +257,7 @@ class HostExecutor implements Executor {
 		return hostPath;
 	}
 
-	private resolvePath(path: string): string {
+	resolvePath(path: string): string {
 		return isAbsolute(path) ? path : resolve(this.cwd ?? process.cwd(), path);
 	}
 
@@ -214,25 +279,75 @@ class HostExecutor implements Executor {
 		options?.signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
 		return child;
 	}
+
+	spawnShell(command: string, options?: SpawnOptions): ChildProcess {
+		const { shell, shellArgs, isWin } = hostShell();
+		const child = spawn(shell, [...shellArgs, command], {
+			cwd: options?.cwd ?? this.cwd,
+			env: { ...process.env, ...(options?.env ?? {}) },
+			// A process group on POSIX lets the whole tree be killed later.
+			detached: !isWin,
+			stdio: ["ignore", "pipe", "pipe"],
+		});
+		options?.signal?.addEventListener("abort", () => killProcessTree(child.pid), { once: true });
+		return child;
+	}
+
+	async terminateShell(child: ChildProcess): Promise<void> {
+		killProcessTree(child.pid);
+	}
+
+	glob(options: GlobOptions): Promise<GlobResult> {
+		return this.search.glob(options);
+	}
+
+	grep(options: GrepOptions): Promise<GrepResult> {
+		return this.search.grep(options);
+	}
 }
 
+/**
+ * Maps a container background shell to the in-container file holding its PID.
+ * `<runtime> exec` does not kill the remote process when the client dies, so the
+ * PID has to be recorded at start time to be able to terminate it later.
+ */
+const containerShellPidFiles = new WeakMap<ChildProcess, string>();
+
 class ContainerExecutor implements Executor {
-	constructor(private runtime: ContainerRuntime, private container: string, private cwd?: string) {}
+	private readonly search = new SearchSupport(this, {
+		scriptDir: "/tmp",
+		joinPath: posix.join,
+		resolveCwd: () => this.cwd ?? "/workspace",
+		resolveExtraRoots: () => this.searchRoots,
+	});
+
+	constructor(
+		private runtime: ContainerRuntime,
+		private container: string,
+		private cwd?: string,
+		private readonly searchRoots: string[] = [],
+	) {}
 
 	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
 		const wrappedCommand = this.cwd
 			? `mkdir -p ${shellEscape(this.cwd)} && cd ${shellEscape(this.cwd)} && ${command}`
 			: command;
-		const containerCmd = `${runtimeCommand(this.runtime)} exec ${this.container} sh -c ${shellEscape(wrappedCommand)}`;
-		const hostExecutor = new HostExecutor();
-		return hostExecutor.exec(containerCmd, options);
+		// The script is one argv element handed straight to the container runtime.
+		// Composing a single string for the host shell instead would corrupt it:
+		// `shellEscape` produces POSIX quoting, and on a Windows host the string
+		// would first be parsed by PowerShell, which escapes quotes differently.
+		return runProcess(
+			runtimeCommand(this.runtime),
+			["exec", this.container, "sh", "-c", wrappedCommand],
+			{ ...options, detached: process.platform !== "win32" },
+		);
 	}
 
 	getWorkspacePath(_hostPath: string): string {
 		return "/workspace";
 	}
 
-	private resolvePath(path: string): string {
+	resolvePath(path: string): string {
 		return path.startsWith("/") ? path : posix.join(this.cwd ?? "/workspace", path);
 	}
 
@@ -259,11 +374,45 @@ class ContainerExecutor implements Executor {
 		}
 	}
 	spawn(command: string, args: string[] = [], options?: SpawnOptions): ChildProcessWithoutNullStreams {
-		const cwd = options?.cwd ?? this.cwd;
 		const commandLine = [command, ...args].map(shellEscape).join(" ");
-		const wrappedCommand = cwd
-			? `mkdir -p ${shellEscape(cwd)} && cd ${shellEscape(cwd)} && exec ${commandLine}`
-			: `exec ${commandLine}`;
+		return this.spawnInContainer(`exec ${commandLine}`, options);
+	}
+
+	spawnShell(command: string, options?: SpawnOptions): ChildProcess {
+		// `echo $$` records the wrapper shell's PID; the command runs as its child,
+		// so `pkill -P` plus a direct kill takes down the whole tree later.
+		const pidFile = `/tmp/octo-shell-${randomBytes(6).toString("hex")}.pid`;
+		const child = this.spawnInContainer(`echo $$ > ${shellEscape(pidFile)}\n${command}`, options);
+		containerShellPidFiles.set(child, pidFile);
+		return child;
+	}
+
+	async terminateShell(child: ChildProcess): Promise<void> {
+		child.kill("SIGTERM");
+		const pidFile = containerShellPidFiles.get(child);
+		if (!pidFile) return;
+		const escaped = shellEscape(pidFile);
+		const snippet = [
+			`p=$(cat ${escaped} 2>/dev/null)`,
+			`if [ -n "$p" ]; then pkill -TERM -P "$p" 2>/dev/null; kill -TERM "$p" 2>/dev/null; fi`,
+			`rm -f ${escaped}`,
+			"exit 0",
+		].join("; ");
+		try {
+			await this.exec(snippet, { timeout: 15 });
+		} catch {
+			// Terminating is best-effort; the container may already be gone.
+		}
+	}
+
+	/**
+	 * `<runtime> exec -i <container> sh -c <script>` with the cwd prepared. The
+	 * script is passed as a single argv element straight to Node's `spawn`, so no
+	 * host shell sees it and no host-side escaping is involved.
+	 */
+	private spawnInContainer(script: string, options?: SpawnOptions): ChildProcessWithoutNullStreams {
+		const cwd = options?.cwd ?? this.cwd;
+		const wrappedCommand = cwd ? `mkdir -p ${shellEscape(cwd)} && cd ${shellEscape(cwd)} && ${script}` : script;
 		const containerArgs = ["exec", "-i"];
 		for (const [key, value] of Object.entries(options?.env ?? {})) {
 			containerArgs.push("--env", `${key}=${value}`);
@@ -276,6 +425,14 @@ class ContainerExecutor implements Executor {
 		options?.signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
 		return child;
 	}
+
+	glob(options: GlobOptions): Promise<GlobResult> {
+		return this.search.glob(options);
+	}
+
+	grep(options: GrepOptions): Promise<GrepResult> {
+		return this.search.grep(options);
+	}
 }
 
 function runtimeCommand(runtime: ContainerRuntime): string {
@@ -286,7 +443,8 @@ function runtimeLabel(runtime: ContainerRuntime): string {
 	return runtime === "docker" ? "Docker" : runtime === "podman" ? "Podman" : "Octo Box";
 }
 
-function killProcessTree(pid: number): void {
+export function killProcessTree(pid: number | undefined): void {
+	if (pid === undefined) return;
 	if (process.platform === "win32") {
 		try {
 			spawn("taskkill", ["/F", "/T", "/PID", String(pid)], {

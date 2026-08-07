@@ -1,8 +1,8 @@
 {
-  "name": "symphony",
+  "name": "octo",
   "version": "1.0.0",
   "private": true,
-  "description": "SAP BTP application router for Symphony Studio: XSUAA login gate, static SPA host, and reverse proxy to core-service.",
+  "description": "SAP BTP application router for Octo: XSUAA login gate, static SPA host, and reverse proxy to core-service.",
   "engines": {
     "node": ">=20.0.0"
   },

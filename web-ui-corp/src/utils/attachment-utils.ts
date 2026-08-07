@@ -37,6 +37,28 @@ export async function fileToBase64(source: Blob): Promise<string> {
 }
 
 /**
+ * Match a file against an `<input accept>` string. A folder picker ignores the
+ * attribute entirely, so the same filtering has to happen in JS: ".docx" matches by
+ * extension, "image/*" by mime prefix, anything else by exact mime type. An empty
+ * accept string accepts everything, mirroring the attribute's own semantics.
+ */
+export function matchesAccept(file: { name: string; type?: string }, accept: string): boolean {
+	const tokens = accept
+		.split(",")
+		.map((token) => token.trim().toLowerCase())
+		.filter(Boolean);
+	if (tokens.length === 0) return true;
+
+	const name = file.name.toLowerCase();
+	const mime = (file.type || "").toLowerCase();
+	return tokens.some((token) => {
+		if (token.startsWith(".")) return name.endsWith(token);
+		if (token.endsWith("/*")) return mime.startsWith(token.slice(0, -1));
+		return mime !== "" && mime === token;
+	});
+}
+
+/**
  * Load an attachment from various sources
  * @param source - URL string, File, Blob, or ArrayBuffer
  * @param fileName - Optional filename override
