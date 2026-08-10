@@ -305,8 +305,10 @@ export function createHttpContext(opts: {
 export class HttpServer {
 	private port: number;
 	private workingDir: string;
-	private handler: BotHandler;
-	private workspaceStore: WorkspaceStore;
+	// Injected by finishStart() — they depend on a restored data root, which is not
+	// available yet when the port is opened.
+	private handler!: BotHandler;
+	private workspaceStore!: WorkspaceStore;
 	private sandboxConfig: SandboxConfig;
 	private features: { agentWorkers: boolean; reminders: boolean; connection: boolean; tools: boolean; llmProviders: string[] | null; appTitle: string; appHeader: string };
 	private auth: CoreServiceAuth;
@@ -315,15 +317,17 @@ export class HttpServer {
 	private pendingAgentWorkerLogins = new Map<string, PendingAgentWorkerLogin>();
 	private getObjectStoreStatus?: () => unknown;
 	private objectStore?: ObjectStoreGateway;
+	private app?: express.Express;
+	// Flipped by finishStart(). Until then every route except /health answers 503:
+	// the port is open from the first moment so the platform health check passes, but
+	// nothing is served off a data root that is still being restored.
+	private ready = false;
+	private phase = "starting";
 
-	constructor(config: { port: number; workingDir: string; handler: BotHandler; workspaceStore: WorkspaceStore; sandboxConfig: SandboxConfig; features?: { agentWorkers?: boolean; reminders?: boolean; connection?: boolean; tools?: boolean; llmProviders?: string[] | null; appTitle?: string; appHeader?: string }; getObjectStoreStatus?: () => unknown; objectStore?: ObjectStoreGateway }) {
+	constructor(config: { port: number; workingDir: string; sandboxConfig: SandboxConfig; features?: { agentWorkers?: boolean; reminders?: boolean; connection?: boolean; tools?: boolean; llmProviders?: string[] | null; appTitle?: string; appHeader?: string } }) {
 		this.port = config.port;
 		this.workingDir = config.workingDir;
-		this.handler = config.handler;
-		this.workspaceStore = config.workspaceStore;
 		this.sandboxConfig = config.sandboxConfig;
-		this.getObjectStoreStatus = config.getObjectStoreStatus;
-		this.objectStore = config.objectStore;
 		this.features = {
 			agentWorkers: config.features?.agentWorkers !== false,
 			reminders: config.features?.reminders !== false,
@@ -339,12 +343,24 @@ export class HttpServer {
 		if (this.sso) log.logInfo(`SSO enabled: ${ssoConfig?.provider} (${ssoConfig?.label})`);
 	}
 
-	async start(): Promise<void> {
-		await this.auth.init();
+	/**
+	 * Phase 1 — open the port straight away, before the data root is restored.
+	 *
+	 * The boot used to bind only after the whole object-store tree had been downloaded,
+	 * so a tree that took longer than Cloud Foundry's startup health check (60s by
+	 * default) got the app killed before it ever listened. Binding first decouples
+	 * "process is alive" from "data is ready", whatever the tree grows to.
+	 *
+	 * Only the readiness probe is answered until finishStart() runs; everything else
+	 * gets 503 so no request is ever served off a half-restored data root.
+	 */
+	startListening(): void {
 		const app = express();
+		this.app = app;
 		app.use(express.json({ limit: "50mb" }));
 
-		// CORS
+		// CORS goes on before the readiness gate so a warm-up 503 still reaches the
+		// browser as a 503 rather than as an opaque CORS failure.
 		app.use((_req, res, next) => {
 			const origin = _req.header("Origin");
 			res.setHeader("Access-Control-Allow-Origin", origin || "*");
@@ -354,6 +370,54 @@ export class HttpServer {
 			next();
 		});
 		app.options("/{*path}", (_req, res) => { res.sendStatus(204); });
+
+		// Readiness gate. A middleware (not a catch-all route) so the real routes
+		// registered later by finishStart() are not shadowed by it.
+		app.use((req, res, next) => {
+			if (this.ready || req.path === "/health") {
+				next();
+				return;
+			}
+			res.status(503).json({ error: "warming up", phase: this.phase });
+		});
+
+		app.get("/health", (_req, res) => {
+			const status = this.getObjectStoreStatus?.() as Record<string, unknown> | undefined;
+			res.json({ ok: true, ready: this.ready, phase: this.phase, objectStore: status ?? null });
+		});
+
+		app.listen(this.port, () => {
+			log.logInfo(`HTTP server listening on port ${this.port} (warming up — routes answer 503 until ready)`);
+		});
+	}
+
+	setPhase(phase: string): void {
+		this.phase = phase;
+	}
+
+	/**
+	 * Phase 2 — mount the real routes onto the already-listening server and go ready.
+	 * Express allows registering routes after listen(), so this needs no rebind.
+	 */
+	async finishStart(deps: {
+		workspaceStore: WorkspaceStore;
+		handler: BotHandler;
+		objectStore?: ObjectStoreGateway;
+		getObjectStoreStatus?: () => unknown;
+	}): Promise<void> {
+		this.workspaceStore = deps.workspaceStore;
+		this.handler = deps.handler;
+		this.objectStore = deps.objectStore;
+		this.getObjectStoreStatus = deps.getObjectStoreStatus;
+
+		const app = this.app;
+		if (!app) throw new Error("finishStart() called before startListening()");
+
+		this.phase = "opening auth store";
+		await this.auth.init();
+		this.phase = "mounting routes";
+
+		// CORS and the JSON body parser are already mounted by startListening().
 		app.use(this.auth.initialize());
 
 		// Static artifact files — serves {workingDir}/artifacts/ at /artifacts/
@@ -375,6 +439,9 @@ export class HttpServer {
 
 		app.use((req, res, next) => this.auth.requireAuth(req, res, next));
 		app.use("/artifacts", express.static(artifactsDir, { fallthrough: false }));
+		// Everything below reads workspace content off disk, so the mirror for that
+		// workspace has to be materialized first.
+		app.use(this.hydrateWorkspaceMiddleware());
 
 		// API routes
 		app.get("/features", (_req, res) => this.handleFeatures(res));
@@ -447,10 +514,82 @@ export class HttpServer {
 		app.get("/workspace/:id",   (req, res) => this.handleWorkspace(req, decodeURIComponent(req.params.id), res));
 		app.get("/sessions/:id/workspace", (req, res) => this.handleWorkspace(req, decodeURIComponent(req.params.id), res));
 
-		app.listen(this.port, () => {
-			log.logInfo(`HTTP SSE server listening on port ${this.port}`);
-			log.logInfo(`Artifacts served from: ${artifactsDir}`);
-		});
+		this.phase = "ready";
+		this.ready = true;
+		log.logInfo(`HTTP SSE server ready on port ${this.port}`);
+		log.logInfo(`Artifacts served from: ${artifactsDir}`);
+	}
+
+	/**
+	 * Pulls a workspace's mirrored content down the first time a request touches it.
+	 *
+	 * Boot only restores the metadata skeleton (see isBootCritical in object-store.ts),
+	 * so the bulk of a workspace — session logs, artifacts, events, skills — has to
+	 * arrive before a handler reads it off disk. Doing it in one middleware keeps the
+	 * handlers unaware of the mirror, and hydrateWorkspace() is memoized so this costs
+	 * nothing after the first hit.
+	 */
+	private hydrateWorkspaceMiddleware(): express.Handler {
+		return (req, res, next) => {
+			const store = this.objectStore;
+			if (!store) {
+				next();
+				return;
+			}
+			const workspaceId = this.resolveWorkspaceForHydration(req);
+			if (!workspaceId) {
+				next();
+				return;
+			}
+			void store
+				.hydrateWorkspace(workspaceId)
+				.then(() => next())
+				.catch((err) => {
+					// Serving a half-empty workspace would look like data loss to the
+					// user, so fail the request loudly instead.
+					log.logWarning(`[object-store] hydrate failed for ${workspaceId}`, err instanceof Error ? err.message : String(err));
+					res.status(503).json({ error: "Workspace content is temporarily unavailable" });
+				});
+		};
+	}
+
+	/**
+	 * Best-effort workspace id for the request being served. This runs as app-level
+	 * middleware, where `req.params` is not populated yet, so the path is matched by
+	 * hand. Returning undefined simply means "nothing to hydrate".
+	 */
+	private resolveWorkspaceForHydration(req: express.Request): string | undefined {
+		// /workspaces/<workspaceId>/...
+		const byPath = /^\/workspaces\/([^/]+)/.exec(req.path);
+		if (byPath) return decodeURIComponent(byPath[1]);
+
+		const body = (req.body ?? {}) as { workspaceId?: string; sessionId?: string; channelId?: string };
+		if (typeof body.workspaceId === "string" && body.workspaceId) return body.workspaceId;
+		if (typeof req.query.workspaceId === "string" && req.query.workspaceId) return req.query.workspaceId;
+
+		// ?path=workspaces/<workspaceId>/... — /file, /artifact-url, /database/*
+		const queryPath = typeof req.query.path === "string" ? req.query.path : undefined;
+		const byQueryPath = queryPath ? /^\/?workspaces[\\/]([^\\/]+)/.exec(queryPath) : null;
+		if (byQueryPath) return byQueryPath[1];
+
+		// Session-scoped routes. Note /workspace/<id> (singular) also takes a SESSION
+		// id, not a workspace id — see handleWorkspace.
+		const bySession = /^\/(?:sessions|messages|status|workspace)\/([^/]+)/.exec(req.path);
+		const sessionId = bySession ? decodeURIComponent(bySession[1]) : (body.sessionId ?? body.channelId);
+		if (sessionId) {
+			// session.json is part of the boot set, so this lookup works without the
+			// workspace being hydrated yet.
+			return this.workspaceStore.findSession(sessionId)?.workspaceId;
+		}
+
+		// GET /sessions with no workspaceId lists the user's default workspace
+		// (handleSessions). Its previews and message counts come from each session's
+		// log.jsonl, which is deferred content — so resolve the same workspace the
+		// handler will. listWorkspaces is read-only; unlike ensureDefaultWorkspace it
+		// never creates one as a side effect of routing.
+		if (req.path === "/sessions") return this.workspaceStore.listWorkspaces(this.getUserId(req))[0]?.id;
+
+		return undefined;
 	}
 
 	// ==========================================================================

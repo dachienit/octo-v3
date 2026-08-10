@@ -149,19 +149,83 @@ if (!hasSlack && !hasHttp) {
 	process.exit(1);
 }
 
+// ============================================================================
+// Boot
+//
+// Order matters here. The port is opened first and the signal handlers are
+// registered first, both before any of the slow work: restoring the object-store
+// mirror used to run to completion before anything listened, so once the mirrored
+// tree grew past Cloud Foundry's 60s startup health check the app was killed
+// before binding — and killed silently, because the SIGTERM handler was itself
+// registered further down the file and did not exist yet.
+//
+// Everything the shutdown path touches is declared up-front, so the handler can
+// never hit a binding in its temporal dead zone while the boot is still running.
+// ============================================================================
+
+let objectStore: ObjectStoreGateway | undefined;
+let stopSandboxIdleCleanup: (() => void) | undefined;
+let eventsWatcher: ReturnType<typeof createEventsWatcher> | undefined;
+let workspaceEventsWatcher: ReturnType<typeof createWorkspaceEventsWatcher> | undefined;
+
+async function shutdown(): Promise<void> {
+	log.logInfo("Shutting down...");
+	stopSandboxIdleCleanup?.();
+	eventsWatcher?.stop();
+	workspaceEventsWatcher?.stop();
+	try {
+		// Full-tree snapshot with delete-sync. Chains behind any in-flight refresh
+		// snapshot; mtime stamps limit the upload to changed files, so this fits
+		// CF's ~10s SIGTERM grace in the normal case.
+		// objectStore is only set once restore() succeeded, so a shutdown during boot
+		// correctly uploads nothing.
+		await objectStore?.snapshot();
+	} catch (err) {
+		log.logWarning("[object-store] shutdown snapshot error", err instanceof Error ? err.message : String(err));
+	}
+	process.exit(0);
+}
+
+process.on("SIGINT", () => void shutdown());
+process.on("SIGTERM", () => void shutdown());
+
+// Bind the port before the data root exists. Until finishStart() runs, every route
+// except /health answers 503, so nothing is served off a half-restored data root.
+const httpServer = hasHttp
+	? new HttpServer({
+			port: httpPort!,
+			workingDir,
+			sandboxConfig: sandbox,
+			features: {
+				agentWorkers: AGENT_WORKERS_ENABLED,
+				reminders: REMINDERS_ENABLED,
+				connection: CONNECTION_ENABLED,
+				tools: TOOLS_ENABLED,
+				llmProviders: LLM_PROVIDERS_ALLOWLIST.length > 0 ? LLM_PROVIDERS_ALLOWLIST : null,
+				appTitle: getAppTitle(),
+				appHeader: getAppHeader(),
+			},
+		})
+	: undefined;
+httpServer?.startListening();
+
+httpServer?.setPhase("validating sandbox");
 await validateSandbox(sandbox);
 
-// Restore the whole data root from the object store BEFORE WorkspaceStore touches
+// Restore the data root from the object store BEFORE WorkspaceStore touches
 // workingDir (its constructor mkdirs and writes default templates) and before
-// auth.sqlite is opened (inside httpServer.start()). Missing/unreachable gateway →
+// auth.sqlite is opened (inside httpServer.finishStart()). Missing/unreachable gateway →
 // CORE_SERVICE_OBJECTSTORE_ALLOW_EPHEMERAL=true warns + runs ephemeral, otherwise
 // fail-fast in production (the CF FS is ephemeral; silent loss is worse).
+// By default this only pulls the boot-critical skeleton; each workspace's content
+// follows on first access (see hydrateWorkspace).
 const allowObjectStoreEphemeral = process.env.CORE_SERVICE_OBJECTSTORE_ALLOW_EPHEMERAL === "true";
-let objectStore: ObjectStoreGateway | undefined;
 const gateway = resolveObjectStoreGateway(workingDir); // throws on gateway URL without prefix
 if (gateway) {
 	try {
+		httpServer?.setPhase("verifying object store gateway");
 		await gateway.verify();
+		httpServer?.setPhase("restoring data root");
 		await gateway.restore();
 		objectStore = gateway;
 		console.log(`[object-store] gateway enabled (${gateway.bucketName}); tree restored at boot`);
@@ -441,7 +505,7 @@ class HttpEventRouter implements EventRouter {
 
 log.logStartup(workingDir, sandboxLabel(sandbox));
 
-const stopSandboxIdleCleanup = startWorkspaceSandboxIdleCleanup(sandbox, {
+stopSandboxIdleCleanup = startWorkspaceSandboxIdleCleanup(sandbox, {
 	idleMs: parsePositiveIntEnv("CORE_SERVICE_SANDBOX_IDLE_MS", 30 * 60_000),
 	intervalMs: parsePositiveIntEnv("CORE_SERVICE_SANDBOX_CLEANUP_INTERVAL_MS", 60_000),
 	onLog: (message) => log.logInfo(message),
@@ -451,24 +515,15 @@ if (stopSandboxIdleCleanup) {
 	log.logInfo("Managed sandbox idle cleanup enabled");
 }
 
-// Start HTTP SSE server if requested
-if (hasHttp) {
-	const httpServer = new HttpServer({
-		port: httpPort!,
-		workingDir,
+// Mount the real routes onto the already-listening server and go ready.
+if (httpServer) {
+	await httpServer.finishStart({
 		workspaceStore,
-		sandboxConfig: sandbox,
-		features: { agentWorkers: AGENT_WORKERS_ENABLED, reminders: REMINDERS_ENABLED, connection: CONNECTION_ENABLED, tools: TOOLS_ENABLED, llmProviders: LLM_PROVIDERS_ALLOWLIST.length > 0 ? LLM_PROVIDERS_ALLOWLIST : null, appTitle: getAppTitle(), appHeader: getAppHeader() },
 		handler,
-		getObjectStoreStatus: () => objectStore?.status(),
 		objectStore,
+		getObjectStoreStatus: () => objectStore?.status(),
 	});
-	await httpServer.start();
 }
-
-// Start event watchers for each adapter.
-let eventsWatcher: ReturnType<typeof createEventsWatcher> | undefined;
-let workspaceEventsWatcher: ReturnType<typeof createWorkspaceEventsWatcher> | undefined;
 
 if (hasHttp && REMINDERS_ENABLED) {
 	workspaceEventsWatcher = createWorkspaceEventsWatcher(workingDir, new HttpEventRouter(handler, workspaceStore));
@@ -492,23 +547,5 @@ if (hasSlack) {
 
 	bot.start();
 }
-
-// Handle shutdown
-async function shutdown(): Promise<void> {
-	log.logInfo("Shutting down...");
-	stopSandboxIdleCleanup?.();
-	eventsWatcher?.stop();
-	workspaceEventsWatcher?.stop();
-	try {
-		// Full-tree snapshot with delete-sync. Chains behind any in-flight refresh
-		// snapshot; mtime stamps limit the upload to changed files, so this fits
-		// CF's ~10s SIGTERM grace in the normal case.
-		await objectStore?.snapshot();
-	} catch (err) {
-		log.logWarning("[object-store] shutdown snapshot error", err instanceof Error ? err.message : String(err));
-	}
-	process.exit(0);
-}
-
-process.on("SIGINT", () => void shutdown());
-process.on("SIGTERM", () => void shutdown());
+// shutdown() and its signal handlers are registered at the top of the boot section,
+// so a SIGTERM arriving mid-restore is still handled and logged.

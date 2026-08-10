@@ -1,7 +1,7 @@
 _schema-version: "3.3.0"
 ID: octo
 version: 1.0.0
-description: Octo AI Agent Core Service + Approuter on SAP BTP Cloud Foundry
+description: AI Agent Core Service + Approuter on SAP BTP Cloud Foundry
 
 parameters:
   enable-parallel-deployments: true
@@ -32,9 +32,16 @@ modules:
       command: node dist/main.js --http $PORT workspace
       memory: 16384M
       disk-quota: 10239M
+      # Readiness is reported by the app itself. The port is bound before the
+      # object-store mirror is restored, so /health answers immediately with
+      # {ok, ready, phase} and the platform stops guessing from a bare TCP connect.
+      # The timeout is only a safety net now that boot no longer blocks on the mirror.
+      health-check-type: http
+      health-check-http-endpoint: /health
+      health-check-timeout: 180
     properties:
       # Skip login logout UI      
-      OCTO_EDGE_AUTH: xsuaa
+      CORE_SERVICE_EDGE_AUTH: xsuaa
       CORE_SERVICE_HIDE_AUTH_UI: "true"
       CORE_SERVICE_ALLOW_SIGNUP: "false"
       NODE_ENV: production
@@ -54,6 +61,17 @@ modules:
       CORE_SERVICE_OBJECTSTORE_ALLOW_EPHEMERAL: "true"
       CORE_SERVICE_OBJECTSTORE_GATEWAY_URL: ""
       CORE_SERVICE_OBJECTSTORE_PREFIX: ""
+      # Boot restores only the metadata skeleton (auth DB, users, workspace and session
+      # metadata); each workspace's sessions/artifacts/events arrive on first access.
+      # A restore costs one HTTPS round-trip per file, so pulling the whole tree up
+      # front is what put a growing data root past the startup health check.
+      # Set to "false" to go back to restoring everything at boot.
+      CORE_SERVICE_OBJECTSTORE_LAZY_RESTORE: "true"
+      # Parallel object downloads during restore/hydrate.
+      CORE_SERVICE_OBJECTSTORE_RESTORE_CONCURRENCY: "16"
+      # Per-request deadline for gateway calls. Without one, Node's fetch would wait
+      # out undici's 300s default and hang the boot with nothing in the log.
+      CORE_SERVICE_OBJECTSTORE_REQUEST_TIMEOUT_MS: "60000"
 
       CORE_SERVICE_AGENT_WORKERS_ENABLED: "false"
       CORE_SERVICE_REMINDERS_ENABLED: "false"
@@ -67,7 +85,7 @@ modules:
       # Ids: bosch-genai, openai-codex, openai, google, anthropic, sap-openai, sap-claude
       CORE_SERVICE_LLM_PROVIDERS: "bosch-genai"
       # Product name in the browser tab, the agent's name in chat, and the system
-      # prompt. Unset = "Octo".
+      # prompt. Unset = "octo".
       CORE_SERVICE_APP_TITLE: "Octo Agent"
       # Label in the web app header bar. Unset = falls back to CORE_SERVICE_APP_TITLE.
       CORE_SERVICE_APP_HEADER: "Octo Agent"
