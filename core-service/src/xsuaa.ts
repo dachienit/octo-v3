@@ -20,7 +20,7 @@ let xsuaaService: any | undefined;
 let createSecurityContext: ((service: any, options: { token: string }) => Promise<unknown>) | undefined;
 
 export function isXsuaaEnabled(): boolean {
-	return process.env.OCTO_EDGE_AUTH === "xsuaa";
+	return process.env.CORE_SERVICE_EDGE_AUTH === "xsuaa";
 }
 
 async function ensureService(): Promise<boolean> {
