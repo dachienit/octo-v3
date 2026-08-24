@@ -21,6 +21,8 @@ import * as log from "./log.js";
 import type { BotContext, ChannelInfo, UserInfo } from "./types.js";
 import type { ChannelStore } from "./store.js";
 import { detectSkillFromToolCall } from "./agent-events.js";
+//IYH1HC capability tool add
+import { beginTurn, createAdtTool, endTurn } from "./capabilities/adt-tool.js";
 
 export interface PendingMessage {
 	userName: string;
@@ -531,11 +533,21 @@ export async function getOrCreateRunner(
 		existing.mcpKey === mcpKey &&
 		existing.toolsKey === toolsKey
 	) {
-		return createRunner(existing.agent, sandboxConfig, channelId, channelDir, options.remindersEnabled !== false);
+		return withTurnTracking(createRunner(existing.agent, sandboxConfig, channelId, channelDir, options.remindersEnabled !== false), channelId);
 	}
 
-	const extraTools = await createMcpTools(options.mcpServers);
+	const mcpTools = await createMcpTools(options.mcpServers);
 	closeMcpTools(existing?.mcpTools);
+
+	//IYH1HC capability tool add
+	// The ADT tool goes in through the same door MCP tools use. It is built here,
+	// once per CoreAgent, so its closure is the only thing that can carry the channel:
+	// AgentTool.execute receives no ambient context of any kind. Nothing per-turn is
+	// captured here — the tool looks that up when it is called.
+	const extraTools = [
+		...mcpTools,
+		createAdtTool({ channelId, channelDir }),
+	];
 
 	const agent = new CoreAgent(channelId, {
 		sandboxConfig,
@@ -547,8 +559,36 @@ export async function getOrCreateRunner(
 		extraTools,
 		enabledTools: options.enabledTools,
 	});
-	channelAgents.set(channelId, { agent, authFilePath: options.authFilePath, agentWorkersEnabled: options.agentWorkersEnabled, remindersEnabled: options.remindersEnabled, mcpKey, toolsKey, mcpTools: extraTools });
-	return createRunner(agent, sandboxConfig, channelId, channelDir, options.remindersEnabled !== false);
+	channelAgents.set(channelId, { agent, authFilePath: options.authFilePath, agentWorkersEnabled: options.agentWorkersEnabled, remindersEnabled: options.remindersEnabled, mcpKey, toolsKey, mcpTools });
+	return withTurnTracking(createRunner(agent, sandboxConfig, channelId, channelDir, options.remindersEnabled !== false), channelId);
+}
+
+//IYH1HC capability tool add
+/**
+ * Open a turn window for as long as the run lasts.
+ *
+ * main.ts calls `runner.run()` from inside its per-channel queue (main.ts:408-437),
+ * so wrapping the runner here puts the window around the *execution*, not around the
+ * HTTP request — which is what keeps two overlapping chats on one channel from
+ * clobbering each other's context.
+ *
+ * Written as a decorator rather than a try/finally inside `createRunner` so the ~300
+ * lines of run() keep their indentation and stay reviewable.
+ */
+function withTurnTracking(runner: AgentRunner, channelId: string): AgentRunner {
+	return {
+		async run(ctx, store, pendingMessages) {
+			beginTurn(channelId, ctx);
+			try {
+				return await runner.run(ctx, store, pendingMessages);
+			} finally {
+				endTurn(channelId);
+			}
+		},
+		abort() {
+			runner.abort();
+		},
+	};
 }
 
 function createRunner(

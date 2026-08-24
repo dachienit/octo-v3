@@ -75,7 +75,7 @@ modules:
 
       CORE_SERVICE_AGENT_WORKERS_ENABLED: "false"
       CORE_SERVICE_REMINDERS_ENABLED: "false"
-      CORE_SERVICE_CONNECTION_ENABLED: "false"
+      CORE_SERVICE_CONNECTION_ENABLED: "true"
 
       # Set to false/0/off/no to hide the workspace settings Tools tab. Whatever a
       # workspace already stored in settings.tools.enabled keeps being enforced.
@@ -83,7 +83,7 @@ modules:
 
       # Optional allowlist of LLM providers shown in the UI picker (comma-separated ids). Unset = all.
       # Ids: bosch-genai, openai-codex, openai, google, anthropic, sap-openai, sap-claude
-      CORE_SERVICE_LLM_PROVIDERS: "bosch-genai"
+      CORE_SERVICE_LLM_PROVIDERS: "bosch-genai, openai-codex, openai, google, anthropic, sap-openai, sap-claude"
       # Product name in the browser tab, the agent's name in chat, and the system
       # prompt. Unset = "octo".
       CORE_SERVICE_APP_TITLE: "Octo Agent"

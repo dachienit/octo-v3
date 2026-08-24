@@ -77,7 +77,7 @@ export function logUserMessage(ctx: LogContext, text: string): void {
 // Tool execution
 export function logToolStart(ctx: LogContext, toolName: string, label: string, args: Record<string, unknown>): void {
 	const formattedArgs = formatToolArgs(args);
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ↳ ${toolName}: ${label}`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} â†³ ${toolName}: ${label}`));
 	if (formattedArgs) {
 		// Indent the args
 		const indented = formattedArgs
@@ -90,7 +90,7 @@ export function logToolStart(ctx: LogContext, toolName: string, label: string, a
 
 export function logToolSuccess(ctx: LogContext, toolName: string, durationMs: number, result: string): void {
 	const duration = (durationMs / 1000).toFixed(1);
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✓ ${toolName} (${duration}s)`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} âœ“ ${toolName} (${duration}s)`));
 
 	const truncated = truncate(result, 1000);
 	if (truncated) {
@@ -104,7 +104,7 @@ export function logToolSuccess(ctx: LogContext, toolName: string, durationMs: nu
 
 export function logToolError(ctx: LogContext, toolName: string, durationMs: number, error: string): void {
 	const duration = (durationMs / 1000).toFixed(1);
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✗ ${toolName} (${duration}s)`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} âœ— ${toolName} (${duration}s)`));
 
 	const truncated = truncate(error, 1000);
 	const indented = truncated
@@ -116,11 +116,11 @@ export function logToolError(ctx: LogContext, toolName: string, durationMs: numb
 
 // Response streaming
 export function logResponseStart(ctx: LogContext): void {
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} → Streaming response...`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} â†’ Streaming response...`));
 }
 
 export function logThinking(ctx: LogContext, thinking: string): void {
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} 💭 Thinking`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ðŸ’­ Thinking`));
 	const truncated = truncate(thinking, 1000);
 	const indented = truncated
 		.split("\n")
@@ -130,7 +130,7 @@ export function logThinking(ctx: LogContext, thinking: string): void {
 }
 
 export function logResponse(ctx: LogContext, text: string): void {
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} 💬 Response`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ðŸ’¬ Response`));
 	const truncated = truncate(text, 1000);
 	const indented = truncated
 		.split("\n")
@@ -141,23 +141,23 @@ export function logResponse(ctx: LogContext, text: string): void {
 
 // Attachments
 export function logDownloadStart(ctx: LogContext, filename: string, localPath: string): void {
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ↓ Downloading attachment`));
-	console.log(chalk.dim(`           ${filename} → ${localPath}`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} â†“ Downloading attachment`));
+	console.log(chalk.dim(`           ${filename} â†’ ${localPath}`));
 }
 
 export function logDownloadSuccess(ctx: LogContext, sizeKB: number): void {
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✓ Downloaded (${sizeKB.toLocaleString()} KB)`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} âœ“ Downloaded (${sizeKB.toLocaleString()} KB)`));
 }
 
 export function logDownloadError(ctx: LogContext, filename: string, error: string): void {
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ✗ Download failed`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} âœ— Download failed`));
 	console.log(chalk.dim(`           ${filename}: ${error}`));
 }
 
 // Control
 export function logStopRequest(ctx: LogContext): void {
 	console.log(chalk.green(`${timestamp()} ${formatContext(ctx)} stop`));
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ⊗ Stop requested - aborting`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} âŠ— Stop requested - aborting`));
 }
 
 // System
@@ -166,7 +166,7 @@ export function logInfo(message: string): void {
 }
 
 export function logWarning(message: string, details?: string): void {
-	console.log(chalk.yellow(`${timestamp()} [system] ⚠ ${message}`));
+	console.log(chalk.yellow(`${timestamp()} [system] âš  ${message}`));
 	if (details) {
 		const indented = details
 			.split("\n")
@@ -178,7 +178,7 @@ export function logWarning(message: string, details?: string): void {
 
 export function logAgentError(ctx: LogContext | "system", error: string): void {
 	const context = ctx === "system" ? "[system]" : formatContext(ctx);
-	console.log(chalk.yellow(`${timestamp()} ${context} ✗ Agent error`));
+	console.log(chalk.yellow(`${timestamp()} ${context} âœ— Agent error`));
 	const indented = error
 		.split("\n")
 		.map((line) => `           ${line}`)
@@ -227,7 +227,7 @@ export function logUsageSummary(
 	const summary = lines.join("\n");
 
 	// Log to console
-	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} 💰 Usage`));
+	console.log(chalk.yellow(`${timestamp()} ${formatContext(ctx)} ðŸ’° Usage`));
 	console.log(
 		chalk.dim(
 			`           ${usage.input.toLocaleString()} in + ${usage.output.toLocaleString()} out` +
@@ -249,7 +249,7 @@ export function logStartup(workingDir: string, sandbox: string): void {
 }
 
 export function logConnected(): void {
-	console.log("⚡️ Mom bot connected and listening!");
+	console.log("âš¡ï¸ Mom bot connected and listening!");
 	console.log("");
 }
 

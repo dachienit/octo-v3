@@ -1,4 +1,6 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
+//IYH1HC SAP ADT add
+import { randomBytes } from "node:crypto";
 import { Dirent, type Stats, appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "path";
@@ -24,22 +26,31 @@ import express from "express";
 import JSZip from "jszip";
 import { CoreServiceAuth } from "./auth.js";
 import { getAppHeader, getAppTitle } from "./branding.js";
+//IYH1HC capability tool add
+import { registerAdtRunner } from "./capabilities/adt-tool.js";
 import { decryptSecret, encryptSecret } from "./crypto.js";
 import { prepareBoschAnthropicEndpoint, prepareBoschGoogleEndpoint, prepareBoschOpenAIEndpoint } from "./extensions/bosch-genai-adapter.js";
 import { GithubSsoProvider, loadSsoConfig } from "./sso.js";
 import type { ObjectStoreGateway } from "./object-store.js";
 import {
+	ADT_CONNECTION_FILE,
 	ADT_TREE_FILE,
-	LOCAL_OBJECTS_ROOT,
 	applyPlan,
 	initialManifest,
 	manifestView,
 	planChildren,
 	readManifest,
+	sanitizeFolderName,
 	writeManifest,
 	type AdtListResult,
 } from "./sapTree.js";
-import { listLocalSapSystems, type SapLocalSystem } from "./sapLandscape.js";
+import {
+	DEFAULT_SAP_CLIENT,
+	DEFAULT_SAP_LANGUAGE,
+	findSapCatalogSystem,
+	listSapCatalogSystems,
+	type SapCatalogSystem,
+} from "./sapSystems.js";
 import * as log from "./log.js";
 import { getWorkspaceSandboxStatus } from "./sandbox-manager.js";
 import type { BotContext, BotHandler } from "./types.js";
@@ -59,6 +70,34 @@ interface SapRemoteDest {
 	Authentication?: string;
 	ProxyType?: string;
 	Description?: string;
+}
+
+//IYH1HC SSO add
+// Which SAP connect surface this deployment can actually use. The two are
+// mutually exclusive by nature, not by preference: On-Premise (SSO) needs a
+// Kerberos ticket from the user's Windows logon, which only exists on their
+// machine, and BTP destinations need the destination + connectivity services,
+// which only exist in Cloud Foundry. Offering both everywhere just gives the
+// user a button that cannot work. VCAP_SERVICES is the canonical "running on
+// CF" marker (bin/adt.js keys off the same one); the override is for testing
+// the other surface deliberately.
+function resolveSapConnectMode(): "local" | "btp" {
+	const override = (process.env.OCTO_SAP_CONNECT_MODE ?? "").trim().toLowerCase();
+	if (override === "local" || override === "btp") return override;
+	return process.env.VCAP_SERVICES ? "btp" : "local";
+}
+
+// Drop the Node process warnings a spawned CLI emits on its own stderr, so what
+// is left is the CLI's own diagnostics. Failed adt-cli calls surface stderr to
+// the client verbatim; a local SSO connection runs with an insecure TLS profile,
+// whose "NODE_TLS_REJECT_UNAUTHORIZED" warning would otherwise become the error
+// message the user sees instead of the real cause.
+function cliStderr(raw: string): string {
+	return raw
+		.split(/\r?\n/)
+		.filter((line) => !/^\(node:\d+\)\s/.test(line) && !/^\(Use `node --trace-warnings/.test(line))
+		.join("\n")
+		.trim();
 }
 
 // ============================================================================
@@ -145,8 +184,10 @@ export function createHttpContext(opts: {
 	authFilePath?: string;
 	model?: { provider: string; modelId: string; apiKey?: string; baseUrl?: string; apiType?: string };
 	structured?: boolean;
+	//IYH1HC capability tool add
+	sap?: { userJwt?: string; routerBase?: string };
 }): BotContext {
-	const { channelId, userName, text, ts, send, workingDir, attachments = [], mentions = [], skills = [], userId = "web-user", authFilePath, model, structured = false } = opts;
+	const { channelId, userName, text, ts, send, workingDir, attachments = [], mentions = [], skills = [], userId = "web-user", authFilePath, model, structured = false, sap } = opts;
 
 	const logToFile = (entry: object) => {
 		const dir = join(workingDir, "sessions", channelId);
@@ -218,6 +259,8 @@ export function createHttpContext(opts: {
 		},
 		authFilePath,
 		model,
+		//IYH1HC capability tool add
+		sap,
 		channelName: channelId,
 		channels: [{ id: channelId, name: channelId }],
 		users: [{ id: userId, userName, displayName: userName }],
@@ -310,7 +353,7 @@ export class HttpServer {
 	private handler!: BotHandler;
 	private workspaceStore!: WorkspaceStore;
 	private sandboxConfig: SandboxConfig;
-	private features: { agentWorkers: boolean; reminders: boolean; connection: boolean; tools: boolean; llmProviders: string[] | null; appTitle: string; appHeader: string };
+	private features: { agentWorkers: boolean; reminders: boolean; connection: boolean; tools: boolean; llmProviders: string[] | null; appTitle: string; appHeader: string; sapConnect: "local" | "btp" };
 	private auth: CoreServiceAuth;
 	private pendingAuthLogins = new Map<string, PendingAuthLogin>();
 	private sso: GithubSsoProvider | null;
@@ -323,6 +366,12 @@ export class HttpServer {
 	// nothing is served off a data root that is still being restored.
 	private ready = false;
 	private phase = "starting";
+	//IYH1HC SAP ADT add
+	// Live ADT credentials for the chat turn currently running, keyed by a one-shot
+	// ticket. RAM only, dropped the moment the turn ends. A script the agent spawns
+	// presents the ticket to run ADT commands as the user; it never sees the token
+	// itself — the capability is lent, the credential is not.
+	private readonly adtTurns = new Map<string, { userId: string; workspaceId: string; jwt?: string; routerBase?: string }>();
 
 	constructor(config: { port: number; workingDir: string; sandboxConfig: SandboxConfig; features?: { agentWorkers?: boolean; reminders?: boolean; connection?: boolean; tools?: boolean; llmProviders?: string[] | null; appTitle?: string; appHeader?: string } }) {
 		this.port = config.port;
@@ -336,11 +385,54 @@ export class HttpServer {
 			llmProviders: config.features?.llmProviders ?? null,
 			appTitle: config.features?.appTitle ?? getAppTitle(),
 			appHeader: config.features?.appHeader ?? getAppHeader(),
+			//IYH1HC SSO add — decided by the runtime, not by a caller.
+			sapConnect: resolveSapConnectMode(),
 		};
 		this.auth = new CoreServiceAuth(config.workingDir);
 		const ssoConfig = loadSsoConfig();
 		this.sso = ssoConfig ? new GithubSsoProvider(ssoConfig) : null;
 		if (this.sso) log.logInfo(`SSO enabled: ${ssoConfig?.provider} (${ssoConfig?.label})`);
+
+		//IYH1HC capability tool add
+		// Lend runAdtCli to the native `adt` tool. Registering a callback keeps every
+		// line of SAP logic where it already is; the capability module stays ignorant
+		// of how a command reaches the system. Registered here rather than at route
+		// setup because the callback only ever runs at tool-call time, long after the
+		// stores it touches are initialised.
+		registerAdtRunner(async ({ userId, workspaceId, argv, userJwt, routerBase }) => {
+			const profileName = this.adtProfileFor(userId, argv);
+			const destination = profileName ? this.getConnectionDestination(userId, workspaceId, profileName) : undefined;
+			const result = await this.runAdtCli(userId, argv, {
+				userJwt,
+				profileName: profileName || undefined,
+				destinationName: destination,
+				routerBase,
+			});
+			return { ...result, profile: profileName || undefined, destination };
+		});
+	}
+
+	//IYH1HC capability tool add
+	/**
+	 * Which connection a bare command runs against: the global `-p`/`--profile` flag,
+	 * then `--name` but only inside the `auth` group (on `object activate` it is the
+	 * ABAP object name), then whichever connection the user last worked in.
+	 *
+	 * Duplicated from handleAdtExec rather than shared, so that adding the tool cannot
+	 * change the behaviour of the ticket path while both are running. Fold the two
+	 * together when the ticket route is removed.
+	 */
+	private adtProfileFor(userId: string, argv: string[]): string {
+		const flagValue = (name: string): string | undefined => {
+			const index = argv.indexOf(name);
+			return index >= 0 ? argv[index + 1] : undefined;
+		};
+		return (
+			flagValue("-p") ??
+			flagValue("--profile") ??
+			(argv[0] === "auth" ? flagValue("--name") : undefined) ??
+			this.readDefaultProfile(userId)
+		);
 	}
 
 	/**
@@ -437,6 +529,12 @@ export class HttpServer {
 			res.json(status ? { mode: "mirror", ...status } : { mode: "ephemeral" });
 		});
 
+		//IYH1HC SAP ADT add
+		// Mounted above requireAuth on purpose: the caller is a script the agent spawned,
+		// which holds no user token. It is fenced by loopback + a per-turn ticket instead
+		// (see handleAdtExec).
+		//app.post("/internal/adt-exec", (req, res) => { void this.handleAdtExec(req, res); });
+
 		app.use((req, res, next) => this.auth.requireAuth(req, res, next));
 		app.use("/artifacts", express.static(artifactsDir, { fallthrough: false }));
 		// Everything below reads workspace content off disk, so the mirror for that
@@ -455,9 +553,12 @@ export class HttpServer {
 		app.post("/workspaces/:workspaceId/sap-adt/connections", (req, res) => { void this.handleSapCreateConnection(req, res); });
 		app.delete("/workspaces/:workspaceId/sap-adt/connections/:name", (req, res) => { void this.handleSapDeleteConnection(req, res); });
 		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/test", (req, res) => { void this.handleSapTestConnection(req, res); });
+		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/refresh", (req, res) => { void this.handleSapRefreshConnection(req, res); });
+		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/activate", (req, res) => { void this.handleSapActivateConnection(req, res); });
 		app.get("/workspaces/:workspaceId/sap-adt/connections/:name/nodes", (req, res) => { void this.handleSapListNodes(req, res); });
 		app.get("/workspaces/:workspaceId/sap-adt/connections/:name/source", (req, res) => { void this.handleSapGetSource(req, res); });
 		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/tree/expand", (req, res) => { void this.handleSapExpandTree(req, res); });
+		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/tree/package", (req, res) => { void this.handleSapAddPackage(req, res); });
 		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/tree/hydrate", (req, res) => { void this.handleSapHydrateFile(req, res); });
 		app.get("/workspaces/:workspaceId/sap-adt/connections/:name/tree/manifest", (req, res) => { void this.handleSapTreeManifest(req, res); });
 		app.get("/workspaces/:workspaceId/sandbox", (req, res) => { void this.handleWorkspaceSandbox(req, res); });
@@ -1162,7 +1263,7 @@ export class HttpServer {
 	}
 
 	private handleFeatures(res: express.Response): void {
-		res.json({ features: { agentWorkers: this.features.agentWorkers, reminders: this.features.reminders, connection: this.features.connection, tools: this.features.tools, llmProviders: this.features.llmProviders, appTitle: this.features.appTitle, appHeader: this.features.appHeader } });
+		res.json({ features: { agentWorkers: this.features.agentWorkers, reminders: this.features.reminders, connection: this.features.connection, tools: this.features.tools, llmProviders: this.features.llmProviders, appTitle: this.features.appTitle, appHeader: this.features.appHeader, sapConnect: this.features.sapConnect } });
 	}
 
 	private handleConnectors(req: express.Request, res: express.Response): void {
@@ -1320,13 +1421,13 @@ export class HttpServer {
 				clearTimeout(timer);
 				if (settled) return;
 				settled = true;
-				resolveP({ stdout, stderr: stderr || err.message, exitCode: 1 });
+				resolveP({ stdout, stderr: cliStderr(stderr) || err.message, exitCode: 1 });
 			});
 			child.on("close", (code) => {
 				clearTimeout(timer);
 				if (settled) return;
 				settled = true;
-				resolveP({ stdout, stderr, exitCode: code ?? 0 });
+				resolveP({ stdout, stderr: cliStderr(stderr), exitCode: code ?? 0 });
 			});
 		});
 	}
@@ -1348,10 +1449,154 @@ export class HttpServer {
 		return this.workspaceStore.getSapConnections(userId, workspaceId).find((c) => c.name === name)?.destinationName;
 	}
 
+	// Path of the adt-cli profile store for a user (the file `ADT_CLI_HOME` points at).
+	private adtConfigPath(userId: string): string | undefined {
+		const connector = this.resolveConnector("sap-adt", "business-connector");
+		if (!connector) return undefined;
+		return join(getConnectorHome(this.getUsersRoot(), userId, connector.id), ".adt-cli", "config.json");
+	}
+
+	// Which profile bare `adt` commands currently resolve to, or "" when unset.
+	private readDefaultProfile(userId: string): string {
+		const configPath = this.adtConfigPath(userId);
+		if (!configPath || !existsSync(configPath)) return "";
+		try {
+			const cfg = JSON.parse(readFileSync(configPath, "utf8")) as { defaultProfile?: string };
+			return typeof cfg.defaultProfile === "string" ? cfg.defaultProfile : "";
+		} catch {
+			return "";
+		}
+	}
+
+	// Make `name` the default adt-cli profile for this user.
+	//
+	// Why it matters: the web IDE always passes `--name`/`ADT_PROFILE`, but the agent
+	// typing `adt ...` through the bash tool does not — commands like `object list`
+	// fall back to `defaultProfile`. Pointing that at whichever connection the user is
+	// working in keeps the agent on the same system as the UI.
+	//
+	// The config file is read first so the common case (acting repeatedly inside one
+	// connection) costs a file read instead of a process spawn; the CLI is still what
+	// performs the write.
+	private async setDefaultProfile(userId: string, name: string): Promise<void> {
+		if (!name) return;
+		const configPath = this.adtConfigPath(userId);
+		if (configPath && existsSync(configPath)) {
+			try {
+				const cfg = JSON.parse(readFileSync(configPath, "utf8")) as { defaultProfile?: string; profiles?: Record<string, unknown> };
+				if (cfg.defaultProfile === name) return;
+				// `profile use` throws on an unknown profile; skip rather than log a failure.
+				if (cfg.profiles && !cfg.profiles[name]) return;
+			} catch {
+				/* unreadable config -> let the CLI decide */
+			}
+		}
+		const result = await this.runAdtCli(userId, ["-q", "auth", "profile", "use", name]);
+		if (result.exitCode !== 0) {
+			log.logWarning("[sap-adt] could not set default profile", `${name}: ${result.stderr.trim()}`);
+		}
+	}
+
+	// adtOpts + "this connection is now the one in use". Every connection-scoped ADT
+	// operation goes through here, so the invariant holds at the API level rather than
+	// depending on the UI remembering to announce the switch.
+	private async adtOptsFor(
+		ctx: { userId: string; workspaceId: string },
+		req: express.Request,
+		name: string,
+	): Promise<{ userJwt?: string; profileName: string; destinationName?: string; routerBase?: string }> {
+		await this.setDefaultProfile(ctx.userId, name);
+		return this.adtOpts(ctx, req, name);
+	}
+
+	// Single place that builds runAdtCli options for an existing connection, so the
+	// two on-prem reach mechanisms stay on one code path: a BTP connection carries a
+	// destination name (runAdtCli then routes the CLI through the approuter's
+	// /adt-proxy for principal propagation), while a local SSO connection has none
+	// and the CLI talks to the profile's own URL over Kerberos/SPNEGO. No handler
+	// needs to branch on the auth type.
+	private adtOpts(ctx: { userId: string; workspaceId: string }, req: express.Request, name: string): { userJwt?: string; profileName: string; destinationName?: string; routerBase?: string } {
+		return {
+			userJwt: this.extractUserJwt(req),
+			profileName: name,
+			destinationName: this.getConnectionDestination(ctx.userId, ctx.workspaceId, name),
+			routerBase: this.resolveRouterBase(req),
+		};
+	}
+
+	//IYH1HC SAP ADT add
+	// POST /internal/adt-exec — run one adt-cli command on behalf of the user whose chat
+	// turn is currently in flight.
+	//
+	// Why this exists: when the user clicks in the UI, runAdtCli injects ADT_USER_JWT and
+	// the destination into the child process. When the agent types `adt` into the bash
+	// tool, none of that code runs — the shell resolves the binary itself and the child
+	// has no credentials, so adt-cli falls through to the XSUAA branch and dies. The
+	// agent's skill calls this route instead, and the CLI runs here, in the process that
+	// already holds the request-scoped user token.
+	//
+	// Unauthenticated because the caller is a script the agent spawned and it has no user
+	// token to present. Two fences replace that: the caller must be on loopback (the app
+	// has a public route, and the agent runs inside this same container), and it must
+	// present the one-shot ticket minted for this turn. Outside a turn the map is empty,
+	// so a stale ticket resolves to nothing.
+	/* private async handleAdtExec(req: express.Request, res: express.Response): Promise<void> {
+		const remote = req.socket.remoteAddress ?? "";
+		if (!["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(remote)) {
+			res.status(403).json({ error: "Not a local caller" });
+			return;
+		}
+		const body = req.body as { ticket?: unknown; argv?: unknown };
+		const turn = typeof body.ticket === "string" ? this.adtTurns.get(body.ticket) : undefined;
+		if (!turn) {
+			res.status(401).json({ error: "No ADT turn is in flight for this ticket" });
+			return;
+		}
+		const argv = Array.isArray(body.argv) ? body.argv.map(String) : [];
+
+		// adt-cli accepts an absolute URL where a request path is expected and then sends
+		// the live user JWT to it, and --output writes a response body anywhere on disk
+		// with this process's rights. The agent needs neither, and its argv is composed
+		// from text it read — including ABAP source — so both are refused here.
+		const blockedFlags = new Set(["--output", "--user-jwt", "--iss", "--service-binding"]);
+		const offending = argv.find((arg) => /^https?:\/\//i.test(arg) || blockedFlags.has(arg));
+		if (offending) {
+			res.status(400).json({ error: `Argument not allowed: ${offending}` });
+			return;
+		}
+
+		// Which connection this runs against. The profile selector is the global
+		// -p/--profile flag; --name only means a profile inside the `auth` group (on
+		// `object activate` it is the ABAP object name). Everything else falls back to
+		// whichever connection the user last worked in, same as a bare `adt` would.
+		const flagValue = (name: string): string | undefined => {
+			const index = argv.indexOf(name);
+			return index >= 0 ? argv[index + 1] : undefined;
+		};
+		const profileName =
+			flagValue("-p") ??
+			flagValue("--profile") ??
+			(argv[0] === "auth" ? flagValue("--name") : undefined) ??
+			this.readDefaultProfile(turn.userId);
+
+		// Same four options adtOpts() builds for the UI path, so the two cannot drift.
+		const result = await this.runAdtCli(turn.userId, argv, {
+			userJwt: turn.jwt,
+			profileName: profileName || undefined,
+			destinationName: profileName ? this.getConnectionDestination(turn.userId, turn.workspaceId, profileName) : undefined,
+			routerBase: turn.routerBase,
+		});
+		res.json(result);
+	}
+ */
 	// Connection name doubles as the adt-cli profile name and an on-disk folder name,
-	// so it must be filesystem/profile safe.
+	// so it must be filesystem/profile safe. `.` and `-` are allowed inside a name,
+	// which means the character filter alone still lets "." and ".." through — and
+	// those resolve to the artifacts root and the workspace root. Disconnect deletes
+	// the folder, so they are rejected outright; callers treat "" as a 400.
 	private sanitizeConnectionName(raw: unknown): string {
-		return String(raw ?? "").trim().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 64);
+		const name = String(raw ?? "").trim().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 64);
+		return /^\.+$/.test(name) ? "" : name;
 	}
 
 	// Resolves req.params.workspaceId against the caller's membership, or sends a
@@ -1402,75 +1647,140 @@ export class HttpServer {
 		res.json({ destinations });
 	}
 
-	// GET /workspaces/:id/sap-adt/local-systems
+	// GET /workspaces/:id/sap-adt/local-systems → the corporate system catalogue
+	// that backs the On-Premise (SSO) picklist.
 	private async handleSapListLocalSystems(req: express.Request, res: express.Response): Promise<void> {
 		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		try {
-			const systems: SapLocalSystem[] = listLocalSapSystems();
+			const systems: SapCatalogSystem[] = listSapCatalogSystems();
 			res.json({ systems });
 		} catch (e) {
-			res.status(500).json({ error: (e as Error).message || "Failed to read SAP Logon landscape" });
+			res.status(500).json({ error: (e as Error).message || "Failed to read the SAP system catalogue" });
 		}
+	}
+
+	// Save/refresh a `basicsso` profile and ping the system. `auth login basicsso`
+	// writes the profile to the user's adt-cli config.json and then verifies it
+	// with GET /sap/bc/adt/discovery, so one command covers both "store the
+	// profile" and "is the system reachable as me right now". The SSO ticket it
+	// obtains is never written down — every adt-cli process does its own SPNEGO
+	// handshake — so this verifies live reachability, not a cached credential.
+	private runBasicSsoLogin(
+		userId: string,
+		profile: { name: string; url: string; spn: string; client?: string; language?: string },
+		cwd: string,
+	): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+		// -v, not -q: adt-cli's logger drops warn/step/ok at quiet level, and the
+		// SPNEGO diagnostics (which host answered, what the probe body said) are
+		// warnings. Under -q a failed connect reached the user as a bare
+		// "Verification failed: HTTP 403" with no host, SPN or body to act on.
+		// Only exitCode and stderr are read below, so raising verbosity is safe.
+		const argv = ["-v", "auth", "login", "basicsso", "--url", profile.url, "--spn", profile.spn, "--insecure", "--name", profile.name];
+		if (profile.client) argv.push("--client", profile.client);
+		if (profile.language) argv.push("--language", profile.language);
+		return this.runAdtCli(userId, argv, { cwd, profileName: profile.name });
+	}
+
+	// The connection folder holds exactly two sidecars after a successful connect:
+	// the connection descriptor and an empty object-tree manifest. No object tree
+	// is materialized here — packages are added explicitly from the Artifacts panel.
+	private writeConnectionSidecars(workspaceId: string, connection: SapConnection): string {
+		const folder = join(this.workspaceStore.getWorkspaceRoot(workspaceId), "artifacts", connection.name);
+		mkdirSync(folder, { recursive: true });
+		writeFileSync(
+			join(folder, ADT_CONNECTION_FILE),
+			`${JSON.stringify(
+				{
+					connectionName: connection.name,
+					authType: connection.authType,
+					url: connection.url,
+					spn: connection.spn,
+					systemId: connection.systemId,
+					client: connection.client,
+					language: connection.language,
+				},
+				null,
+				2,
+			)}\n`,
+		);
+		if (!existsSync(join(folder, ADT_TREE_FILE))) writeManifest(folder, initialManifest());
+		return folder;
+	}
+
+	// Resolve the ADT URL + Kerberos SPN for an SSO connect. The browser only
+	// sends a system id from the catalogue; url/spn are accepted as an override
+	// so existing callers (and manual REST tests) keep working.
+	private resolveSsoTarget(body: { systemId?: unknown; url?: unknown; spn?: unknown }): { systemId?: string; url: string; spn: string } | { error: string } {
+		const systemId = body.systemId ? String(body.systemId).trim() : undefined;
+		let url = String(body.url ?? "").trim();
+		let spn = String(body.spn ?? "").trim();
+		if (systemId && (!url || !spn)) {
+			const sys = findSapCatalogSystem(systemId);
+			if (!sys) return { error: `Unknown system "${systemId}"` };
+			url = url || sys.URL;
+			spn = spn || sys.spn;
+		}
+		if (!url || !spn) return { error: "systemId (or url + spn) is required for an SSO connection" };
+		return { systemId, url, spn };
 	}
 
 	private async createLocalSsoConnection(ctx: { userId: string; workspaceId: string }, req: express.Request, res: express.Response): Promise<void> {
 		const body = req.body as { url?: unknown; spn?: unknown; systemId?: unknown; name?: unknown; client?: unknown; language?: unknown };
-		const url = String(body.url ?? "").trim();
-		const spn = String(body.spn ?? "").trim();
-		if (!url || !spn) {
-			res.status(400).json({ error: "url and spn are required for an SSO connection" });
+		const target = this.resolveSsoTarget(body);
+		if ("error" in target) {
+			res.status(400).json({ error: target.error });
 			return;
 		}
-		const systemId = body.systemId ? String(body.systemId).trim() : undefined;
-		const name = this.sanitizeConnectionName(body.name || systemId || url);
+		const name = this.sanitizeConnectionName(body.name || target.systemId || target.url);
 		if (!name) {
 			res.status(400).json({ error: "A valid connection name is required" });
 			return;
 		}
-		const client = body.client ? String(body.client) : undefined;
-		const language = body.language ? String(body.language) : undefined;
+		const client = (body.client ? String(body.client) : "").trim() || DEFAULT_SAP_CLIENT;
+		const language = (body.language ? String(body.language) : "").trim() || DEFAULT_SAP_LANGUAGE;
 
-		const folder = join(this.workspaceStore.getWorkspaceRoot(ctx.workspaceId), "artifacts", name);
-		mkdirSync(folder, { recursive: true });
-
-		const argv = ["-q", "auth", "login", "basicsso", "--url", url, "--spn", spn, "--insecure", "--name", name];
-		if (client) argv.push("--client", client);
-		if (language) argv.push("--language", language);
-		const result = await this.runAdtCli(ctx.userId, argv, { cwd: folder, profileName: name });
-		const connected = result.exitCode === 0;
-
-		writeFileSync(
-			join(folder, ".adt-connection.json"),
-			`${JSON.stringify({ connectionName: name, authType: "sso", url, spn, systemId, client, language }, null, 2)}\n`,
+		const result = await this.runBasicSsoLogin(
+			ctx.userId,
+			{ name, url: target.url, spn: target.spn, client, language },
+			this.workspaceStore.getWorkspaceRoot(ctx.workspaceId),
 		);
-
-		if (connected) {
-			mkdirSync(join(folder, LOCAL_OBJECTS_ROOT), { recursive: true });
-			mkdirSync(join(folder, "Artifacts"), { recursive: true });
-			writeManifest(folder, initialManifest());
+		if (result.exitCode !== 0) {
+			// Nothing is persisted on a failed ping: no artifacts folder, no entry in
+			// the workspace settings. The profile adt-cli just wrote is left in place
+			// so the user can retry without re-entering anything.
+			//
+			// Keep the whole CLI trace in the server log, but hand the browser only
+			// the diagnostic lines: the full -v output is mostly step/http noise that
+			// would bury the one line saying what SAP actually answered.
+			log.logWarning(`[sap-adt] SSO connect to ${target.url} (${target.spn}) failed`, result.stderr);
+			const diagnostics = result.stderr
+				.split(/\r?\n/)
+				.filter((line) => /\b(ERR|WARN)\b/.test(line))
+				.join("\n")
+				.trim();
+			res.status(502).json({ error: diagnostics || result.stderr || "SSO connection verification failed" });
+			return;
 		}
 
 		const connection: SapConnection = {
 			name,
 			authType: "sso",
-			url,
-			spn,
-			systemId,
+			url: target.url,
+			spn: target.spn,
+			systemId: target.systemId,
 			client,
 			language,
-			status: connected ? "connected" : "error",
+			status: "connected",
 			createdAt: new Date().toISOString(),
 		};
+		await this.setDefaultProfile(ctx.userId, name);
+		this.writeConnectionSidecars(ctx.workspaceId, connection);
+
 		const next = this.workspaceStore.getSapConnections(ctx.userId, ctx.workspaceId).filter((c) => c.name !== name);
 		next.push(connection);
 		this.workspaceStore.setSapConnections(ctx.userId, ctx.workspaceId, next);
-
-		if (!connected) {
-			res.status(502).json({ connection, error: result.stderr || "SSO connection verification failed" });
-			return;
-		}
-		res.json({ connection });
+		res.json({ connection, defaultProfile: this.readDefaultProfile(ctx.userId) });
 	}
 
 	// POST /workspaces/:id/sap-adt/connections
@@ -1502,19 +1812,21 @@ export class HttpServer {
 		const argv = ["-q", "auth", "login", "destination", "--destination", destination, "--name", name];
 		if (client) argv.push("--client", client);
 		if (language) argv.push("--language", language);
-		if (userJwt) argv.push("--user-jwt", userJwt);
+		// The JWT deliberately stays out of argv: adt-cli would have written it to
+		// its profile file, where any process of this user could read it back. It
+		// travels as ADT_USER_JWT instead (see runAdtCli), which auth.js reads
+		// first anyway. //IYH1HC no-secret-on-disk
 		const result = await this.runAdtCli(ctx.userId, argv, { userJwt, cwd: folder, profileName: name, destinationName: destination, routerBase: this.resolveRouterBase(req) });
 		const connected = result.exitCode === 0;
 
 		writeFileSync(
-			join(folder, ".adt-connection.json"),
+			join(folder, ADT_CONNECTION_FILE),
 			`${JSON.stringify({ connectionName: name, destination, client, language }, null, 2)}\n`,
 		);
 
 		if (connected) {
-			mkdirSync(join(folder, LOCAL_OBJECTS_ROOT), { recursive: true });
-			mkdirSync(join(folder, "Artifacts"), { recursive: true });
 			writeManifest(folder, initialManifest());
+			await this.setDefaultProfile(ctx.userId, name);
 		}
 
 		const connection: SapConnection = {
@@ -1533,7 +1845,7 @@ export class HttpServer {
 			res.status(502).json({ connection, error: result.stderr || "Connection verification failed" });
 			return;
 		}
-		res.json({ connection });
+		res.json({ connection, defaultProfile: this.readDefaultProfile(ctx.userId) });
 	}
 
 	// DELETE /workspaces/:id/sap-adt/connections/:name
@@ -1541,12 +1853,90 @@ export class HttpServer {
 		const ctx = this.assertWorkspaceRole(req, res, true);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
+		if (!name) {
+			res.status(400).json({ error: "A valid connection name is required" });
+			return;
+		}
 		const userJwt = this.extractUserJwt(req);
 		// Best-effort profile removal; ignore failures (profile may already be gone).
 		await this.runAdtCli(ctx.userId, ["-q", "auth", "profile", "delete", name], { userJwt });
 		const next = this.workspaceStore.getSapConnections(ctx.userId, ctx.workspaceId).filter((c) => c.name !== name);
 		this.workspaceStore.setSapConnections(ctx.userId, ctx.workspaceId, next);
-		res.json({ ok: true }); // the on-disk folder is intentionally kept.
+		// Disconnecting also drops the mirrored object tree: everything under the
+		// connection folder is a projection of the SAP system and is re-fetchable,
+		// so leaving it behind would only strand a folder no longer backed by a profile.
+		// `name` is sanitized above, so this can only ever target artifacts/<name>.
+		rmSync(this.sapConnDir(ctx.workspaceId, name), { recursive: true, force: true });
+		// adt-cli nulls defaultProfile when the deleted profile was the default, so this
+		// reports "" rather than a dangling name.
+		res.json({ ok: true, defaultProfile: this.readDefaultProfile(ctx.userId) });
+	}
+
+	// POST /workspaces/:id/sap-adt/connections/:name/refresh
+	// Re-runs the discovery ping for a saved connection and rewrites its adt-cli
+	// profile (fresh SSO ticket) plus its on-disk descriptor.
+	private async handleSapRefreshConnection(req: express.Request, res: express.Response): Promise<void> {
+		const ctx = this.assertWorkspaceRole(req, res, true);
+		if (!ctx) return;
+		const name = this.sanitizeConnectionName(req.params.name);
+		const connections = this.workspaceStore.getSapConnections(ctx.userId, ctx.workspaceId);
+		const existing = connections.find((c) => c.name === name);
+		if (!existing) {
+			res.status(404).json({ error: `Connection "${name}" not found` });
+			return;
+		}
+
+		let result: { stdout: string; stderr: string; exitCode: number };
+		if (existing.authType === "sso") {
+			const target = this.resolveSsoTarget({ systemId: existing.systemId, url: existing.url, spn: existing.spn });
+			if ("error" in target) {
+				res.status(400).json({ error: target.error });
+				return;
+			}
+			result = await this.runBasicSsoLogin(
+				ctx.userId,
+				{ name, url: target.url, spn: target.spn, client: existing.client, language: existing.language },
+				this.workspaceStore.getWorkspaceRoot(ctx.workspaceId),
+			);
+		} else {
+			// BTP destination connections re-verify through the shared adtOpts path.
+			result = await this.runAdtCli(ctx.userId, ["-q", "auth", "login", "test", "--name", name], await this.adtOptsFor(ctx, req, name));
+		}
+
+		const ok = result.exitCode === 0;
+		if (ok) await this.setDefaultProfile(ctx.userId, name);
+		const connection: SapConnection = { ...existing, status: ok ? "connected" : "error" };
+		this.writeConnectionSidecars(ctx.workspaceId, connection);
+		this.workspaceStore.setSapConnections(
+			ctx.userId,
+			ctx.workspaceId,
+			connections.map((c) => (c.name === name ? connection : c)),
+		);
+		if (!ok) {
+			res.status(502).json({ connection, error: result.stderr || "Refresh failed" });
+			return;
+		}
+		res.json({ ok: true, connection, defaultProfile: this.readDefaultProfile(ctx.userId) });
+	}
+
+	// POST /workspaces/:id/sap-adt/connections/:name/activate
+	//
+	// "The user is now working inside this connection." Called by the UI for actions
+	// that touch a connection folder without otherwise reaching SAP — expanding an
+	// already-materialized folder, opening an already-hydrated file — so the agent's
+	// bare `adt` commands follow the user around. Cheap and idempotent: it no-ops
+	// when the profile is already the default.
+	private async handleSapActivateConnection(req: express.Request, res: express.Response): Promise<void> {
+		const ctx = this.assertWorkspaceRole(req, res, false);
+		if (!ctx) return;
+		const name = this.sanitizeConnectionName(req.params.name);
+		// Only a folder that carries the connection descriptor may claim the default.
+		if (!name || !existsSync(join(this.sapConnDir(ctx.workspaceId, name), ADT_CONNECTION_FILE))) {
+			res.status(404).json({ error: `Connection "${name}" not found` });
+			return;
+		}
+		await this.setDefaultProfile(ctx.userId, name);
+		res.json({ ok: true, defaultProfile: name });
 	}
 
 	// POST /workspaces/:id/sap-adt/connections/:name/test
@@ -1554,9 +1944,7 @@ export class HttpServer {
 		const ctx = this.assertWorkspaceRole(req, res, false);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
-		const userJwt = this.extractUserJwt(req);
-		const destinationName = this.getConnectionDestination(ctx.userId, ctx.workspaceId, name);
-		const result = await this.runAdtCli(ctx.userId, ["-q", "auth", "login", "test", "--name", name], { userJwt, profileName: name, destinationName, routerBase: this.resolveRouterBase(req) });
+		const result = await this.runAdtCli(ctx.userId, ["-q", "auth", "login", "test", "--name", name], await this.adtOptsFor(ctx, req, name));
 		const ok = result.exitCode === 0;
 		const connections = this.workspaceStore.getSapConnections(ctx.userId, ctx.workspaceId);
 		const conn = connections.find((c) => c.name === name);
@@ -1573,12 +1961,10 @@ export class HttpServer {
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const pkg = String(req.query.package ?? "$TMP");
-		const userJwt = this.extractUserJwt(req);
 		const argv = ["-q", "object", "list", "--package", pkg, "--json"];
 		if (typeof req.query.parentType === "string" && req.query.parentType) argv.push("--parent-type", req.query.parentType);
 		if (typeof req.query.parentName === "string" && req.query.parentName) argv.push("--parent-name", req.query.parentName);
-		const destinationName = this.getConnectionDestination(ctx.userId, ctx.workspaceId, name);
-		const result = await this.runAdtCli(ctx.userId, argv, { userJwt, profileName: name, destinationName, routerBase: this.resolveRouterBase(req) });
+		const result = await this.runAdtCli(ctx.userId, argv, await this.adtOptsFor(ctx, req, name));
 		if (result.exitCode !== 0) {
 			res.status(502).json({ error: result.stderr || "Failed to list nodes" });
 			return;
@@ -1603,9 +1989,7 @@ export class HttpServer {
 			res.status(400).json({ error: "uri is required" });
 			return;
 		}
-		const userJwt = this.extractUserJwt(req);
-		const destinationName = this.getConnectionDestination(ctx.userId, ctx.workspaceId, name);
-		const result = await this.runAdtCli(ctx.userId, ["-q", "object", "source", uri], { userJwt, profileName: name, destinationName, routerBase: this.resolveRouterBase(req) });
+		const result = await this.runAdtCli(ctx.userId, ["-q", "object", "source", uri], await this.adtOptsFor(ctx, req, name));
 		if (result.exitCode !== 0) {
 			res.status(502).json({ error: result.stderr || "Failed to read source" });
 			return;
@@ -1652,10 +2036,8 @@ export class HttpServer {
 			res.json({ ok: true, alreadyLoaded: true });
 			return;
 		}
-		const userJwt = this.extractUserJwt(req);
-		const destinationName = this.getConnectionDestination(ctx.userId, ctx.workspaceId, name);
 		const argv = ["-q", "object", "list", "--parent-type", entry.adtParentType, "--parent-name", entry.adtParentName, "--json"];
-		const result = await this.runAdtCli(ctx.userId, argv, { userJwt, profileName: name, destinationName, routerBase: this.resolveRouterBase(req) });
+		const result = await this.runAdtCli(ctx.userId, argv, await this.adtOptsFor(ctx, req, name));
 		if (result.exitCode !== 0) {
 			res.status(502).json({ error: result.stderr || "Failed to expand node" });
 			return;
@@ -1672,6 +2054,60 @@ export class HttpServer {
 		entry.loaded = true;
 		writeManifest(connDir, manifest);
 		res.json({ ok: true, count: plan.length });
+	}
+
+	// POST /workspaces/:id/sap-adt/connections/:name/tree/package  body { package }
+	//
+	// Adds an ABAP package as a root of the connection's object tree. Connecting
+	// materializes nothing, so this is the only way objects get into the tree.
+	// Existence is checked against the packages endpoint first,
+	// because a nodestructure call for an unknown package succeeds with an empty
+	// node list and would otherwise materialize a folder for a typo.
+	private async handleSapAddPackage(req: express.Request, res: express.Response): Promise<void> {
+		const ctx = this.assertWorkspaceRole(req, res, true);
+		if (!ctx) return;
+		const name = this.sanitizeConnectionName(req.params.name);
+		const connDir = this.sapConnDir(ctx.workspaceId, name);
+		if (!existsSync(join(connDir, ADT_TREE_FILE))) {
+			res.status(404).json({ error: "Connection is not connected" });
+			return;
+		}
+		const pkg = String((req.body as { package?: unknown })?.package ?? "").trim().toUpperCase();
+		if (!pkg || !/^[A-Z0-9_$/]{1,60}$/.test(pkg)) {
+			res.status(400).json({ error: "A valid ABAP package name is required" });
+			return;
+		}
+		const opts = await this.adtOptsFor(ctx, req, name);
+		const probe = await this.runAdtCli(ctx.userId, ["-q", "--raw", "http", "request", "GET", `/sap/bc/adt/packages/${encodeURIComponent(pkg.toLowerCase())}`], opts);
+		if (probe.exitCode !== 0) {
+			// A 404 is the expected "no such package" answer; anything else (auth, network)
+			// is reported verbatim because the user needs to see it.
+			const missing = /\b404\b/.test(probe.stderr);
+			res.status(missing ? 404 : 502).json({
+				error: missing ? `Package ${pkg} was not found on this system` : (probe.stderr || "Failed to look up the package"),
+			});
+			return;
+		}
+		const listed = await this.runAdtCli(ctx.userId, ["-q", "object", "list", "--parent-type", "DEVC/K", "--parent-name", pkg, "--json"], opts);
+		if (listed.exitCode !== 0) {
+			res.status(502).json({ error: listed.stderr || "Failed to list the package contents" });
+			return;
+		}
+		let contents: AdtListResult;
+		try {
+			contents = JSON.parse(listed.stdout) as AdtListResult;
+		} catch {
+			res.status(502).json({ error: "Invalid object list output", raw: listed.stdout });
+			return;
+		}
+		const folder = sanitizeFolderName(pkg, pkg);
+		const manifest = readManifest(connDir);
+		manifest.entries[folder] = { kind: "package", adtParentType: "DEVC/K", adtParentName: pkg, loaded: true };
+		mkdirSync(join(connDir, folder), { recursive: true });
+		const plan = planChildren(contents);
+		applyPlan(connDir, folder, plan, manifest);
+		writeManifest(connDir, manifest);
+		res.json({ ok: true, folder, count: plan.length });
 	}
 
 	// POST /workspaces/:id/sap-adt/connections/:name/tree/hydrate  body { path }
@@ -1697,15 +2133,29 @@ export class HttpServer {
 			res.json({ source: existing, cached: true });
 			return;
 		}
-		const userJwt = this.extractUserJwt(req);
-		const destinationName = this.getConnectionDestination(ctx.userId, ctx.workspaceId, name);
-		const result = await this.runAdtCli(ctx.userId, ["-q", "object", "source", entry.adtUri], { userJwt, profileName: name, destinationName, routerBase: this.resolveRouterBase(req) });
-		if (result.exitCode !== 0) {
+		const opts = await this.adtOptsFor(ctx, req, name);
+		const result = await this.runAdtCli(ctx.userId, ["-q", "object", "source", entry.adtUri], opts);
+		if (result.exitCode === 0) {
+			writeFileSync(abs, result.stdout);
+			res.json({ source: result.stdout });
+			return;
+		}
+		// Objects without a text source (DDIC elements, views, transactions, message
+		// classes, authorization objects) have no `/source/main` sub-resource, so the
+		// read above 404s. Their content is the ADT object XML itself — fetch it raw,
+		// which is what the .xml file name the tree gave them already implies. Only a
+		// genuine "not found" falls back; any other failure is reported as-is.
+		if (!/\b404\b/.test(result.stderr)) {
 			res.status(502).json({ error: result.stderr || "Failed to read source" });
 			return;
 		}
-		writeFileSync(abs, result.stdout);
-		res.json({ source: result.stdout });
+		const metadata = await this.runAdtCli(ctx.userId, ["-q", "--raw", "http", "request", "GET", entry.adtUri], opts);
+		if (metadata.exitCode !== 0) {
+			res.status(502).json({ error: result.stderr || "Failed to read source" });
+			return;
+		}
+		writeFileSync(abs, metadata.stdout);
+		res.json({ source: metadata.stdout, kind: "metadata" });
 	}
 
 	// GET /workspaces/:id/sap-adt/connections/:name/tree/manifest
@@ -2361,6 +2811,11 @@ export class HttpServer {
 			authFilePath: this.getUserAuthFilePath(userId),
 			model: resolvedModel,
 			structured,
+			//IYH1HC capability tool add
+			// The native `adt` tool reads these off the turn's context. Same two values
+			// the ticket registry below stores; kept separate so neither path depends on
+			// the other while both are running.
+			sap: { userJwt: this.extractUserJwt(req), routerBase: this.resolveRouterBase(req) },
 		});
 
 		appendFileSync(
@@ -2369,6 +2824,26 @@ export class HttpServer {
 		);
 
 		log.logInfo(`[${sessionId}] HTTP: Starting run: ${text.substring(0, 50)}`);
+
+		//IYH1HC SAP ADT add
+		// Lend this turn's ADT capability to the agent for as long as the turn runs. This
+		// is the only place that has both the request (so the user token and the router
+		// base) and the whole span of the agent run. The ticket travels through a file
+		// rather than the environment because the agent's env is captured once when its
+		// runner is built and reused for every later turn, while a token is not.
+		/* const adtTicket = randomBytes(32).toString("hex");
+		const adtBrokerFile = join(workspaceRoot, ".octo", "adt-broker.json");
+		this.adtTurns.set(adtTicket, {
+			userId,
+			workspaceId: session.workspaceId,
+			jwt: this.extractUserJwt(req),
+			routerBase: this.resolveRouterBase(req),
+		});
+		mkdirSync(dirname(adtBrokerFile), { recursive: true });
+		writeFileSync(
+			adtBrokerFile,
+			JSON.stringify({ url: `http://127.0.0.1:${this.port}/internal/adt-exec`, ticket: adtTicket }),
+		); */
 
 		try {
 			await this.handler.handleEvent(sessionId, ctx);
@@ -2379,6 +2854,11 @@ export class HttpServer {
 			log.logWarning(`[${sessionId}] HTTP run error`, msg);
 			send({ type: "error", message: msg });
 		} finally {
+			//IYH1HC SAP ADT add
+			// The capability dies with the turn: the ticket stops resolving and the file
+			// the script reads it from is gone.
+			//this.adtTurns.delete(adtTicket);
+			//rmSync(adtBrokerFile, { force: true });
 			ctx.flushAgentEvents?.();
 			res.end();
 		}
@@ -2518,13 +2998,18 @@ export class HttpServer {
 	}
 
 	private handleWorkspace(req: express.Request, channelId: string, res: express.Response): void {
-		type WorkspaceNode = { name: string; path: string; type: "file" | "directory"; children?: WorkspaceNode[] };
+		// `sapConnection` tags the folder of a SAP ADT connection. The sidecars that
+		// identify it are filtered out of the listing, so without this flag the
+		// frontend could only recognize such a folder after separately loading the
+		// workspace settings — which is why the tree rendered them as ordinary
+		// folders on a plain reload.
+		type WorkspaceNode = { name: string; path: string; type: "file" | "directory"; sapConnection?: true; children?: WorkspaceNode[] };
 
 		const makeTree = (rootPath: string, relativeBase: string): WorkspaceNode[] => {
 			if (!existsSync(rootPath)) return [];
 			const walk = (absDir: string, relDir: string): WorkspaceNode[] => {
 				const entries = readdirSync(absDir, { withFileTypes: true })
-					.filter((e: Dirent) => e.name !== ADT_TREE_FILE && e.name !== ".adt-connection.json")
+					.filter((e: Dirent) => e.name !== ADT_TREE_FILE && e.name !== ADT_CONNECTION_FILE)
 					.sort((a: Dirent, b: Dirent) => {
 						if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
 						return a.name.localeCompare(b.name);
@@ -2533,12 +3018,15 @@ export class HttpServer {
 					const relPath = relDir ? `${relDir}/${entry.name}` : entry.name;
 					const normalizedPath = relativeBase ? `${relativeBase}/${relPath}` : relPath;
 					if (entry.isDirectory()) {
-						return {
+						const abs = join(absDir, entry.name);
+						const node: WorkspaceNode = {
 							name: entry.name,
 							path: normalizedPath,
 							type: "directory" as const,
-							children: walk(join(absDir, entry.name), relPath),
+							children: walk(abs, relPath),
 						};
+						if (existsSync(join(abs, ADT_CONNECTION_FILE))) node.sapConnection = true;
+						return node;
 					}
 					return { name: entry.name, path: normalizedPath, type: "file" as const };
 				});
@@ -2568,6 +3056,9 @@ export class HttpServer {
 			artifacts: makeTree(artifactsRoot, `workspaces/${session.workspaceId}/artifacts`),
 			skills: makeTree(workspaceSkillsRoot, `workspaces/${session.workspaceId}/skills`),
 			attachments: makeTree(attachmentsRoot, `workspaces/${session.workspaceId}/sessions/${channelId}/attachments`),
+			// Rides along with the tree so the UI can label which connection bare `adt`
+			// commands resolve to, without a second round-trip on every reload.
+			sapDefaultProfile: this.readDefaultProfile(userId),
 		});
 	}
 
