@@ -16,11 +16,13 @@
 		"clean": "rm -rf dist",
 		"build": "tsgo -p tsconfig.build.json",
 		"dev": "tsgo -p tsconfig.build.json --watch --preserveWatchOutput",
-		"dev:http": "npm run build && node dist/main.js --http ../workspace",
-		"dev:http:docker": "npm run build && node dist/main.js --http --sandbox=docker:octo-sandbox ../workspace",
-		"dev:http:docker:managed": "npm run build && node dist/main.js --http --sandbox=docker ../workspace",
-		"dev:http:podman": "npm run build && node dist/main.js --http --sandbox=podman:octo-sandbox ../workspace",
-		"dev:http:podman:managed": "npm run build && node dist/main.js --http --sandbox=podman ../workspace",
+		"start:http": "node dist/main.js --http ../workspace",
+		"dev:http": "tsgo -p tsconfig.build.json && node dist/main.js --http ../workspace",
+		"dev:http:debug": "tsgo -p tsconfig.build.json && node --inspect dist/main.js --http ../workspace",
+		"dev:http:docker": "tsgo -p tsconfig.build.json && node dist/main.js --http --sandbox=docker:octo-sandbox ../workspace",
+		"dev:http:docker:managed": "tsgo -p tsconfig.build.json && node dist/main.js --http --sandbox=docker ../workspace",
+		"dev:http:podman": "tsgo -p tsconfig.build.json && node dist/main.js --http --sandbox=podman:octo-sandbox ../workspace",
+		"dev:http:podman:managed": "tsgo -p tsconfig.build.json && node dist/main.js --http --sandbox=podman ../workspace",
 		"prepublishOnly": "npm run clean && npm run build"
 	},
 	"dependencies": {

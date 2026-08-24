@@ -88,13 +88,22 @@ function execSimple(cmd: string, args: string[]): Promise<string> {
 /**
  * `searchRoots` are extra directories `glob`/`grep` cover on top of `cwd` when
  * the model does not name a path. They do not affect `bash`, `read` or `write`.
+ *
+ * `baseEnv` is added to every process this executor starts. It carries the
+ * per-user connector config directories, so a CLI the model runs itself reads
+ * the same store the REST surface writes to instead of the OS account's home.
  */
-export function createExecutor(config: SandboxConfig, cwd?: string, searchRoots: string[] = []): Executor {
+export function createExecutor(
+	config: SandboxConfig,
+	cwd?: string,
+	searchRoots: string[] = [],
+	baseEnv: Record<string, string> = {},
+): Executor {
 	if (config.type === "host") {
-		return new HostExecutor(cwd, searchRoots);
+		return new HostExecutor(cwd, searchRoots, baseEnv);
 	}
 	if (!config.container) throw new Error(`${config.type} executor requires a resolved container name`);
-	return new ContainerExecutor(config.type, config.container, cwd, searchRoots);
+	return new ContainerExecutor(config.type, config.container, cwd, searchRoots, baseEnv);
 }
 
 export interface Executor {
@@ -167,13 +176,14 @@ function hostShell(): { shell: string; shellArgs: string[]; isWin: boolean } {
 function runProcess(
 	file: string,
 	args: string[],
-	options?: ExecOptions & { cwd?: string; detached?: boolean },
+	options?: ExecOptions & { cwd?: string; detached?: boolean; env?: Record<string, string> },
 ): Promise<ExecResult> {
 	return new Promise((resolve, reject) => {
 		const child = spawn(file, args, {
 			cwd: options?.cwd,
 			detached: options?.detached ?? false,
 			stdio: ["ignore", "pipe", "pipe"],
+			env: options?.env ? { ...process.env, ...options.env } : undefined,
 		});
 
 		let stdout = "";
@@ -241,13 +251,18 @@ class HostExecutor implements Executor {
 		resolveExtraRoots: () => this.searchRoots,
 	});
 
-	constructor(private cwd?: string, private readonly searchRoots: string[] = []) {}
+	constructor(
+		private cwd?: string,
+		private readonly searchRoots: string[] = [],
+		private readonly baseEnv: Record<string, string> = {},
+	) {}
 
 	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
 		const { shell, shellArgs, isWin } = hostShell();
 		return runProcess(shell, [...shellArgs, command], {
 			...options,
 			cwd: this.cwd,
+			env: this.baseEnv,
 			// A process group on POSIX lets the whole tree be killed on timeout.
 			detached: !isWin,
 		});
@@ -273,7 +288,7 @@ class HostExecutor implements Executor {
 	spawn(command: string, args: string[] = [], options?: SpawnOptions): ChildProcessWithoutNullStreams {
 		const child = spawn(command, args, {
 			cwd: options?.cwd ?? this.cwd,
-			env: { ...process.env, ...(options?.env ?? {}) },
+			env: { ...process.env, ...this.baseEnv, ...(options?.env ?? {}) },
 			stdio: ["pipe", "pipe", "pipe"],
 		});
 		options?.signal?.addEventListener("abort", () => child.kill("SIGTERM"), { once: true });
@@ -284,7 +299,7 @@ class HostExecutor implements Executor {
 		const { shell, shellArgs, isWin } = hostShell();
 		const child = spawn(shell, [...shellArgs, command], {
 			cwd: options?.cwd ?? this.cwd,
-			env: { ...process.env, ...(options?.env ?? {}) },
+			env: { ...process.env, ...this.baseEnv, ...(options?.env ?? {}) },
 			// A process group on POSIX lets the whole tree be killed later.
 			detached: !isWin,
 			stdio: ["ignore", "pipe", "pipe"],
@@ -326,6 +341,7 @@ class ContainerExecutor implements Executor {
 		private container: string,
 		private cwd?: string,
 		private readonly searchRoots: string[] = [],
+		private readonly baseEnv: Record<string, string> = {},
 	) {}
 
 	async exec(command: string, options?: ExecOptions): Promise<ExecResult> {
@@ -336,9 +352,15 @@ class ContainerExecutor implements Executor {
 		// Composing a single string for the host shell instead would corrupt it:
 		// `shellEscape` produces POSIX quoting, and on a Windows host the string
 		// would first be parsed by PowerShell, which escapes quotes differently.
+		// `--env` goes to the runtime, not the container's shell, so the value
+		// needs no quoting here.
+		const envArgs: string[] = [];
+		for (const [key, value] of Object.entries(this.baseEnv)) {
+			envArgs.push("--env", `${key}=${value}`);
+		}
 		return runProcess(
 			runtimeCommand(this.runtime),
-			["exec", this.container, "sh", "-c", wrappedCommand],
+			["exec", ...envArgs, this.container, "sh", "-c", wrappedCommand],
 			{ ...options, detached: process.platform !== "win32" },
 		);
 	}
@@ -414,7 +436,7 @@ class ContainerExecutor implements Executor {
 		const cwd = options?.cwd ?? this.cwd;
 		const wrappedCommand = cwd ? `mkdir -p ${shellEscape(cwd)} && cd ${shellEscape(cwd)} && ${script}` : script;
 		const containerArgs = ["exec", "-i"];
-		for (const [key, value] of Object.entries(options?.env ?? {})) {
+		for (const [key, value] of Object.entries({ ...this.baseEnv, ...(options?.env ?? {}) })) {
 			containerArgs.push("--env", `${key}=${value}`);
 		}
 		containerArgs.push(this.container, "sh", "-c", wrappedCommand);

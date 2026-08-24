@@ -43,6 +43,14 @@ const templatesDir = join(coreServiceDir, "templates");
 if (existsSync(templatesDir)) {
 	cpSync(templatesDir, join(deployDir, "templates"), { recursive: true });
 }
+// The SAP system catalogue lives at the octo-v2 root in dev; sapSystems.ts also
+// probes one level above dist/, which is where this copy lands in deploy/.
+const sapSystemsFile = resolve(coreServiceDir, "..", "sap-systems.json");
+if (existsSync(sapSystemsFile)) {
+	cpSync(sapSystemsFile, join(deployDir, "sap-systems.json"));
+} else {
+	console.warn("[assemble-deploy] sap-systems.json not found — the On-Premise (SSO) picklist will be empty.");
+}
 
 // 3. Pack vendored deps into tarballs (real files on extract, survive relocation).
 //    Each pack returns exactly one .tgz; we capture it by diffing vendor/ before/after

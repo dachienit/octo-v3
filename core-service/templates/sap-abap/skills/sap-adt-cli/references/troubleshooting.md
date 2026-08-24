@@ -1,35 +1,38 @@
-# Reference: global flags, exit codes, conventions, troubleshooting
+# Reference: flags, exit codes, conventions, troubleshooting
 
-Cross-cutting reference for every `adt-cli` command.
+Cross-cutting reference for every command you run through the `adt` tool.
 
 ---
 
-## Global flags (apply to every command)
+## Global flags
+
+These may appear anywhere in `argv`.
 
 | Flag | Effect |
 |---|---|
-| `-p, --profile <name>` | Select a saved profile (or set `ADT_PROFILE`) |
-| `-v, --verbose` | Log HTTP method / URL / status on stderr |
+| `-q, --quiet` | Errors only. Worth using when you want the data and not the progress log |
+| `-v, --verbose` | Log HTTP method / URL / status |
 | `--debug` | Full headers (auth redacted) + body previews |
-| `-q, --quiet` | Errors only |
-| `--insecure` | Skip TLS verification |
-| `--raw` | Skip XML→JSON parsing; print raw body |
+| `--raw` | Skip XML→JSON parsing; return the body as-is |
 | `--json` | Force JSON output |
-| `--output <file>` | Write body to a file instead of stdout |
-| `--accept <mime>` | Override Accept header |
-| `--user-jwt <token>` | JWT to forward (destination profiles) |
-| `--iss <url>` | Subscriber issuer URL (tenant-scoped destination lookup) |
+| `--output <file>` | Write the result to a file (**absolute path**) instead of returning it |
+| `--accept <mime>` | Override the `Accept` header |
+| `--insecure` | Skip TLS verification (already set on the connection when needed) |
 
-`-V, --version` prints the CLI version and exits.
+**Not available to you** — the tool rejects them: `--user-jwt`, `--iss`, `--service-binding`, and any
+absolute URL. `-p/--profile` is not rejected but must never be used: the system is chosen by the app,
+not by you.
 
 ---
 
 ## Object-URL forms
 
-Every `<objectUrl>` accepts any of:
-- Relative: `programs/programs/zhello`, `oo/classes/zcl_demo`
-- Absolute path: `/sap/bc/adt/programs/programs/zhello`
-- Full URL: `https://abap:44300/sap/bc/adt/oo/classes/zcl_demo`
+`<objectUrl>` accepts:
+
+- relative: `programs/programs/zhello`, `oo/classes/zcl_demo`
+- absolute path: `/sap/bc/adt/programs/programs/zhello`
+
+A full URL (`https://…`) is rejected.
 
 ---
 
@@ -38,50 +41,47 @@ Every `<objectUrl>` accepts any of:
 | Code | Meaning |
 |---|---|
 | `0` | Success |
-| `1` | Generic failure (HTTP non-2xx, parse error, missing profile, `activate` success=false, ATC/lint **errors** found, `context build` package error) |
-| `2` | Auth/verify failure (`auth login test`, `auth destinations test`), ATC/lint **warnings only**, `context inspect` over token budget |
-| `130` | Ctrl-C during a hidden password prompt |
+| `1` | Failure (HTTP non-2xx, parse error, `activate` reported `success=false`) **or** ATC/lint found **errors** |
+| `2` | Auth / network failure, **or** ATC/lint found **warnings only** |
 
-For `adt atc check` and `adt lint *`: `1` = errors, `2` = warnings only — use this to gate CI.
-
----
-
-## stderr vs stdout
-
-- **stderr** = logs/status (step announcements, HTTP traces) — safe to ignore when scripting.
-- **stdout** = data (the actual result) — safe to pipe into `jq`, `>`, etc.
-
-```bash
-adt object source programs/programs/zhello > zhello.abap     # only data is captured
-adt atc check oo/classes/zcl_foo --json | jq '.summary'
-```
+`1` is ambiguous by design: for `atc check` and `lint *` it means "there are findings", everywhere
+else it means "the command failed". Read the output before deciding which.
 
 ---
 
-## Conventions (this project)
+## Errors specific to this setup
 
-- Profile `dev` is assumed pre-configured; default working package `ZADT_LOCAL`.
-- All identifiers, comments, and string literals in generated code/examples are in **English**.
-- ABAP refactoring/generation should follow **CleanABAP** standards (verify with `adt atc check` / `adt lint`).
+| Message | What it means | What to do |
+|---|---|---|
+| `Argument not allowed: --user-jwt` (or `--iss`, `--service-binding`, an `https://…` argument) | The tool refused the command before it ran | Rebuild it without that argument. For the URL: use a relative object URL — the absolute form would send the user's token to that host |
+| A file written with `--output` is not where you expected | The path was relative, and the tool's working directory is not the connection folder | Re-run with an absolute path |
+| `No chat turn is in flight…` | The command was attempted outside a user turn (a background or scheduled run) | Not a SAP fault. ADT work only happens inside a conversation |
+| `The ADT capability is not wired up in this process.` | Infrastructure problem, not yours | Report it and stop |
+| Auth or connection failure on any command | The connection is broken or expired | Report it and stop. Do **not** try to log in or switch systems — the user fixes this in the UI |
+| `Profile … not found` / no profile | No system is connected in this workspace | Ask the user to connect one in the UI |
 
 ---
 
-## Troubleshooting
+## Other symptoms
 
 | Symptom | Fix |
 |---|---|
-| Any command fails to connect | Run `adt auth login test --name dev` first (exit 0 = ok, 2 = auth/network failure). If it fails, STOP and report. |
-| HTTP 403 on a write | CSRF expired; the CLI auto-retries once. Inspect with `-v` or `--debug`. |
-| HTTP 401 on a stateful flow (lock/set-source) | Session terminated; re-run (each process starts a fresh cookie jar). |
-| TLS / certificate errors | Add `--insecure`. |
-| Validation errors on create | Re-run with `--debug` to see the full validation response. |
-| `adt object pull` stalls on a function group | Namespace filter caught SE54 includes; confirm `--namespace-prefixes` (default `Z,Y,/RB`). Use `--print-config` to inspect. |
-| A needed endpoint has no `adt` command | **Escalate to a human.** Do NOT craft raw `adt http request` calls to undocumented paths. |
+| A file in the mirror is empty | Expected — it has not been hydrated yet. Follow workflows.md §A |
+| `object source` returns 404 for a file that exists in the tree | The object has no text source; fetch its XML by URI instead (workflows.md §A step 4) |
+| HTTP 403 on a write | CSRF token expired; the CLI retries once by itself. If it persists, re-run with `-v` |
+| HTTP 401 during lock / set-source | The stateful session was dropped. Re-run the command — each call starts a fresh session |
+| `Validation failed: ERROR Object name not allowed` | The name is outside the customer namespace (`Z`/`Y`) or too long — see the max lengths in objects.md |
+| `HTTP 423 Locked` | Someone, or a failed earlier run, holds the lock. Report it; do not force it |
+| `object pull` stalls on a function group | The namespace filter let SE54-generated includes through. Check `--print-config` and `--namespace-prefixes` |
+| A needed endpoint has no `adt` command | **Escalate to a human.** Do not craft raw `http request` calls beyond the two allowed uses |
 
 ---
 
-## Safety rules (mirrored from SKILL.md — always in force)
+## Conventions
 
-1. **STOP AND ASK a human** before `adt object delete`, overwriting source you did not just read, or any write to a package other than `ZADT_LOCAL`.
-2. **NEVER fabricate ADT endpoints** — escalate instead of guessing raw HTTP paths.
-3. **NEVER print or log credentials/tokens.**
+- The system is chosen by the app; the user manages connections in the UI.
+- Read from `artifacts/<SAP system>/`, write to `artifacts/<SAP system>/artifacts/`.
+- Paths passed in `argv` are always absolute.
+- Writes outside `$TMP` always carry the package's transport request (workflows.md §E).
+- All identifiers, comments, and string literals in generated code are in **English**.
+- ABAP follows **CleanABAP**; verify with `atc check` or `lint`.

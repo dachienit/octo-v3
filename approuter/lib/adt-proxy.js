@@ -16,6 +16,8 @@
 // changes are the dynamic `:dest` segment and stripping the mount prefix. Header
 // casing, the raw request body and the response byte array are preserved so the
 // finicky ADT protocol (CSRF tokens, cookies, binary source) survives intact.
+// "Preserved" here has to hold for Content-Types that are not valid media types
+// either - see the body parser below; ADT sends one of those on every create.
 
 const express = require("express");
 const { executeHttpRequest } = require("@sap-cloud-sdk/http-client");
@@ -24,7 +26,16 @@ const { getDestination } = require("@sap-cloud-sdk/connectivity");
 const app = express();
 
 // Capture the whole body as a raw buffer so ADT payloads are never corrupted.
-app.use(express.raw({ type: "*/*", limit: "50mb" }));
+//
+// The `type` option MUST stay a predicate. A string pattern (even `"*/*"`) routes
+// the decision through type-is -> media-typer, and media-typer throws on
+// `application/*` - the exact Content-Type every ADT create endpoint requires
+// (adt-cli mirrors abap-adt-api here, and SAP itself accepts it). A rejected type
+// makes body-parser skip the stream and leave `req.body = {}`, which axios then
+// serialises to the two bytes `{}`; SAP's sXML reads that as JSON and answers
+// "System expected the element ...abapProgram, XML_PATH object(1)". The predicate
+// bypasses type-is entirely, so every byte survives whatever the client declared.
+app.use(express.raw({ type: () => true, limit: "50mb" }));
 
 app.all("/:dest/sap/bc/adt/*", async (req, res) => {
   try {
@@ -64,14 +75,32 @@ app.all("/:dest/sap/bc/adt/*", async (req, res) => {
 
     // 4. Tunnel to the on-prem system via the connectivity proxy. Keep the byte
     //    array intact (binary source) and do not let the SDK fetch a CSRF token.
+    //    Only ever forward a real Buffer: anything else (notably body-parser's
+    //    `{}` placeholder) would be JSON-stringified by axios and reach SAP as a
+    //    two-byte body instead of the XML. An empty buffer is no body at all -
+    //    a bodyless POST (lock/unlock) must not grow a payload here.
+    const contentType = cleanedHeaders["Content-Type"] || cleanedHeaders["content-type"] || "none";
     const isBodyless = req.method === "GET" || req.method === "HEAD";
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!isBodyless && rawBody === null) {
+      // Unreachable while the parser above uses a predicate; logged so that a
+      // silent regression back to a string `type` cannot hide again.
+      console.error(
+        `[adt-proxy] ${req.method} ${target}: raw body missing (content-type: ${contentType}) - ` +
+          "body parser skipped this request, payload would be lost",
+      );
+    }
+    const hasBody = !isBodyless && rawBody !== null && rawBody.length > 0;
+    console.log(
+      `[adt-proxy] ${req.method} ${target} body=${hasBody ? rawBody.length : 0}B ct=${contentType}`,
+    );
     const response = await executeHttpRequest(
       destination,
       {
         method: req.method,
         url: target,
         headers: cleanedHeaders,
-        data: isBodyless ? undefined : req.body,
+        data: hasBody ? rawBody : undefined,
         responseType: "arraybuffer",
       },
       { fetchCsrfToken: false },

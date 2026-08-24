@@ -2,7 +2,7 @@ import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, DEFAULT_A
 import { setTranslations } from "@mariozechner/mini-lit";
 import { html, render } from "lit";
 import { icon } from "@mariozechner/mini-lit";
-import { AtSign, Box, Brackets, ChevronDown, ChevronRight, Database, Download, Eye, File, FileArchive, FileAudio, FileCode, FileCog, FileImage, FileJson, FilePlay, FileSpreadsheet, FileTerminal, FileText, Folder, FolderCog, FolderOpen, KeyRound, LoaderCircle, LogOut, MessageSquare, Plug, Plus, Presentation, ShieldCheck, SquareTerminal, Table2, Tag, Tags, Trash2 } from "lucide";
+import { AtSign, Box, Brackets, ChevronDown, ChevronRight, Database, Download, Eye, File, FileArchive, FileAudio, FileCode, FileCog, FileImage, FileJson, FilePlay, FileSpreadsheet, FileTerminal, FileText, Folder, FolderCog, FolderOpen, KeyRound, LoaderCircle, LogOut, MessageSquare, Plug, Plus, Presentation, RefreshCw, ShieldCheck, SquareTerminal, Table2, Tag, Tags, Trash2 } from "lucide";
 import "./app.css";
 
 applyAppTheme();
@@ -46,7 +46,7 @@ let codexLoginUrl = "";
 let codexLoginCode = "";
 let codexAuthError = "";
 let codexAuthBusy = false;
-let serviceFeatures: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, tools: true, llmProviders: null, appTitle: DEFAULT_APP_TITLE, appHeader: DEFAULT_APP_TITLE };
+let serviceFeatures: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, tools: true, llmProviders: null, appTitle: DEFAULT_APP_TITLE, appHeader: DEFAULT_APP_TITLE, sapConnect: "local" };
 let llmConfig: LlmConfig = { providers: [] };
 let llmConfigLoading = false;
 let providerKeyInput = "";
@@ -103,14 +103,25 @@ let sapNewDestination = "";
 let sapNewAlias = "";
 let sapBusy = "";
 let sapError = "";
-let sapConnMode: "destination" | "local" = "local";
+//IYH1HC SSO add
+// Which SAP connect surface this deployment offers — derived from the service,
+// never a user toggle. On-Premise (SSO) authenticates with the Kerberos ticket of
+// the user's Windows logon, which only exists on their own machine; BTP
+// destinations need the destination + connectivity services, which only exist on
+// Cloud Foundry. Showing both would mean showing one that cannot work.
+function sapConnectMode(): "destination" | "local" {
+	return serviceFeatures.sapConnect === "btp" ? "destination" : "local";
+}
 let sapLocalSystems: SapLocalSystem[] = [];
 let sapLocalSystemsLoaded = false;
-let sapLocalSelected = ""; // `${systemId}|${client}` key
-let sapLocalUrl = "";
-let sapLocalSpn = "";
-let sapLocalClient = "";
-let sapLocalLanguage = "";
+let sapLocalSelected = ""; // system id (`name` in the catalogue), "" when none picked
+//IYH1HC SSO add — the SSO form only asks for system + client + alias; the ADT URL
+// and Kerberos SPN come from the catalogue entry, resolved server-side on connect.
+const SAP_DEFAULT_CLIENT = "011";
+let sapLocalClient = SAP_DEFAULT_CLIENT;
+//IYH1HC SSO add — inline "add ABAP package" form on a connection root in the tree
+let sapAddPackageFor = ""; // connection name whose form is open, "" when closed
+let sapAddPackageName = "";
 const sapTreeManifests = new Map<string, Record<string, SapTreeManifestEntry>>();
 
 const connectorLoginModes = new Map<string, string>();
@@ -379,6 +390,7 @@ async function loadSessions() {
 async function loadWorkspace() {
 	if (!channelId) return;
 	workspaceTree = (await client.getWorkspace(channelId!)) ?? { artifacts: [], skills: [] };
+	sapDefaultProfile = workspaceTree.sapDefaultProfile ?? "";
 	await loadSapManifests();
 	await refreshAcpJobs(false);
 	renderApp();
@@ -947,14 +959,49 @@ async function disconnectBusinessConnector(connectorId: string) {
 	}
 }
 
+// Which artifacts folders are SAP connections, straight from the tree's own tag.
+// Deliberately NOT read from workspaceSettings: those are only fetched when the
+// settings dialog opens, so on a plain reload the list would be empty and every
+// connection folder would render as an ordinary folder.
+function sapConnectionNames(): string[] {
+	return (workspaceTree.artifacts ?? []).filter((n) => n.type === "directory" && n.sapConnection).map((n) => n.name);
+}
+
+// Connection folder a workspace path belongs to, or "" when it is outside one.
+// Derived from the tree's `sapConnection` tag, so it works before the manifests load.
+function sapConnOfPath(path: string): string {
+	const marker = "/artifacts/";
+	const idx = path.indexOf(marker);
+	if (idx < 0) return "";
+	const conn = path.slice(idx + marker.length).split("/")[0] ?? "";
+	return conn && sapConnectionNames().includes(conn) ? conn : "";
+}
+
+//IYH1HC SSO add — the adt-cli profile that bare `adt` commands resolve to. Always the
+// value the server read out of config.json, never a local guess: it doubles as the
+// "already active" check below, so a stale guess would silently skip the switch.
+let sapDefaultProfile = "";
+
+// Tell the backend which connection the user is working in, so the default profile
+// follows them (the agent's `adt` commands carry no --name and fall back to it).
+async function activateSapConnectionForPath(path: string) {
+	const conn = sapConnOfPath(path);
+	if (!workspaceId || !conn || conn === sapDefaultProfile) return;
+	const { ok, defaultProfile } = await client.activateSapConnection(workspaceId, conn);
+	if (!ok) return;
+	sapDefaultProfile = defaultProfile ?? conn;
+	renderApp();
+}
+
 async function loadSapManifests() {
 	if (!workspaceId) return;
-	const conns = workspaceSettings.sapConnections ?? [];
-	await Promise.all(
-		conns.map(async (c) => {
-			sapTreeManifests.set(c.name, await client.getSapTreeManifest(workspaceId!, c.name));
-		}),
+	const names = sapConnectionNames();
+	const loaded = await Promise.all(
+		names.map(async (name) => [name, await client.getSapTreeManifest(workspaceId!, name)] as const),
 	);
+	// Rebuild rather than merge, so a disconnected connection leaves no stale entry.
+	sapTreeManifests.clear();
+	for (const [name, manifest] of loaded) sapTreeManifests.set(name, manifest);
 }
 
 function sapTreeLookup(path: string): { conn: string; relKey: string; info: SapTreeManifestEntry } | null {
@@ -1019,48 +1066,132 @@ async function loadLocalSystems() {
 	try {
 		sapLocalSystems = await client.listLocalSapSystems(workspaceId);
 		sapLocalSystemsLoaded = true;
-		if (!sapLocalSelected && sapLocalSystems.length > 0) selectLocalSystem(sapLocalSystems[0]!);
+		// No auto-selection: the catalogue is the whole corporate landscape, so the
+		// first entry would be an arbitrary system. The user types to filter instead.
 	} finally {
 		sapBusy = "";
 		renderApp();
 	}
 }
 
+// Label shown in the picklist and matched by its type-ahead: "S1R — description".
+function localSystemLabel(sys: SapLocalSystem): string {
+	return sys.description ? `${sys.name} — ${sys.description}` : sys.name;
+}
+
+function findLocalSystemByLabel(label: string): SapLocalSystem | undefined {
+	const wanted = label.trim();
+	if (!wanted) return undefined;
+	// Trim BOTH sides: the combobox hands back a trimmed value, so comparing it
+	// against an untrimmed label silently fails to match. The catalogue is
+	// normalized server-side now; this keeps the match honest if it ever is not.
+	return (
+		sapLocalSystems.find((s) => localSystemLabel(s).trim() === wanted) ??
+		sapLocalSystems.find((s) => s.name.toUpperCase() === wanted.toUpperCase())
+	);
+}
+
 function selectLocalSystem(sys: SapLocalSystem) {
-	sapLocalSelected = `${sys.systemId}|${sys.client ?? ""}`;
-	sapLocalUrl = sys.adtUrl;
-	sapLocalSpn = sys.spn;
-	sapLocalClient = sys.client ?? "";
-	sapLocalLanguage = sapLocalLanguage || "EN";
-	if (!sapNewAlias) sapNewAlias = sys.client ? `${sys.systemId}_${sys.client}` : sys.systemId;
+	sapLocalSelected = sys.name;
+	// The connection name defaults to the system id and follows a change of system;
+	// anything the user typed into the Name field is replaced on the next pick.
+	sapNewAlias = sys.name;
+}
+
+// A value that resolves to no system must DROP the current pick, never keep it.
+// Keeping it meant the System box could show one system while `sapLocalSelected`
+// still armed a previously picked one — Connect then silently built a profile for
+// the wrong system under the label the user was reading.
+function clearLocalSystemSelection(typed: string) {
+	sapLocalSelected = "";
+	sapNewAlias = "";
+	sapError = typed.trim() ? `Unknown system "${typed.trim()}"` : "";
 }
 
 async function createLocalConnection() {
-	const url = sapLocalUrl.trim();
-	const spn = sapLocalSpn.trim();
-	if (!workspaceId || !url || !spn) return;
-	const selected = sapLocalSystems.find((s) => `${s.systemId}|${s.client ?? ""}` === sapLocalSelected);
-	const alias = (sapNewAlias || selected?.systemId || url).trim();
+	const systemId = sapLocalSelected.trim();
+	if (!workspaceId || !systemId) return;
+	const alias = (sapNewAlias || systemId).trim();
 	sapBusy = "create";
 	sapError = "";
 	renderApp();
 	try {
 		const { connection, error } = await client.createLocalSapConnection(workspaceId, {
-			url,
-			spn,
-			systemId: selected?.systemId,
+			systemId,
 			name: alias,
-			client: sapLocalClient.trim() || undefined,
-			language: sapLocalLanguage.trim() || undefined,
+			client: sapLocalClient.trim() || SAP_DEFAULT_CLIENT,
 		});
 		if (error) sapError = error;
 		if (connection) {
-			sapNewAlias = "";
+			// Stay in the dialog: the new connection shows up as a row with
+			// Refresh / Disconnect right below the form. loadWorkspace() brings back the
+			// fresh defaultProfile the connect just set.
 			workspaceSettings = await client.getWorkspaceSettings(workspaceId);
 			workspaceOpen = true;
 			await loadWorkspace();
-			closeWorkspaceSettingsDialog();
 		}
+	} finally {
+		sapBusy = "";
+		renderApp();
+	}
+}
+
+//IYH1HC SSO add — re-ping a saved connection and refresh its adt-cli profile.
+async function refreshSapConnection(name: string) {
+	if (!workspaceId) return;
+	sapBusy = `refresh:${name}`;
+	sapError = "";
+	renderApp();
+	try {
+		const { ok, error, defaultProfile } = await client.refreshSapConnection(workspaceId, name);
+		if (!ok) sapError = error ?? `Could not refresh ${name}`;
+		if (defaultProfile !== undefined) sapDefaultProfile = defaultProfile;
+		workspaceSettings = await client.getWorkspaceSettings(workspaceId);
+	} finally {
+		sapBusy = "";
+		renderApp();
+	}
+}
+
+//IYH1HC SSO add — drop the connection from the workspace and delete its profile.
+async function disconnectSapConnection(name: string) {
+	if (!workspaceId) return;
+	sapBusy = `disconnect:${name}`;
+	sapError = "";
+	renderApp();
+	try {
+		const { ok, defaultProfile } = await client.deleteSapConnection(workspaceId, name);
+		if (!ok) sapError = `Could not disconnect ${name}`;
+		// adt-cli clears defaultProfile when the deleted profile was the default, so this
+		// lands on "" and the next connection the user touches is free to claim it.
+		if (defaultProfile !== undefined) sapDefaultProfile = defaultProfile;
+		workspaceSettings = await client.getWorkspaceSettings(workspaceId);
+		sapTreeManifests.delete(name);
+		await loadWorkspace();
+	} finally {
+		sapBusy = "";
+		renderApp();
+	}
+}
+
+//IYH1HC SSO add — add an ABAP package as another root of a connection's object tree.
+// The $TMP root created on connect only holds the developer's local objects and is
+// empty on most systems, so this is how real code gets into the tree.
+async function addSapPackage(conn: string) {
+	const pkg = sapAddPackageName.trim();
+	if (!workspaceId || !pkg) return;
+	sapBusy = `package:${conn}`;
+	sapError = "";
+	renderApp();
+	try {
+		const { ok, error } = await client.addSapPackage(workspaceId, conn, pkg);
+		if (!ok) {
+			sapError = error ?? `Could not add package ${pkg}`;
+			return;
+		}
+		sapAddPackageName = "";
+		sapAddPackageFor = "";
+		await loadWorkspace(); // refetch tree + manifests so the new root shows up
 	} finally {
 		sapBusy = "";
 		renderApp();
@@ -1522,6 +1653,7 @@ async function toggleFolder(path: string) {
 		renderApp();
 		return;
 	}
+	void activateSapConnectionForPath(path);
 	const sap = sapTreeLookup(path);
 	if (sap && sap.info.lazy && !sap.info.loaded) {
 		sapBusy = `expand:${path}`;
@@ -1549,6 +1681,7 @@ function mentionWorkspaceEntry(path: string, isFolder: boolean) {
 }
 
 async function openWorkspaceFile(path: string) {
+	void activateSapConnectionForPath(path);
 	const sap = sapTreeLookup(path);
 	if (sap && sap.info.hasUri) {
 		sapBusy = `hydrate:${path}`;
@@ -1614,17 +1747,29 @@ function renderDatabaseFile(node: WorkspaceNode, depth: number) {
 	</div>`;
 }
 
+//IYH1HC SSO add — the SAP tree actions (expand / hydrate / add package) live in this
+// panel, so their failures have to be reported here; the settings dialog that also
+// renders sapError is usually closed by then.
+function renderSapTreeError() {
+	if (!sapError) return "";
+	return html`
+		<div class="mx-2 mb-1 flex items-start gap-2 rounded border border-destructive/40 bg-destructive/5 px-2 py-1 text-[11px] text-destructive">
+			<span class="min-w-0 flex-1 whitespace-pre-wrap break-words">${sapError}</span>
+			<button class="shrink-0 text-muted-foreground hover:text-foreground" title="Dismiss" @click=${() => { sapError = ""; renderApp(); }}>×</button>
+		</div>`;
+}
+
 function renderArtifacts() {
 	const hasFiles = workspaceTree.artifacts.length > 0;
 	if (!hasFiles) {
-		return html`<div class="text-xs text-muted-foreground px-2 py-1">No artifacts</div>`;
+		return html`${renderSapTreeError()}<div class="text-xs text-muted-foreground px-2 py-1">No artifacts</div>`;
 	}
 	const q = artifactFilter.trim().toLowerCase();
 	const nodes = q ? filterTree(workspaceTree.artifacts, q) : workspaceTree.artifacts;
 	if (nodes.length === 0) {
-		return html`<div class="text-xs text-muted-foreground px-2 py-1">No matching artifacts</div>`;
+		return html`${renderSapTreeError()}<div class="text-xs text-muted-foreground px-2 py-1">No matching artifacts</div>`;
 	}
-	return html`${renderTree(nodes, 0, true, q.length > 0)}`;
+	return html`${renderSapTreeError()}${renderTree(nodes, 0, true, q.length > 0)}`;
 }
 
 function renderAcpWorkersPanel() {
@@ -1951,49 +2096,49 @@ function renderSapAdtPanel() {
 		<details class="mt-3 rounded border border-border/70 bg-muted/20 px-3 py-2" open>
 			<summary class="cursor-pointer text-xs font-medium text-muted-foreground">SAP ADT connections</summary>
 			<div class="mt-3 flex flex-col gap-3">
-				<!--IYH1HC SSO add — mode toggle -->
-				<div class="flex gap-1">
-					<ui5-button
-						class="corp-ui5-button"
-						design=${sapConnMode === "local" ? "Emphasized" : "Transparent"}
-						@click=${() => { sapConnMode = "local"; sapError = ""; if (!sapLocalSystemsLoaded) void loadLocalSystems(); else renderApp(); }}
-					>On-Premise (SSO)</ui5-button>
-					<ui5-button
-						class="corp-ui5-button"
-						design=${sapConnMode === "destination" ? "Emphasized" : "Transparent"}
-						@click=${() => { sapConnMode = "destination"; sapError = ""; if (!sapDestinationsLoaded) void loadSapDestinations(); else renderApp(); }}
-					>BTP destination</ui5-button>
+				<!--IYH1HC SSO add — the surface this deployment supports, not a choice. -->
+				<div class="text-[11px] text-muted-foreground">
+					${sapConnectMode() === "local" ? "On-Premise (SSO)" : "BTP destination"}
 				</div>
 
-				${sapConnMode === "local"
+				${sapConnectMode() === "local"
 					? html`
-						<!--IYH1HC SSO add — local on-prem (Kerberos/SPNEGO) connect form -->
+						<!--IYH1HC SSO add — local on-prem (Kerberos/SPNEGO) connect form.
+						     System picker + client + alias on one row; URL and SPN are derived
+						     from the picked catalogue entry server-side. -->
 						<div class="flex flex-col gap-2 rounded border border-border/60 bg-background p-2">
 							<div class="text-xs font-medium">Add on-premise connection (SSO)</div>
-							<ui5-select
-								class="corp-ui5-select"
-								@change=${(e: Event) => { const v = getUi5SelectValue(e, sapLocalSelected); const sys = sapLocalSystems.find((s) => `${s.systemId}|${s.client ?? ""}` === v); if (sys) selectLocalSystem(sys); renderApp(); }}
-							>
-								${sapLocalSystems.length === 0
-									? html`<ui5-option value="">${sapLocalSystemsLoaded ? "No systems found" : "Load systems..."}</ui5-option>`
-									: sapLocalSystems.map((s) => { const key = `${s.systemId}|${s.client ?? ""}`; return html`
-										<ui5-option value=${key} ?selected=${sapLocalSelected === key}>
-											${s.systemId}${s.client ? ` (${s.client})` : ""}${s.description ? ` — ${s.description}` : ""}
-										</ui5-option>
-									`; })}
-							</ui5-select>
-							<div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-								<ui5-input class="corp-ui5-input" placeholder="ADT URL (https://host)" .value=${sapLocalUrl} @input=${(e: Event) => { sapLocalUrl = (e.target as HTMLInputElement & { value: string }).value; }}></ui5-input>
-								<ui5-input class="corp-ui5-input" placeholder="SPN (e.g. SAP/S1RSNCAD)" .value=${sapLocalSpn} @input=${(e: Event) => { sapLocalSpn = (e.target as HTMLInputElement & { value: string }).value; }}></ui5-input>
-								<ui5-input class="corp-ui5-input" placeholder="Client (e.g. 011)" .value=${sapLocalClient} @input=${(e: Event) => { sapLocalClient = (e.target as HTMLInputElement & { value: string }).value; }}></ui5-input>
-								<ui5-input class="corp-ui5-input" placeholder="Language (e.g. EN)" .value=${sapLocalLanguage} @input=${(e: Event) => { sapLocalLanguage = (e.target as HTMLInputElement & { value: string }).value; }}></ui5-input>
-								<ui5-input class="corp-ui5-input" placeholder="Alias (e.g. S1R_011)" .value=${sapNewAlias} @input=${(e: Event) => { sapNewAlias = (e.target as HTMLInputElement & { value: string }).value; }}></ui5-input>
-							</div>
-							<div class="flex items-center gap-2">
-								<ui5-button class="corp-ui5-button" ?disabled=${sapBusy !== ""} @click=${() => void loadLocalSystems()}>
-									${sapBusy === "local-systems" ? "Loading..." : "Refresh systems"}
-								</ui5-button>
-								<ui5-button class="corp-ui5-button" design="Emphasized" ?disabled=${sapBusy !== "" || !sapLocalUrl || !sapLocalSpn} @click=${() => void createLocalConnection()}>
+							<div class="flex flex-wrap items-end gap-2">
+								<div class="flex min-w-[16rem] flex-1 flex-col gap-1">
+									<span class="text-[11px] text-muted-foreground">System</span>
+									<ui5-combobox
+										class="corp-ui5-input w-full"
+										placeholder=${sapLocalSystemsLoaded ? "Type a system id, e.g. S1R" : "Loading systems..."}
+										.value=${(() => { const sys = sapLocalSystems.find((s) => s.name === sapLocalSelected); return sys ? localSystemLabel(sys) : sapLocalSelected; })()}
+										@change=${(e: Event) => {
+											const typed = (e.target as HTMLElement & { value?: string }).value ?? "";
+											const sys = findLocalSystemByLabel(typed);
+											if (sys) {
+												sapError = "";
+												selectLocalSystem(sys);
+											} else {
+												clearLocalSystemSelection(typed);
+											}
+											renderApp();
+										}}
+									>
+										${sapLocalSystems.map((s) => html`<ui5-cb-item text=${localSystemLabel(s)}></ui5-cb-item>`)}
+									</ui5-combobox>
+								</div>
+								<div class="flex w-24 flex-col gap-1">
+									<span class="text-[11px] text-muted-foreground">Client</span>
+									<ui5-input class="corp-ui5-input" placeholder=${SAP_DEFAULT_CLIENT} .value=${sapLocalClient} @input=${(e: Event) => { sapLocalClient = (e.target as HTMLInputElement & { value: string }).value; }}></ui5-input>
+								</div>
+								<div class="flex w-40 flex-col gap-1">
+									<span class="text-[11px] text-muted-foreground">Name</span>
+									<ui5-input class="corp-ui5-input" placeholder="e.g. S1R" .value=${sapNewAlias} @input=${(e: Event) => { sapNewAlias = (e.target as HTMLInputElement & { value: string }).value; }}></ui5-input>
+								</div>
+								<ui5-button class="corp-ui5-button" design="Emphasized" ?disabled=${sapBusy !== "" || !sapLocalSelected} @click=${() => void createLocalConnection()}>
 									${sapBusy === "create" ? "Connecting..." : "Connect (SSO)"}
 								</ui5-button>
 							</div>
@@ -2037,10 +2182,41 @@ function renderSapAdtPanel() {
 
 				${sapError ? html`<div class="rounded border border-destructive/40 bg-destructive/5 px-2 py-1 text-[11px] text-destructive">${sapError}</div>` : ""}
 
-				<!--IYH1HC add: On a successful connect this popup auto-closes and the connection's
-				     object tree appears in the Artifacts panel. No connection list / Test / Remove here. -->
+				${renderSapConnectionRows()}
 			</div>
 		</details>
+	`;
+}
+
+//IYH1HC SSO add — one row per established connection. A row appears only after a
+// successful discovery ping, so its presence is the proof the system answered.
+function renderSapConnectionRows() {
+	const connections = workspaceSettings.sapConnections ?? [];
+	if (connections.length === 0) return "";
+	return html`
+		<div class="flex flex-col gap-1">
+			<div class="text-xs font-medium">Connected systems</div>
+			${connections.map((conn) => {
+				const target = conn.authType === "sso" ? (conn.systemId ?? conn.url ?? "") : (conn.destinationName ?? "");
+				return html`
+					<div class="flex flex-wrap items-center gap-2 rounded border border-border/60 bg-background px-2 py-1.5">
+						<span class="text-xs font-medium">${conn.name}</span>
+						${renderSapConnBadge(conn.name)}
+						<span class="text-[11px] text-muted-foreground">
+							${target}${conn.client ? ` · client ${conn.client}` : ""}${conn.authType === "sso" ? " · SSO" : " · destination"}
+						</span>
+						${conn.status === "error" ? html`<span class="text-[11px] text-destructive">unreachable</span>` : ""}
+						<span class="flex-1"></span>
+						<ui5-button class="corp-ui5-button" ?disabled=${sapBusy !== ""} @click=${() => void refreshSapConnection(conn.name)}>
+							${sapBusy === `refresh:${conn.name}` ? "Refreshing..." : "Refresh"}
+						</ui5-button>
+						<ui5-button class="corp-ui5-button" design="Transparent" ?disabled=${sapBusy !== ""} @click=${() => void disconnectSapConnection(conn.name)}>
+							${sapBusy === `disconnect:${conn.name}` ? "Removing..." : "Disconnect"}
+						</ui5-button>
+					</div>
+				`;
+			})}
+		</div>
 	`;
 }
 
@@ -2088,13 +2264,6 @@ function fileIconFor(name: string): typeof File {
 	return FILE_EXT_ICON[ext] ?? File;
 }
 
-function isSapObjectTreeFolder(path: string): boolean {
-	for (const conn of sapTreeManifests.keys()) {
-		if (path.includes(`/artifacts/${conn}/Local Object ($TMP)`)) return true;
-	}
-	return false;
-}
-
 function countSapObjects(node: WorkspaceNode): number {
 	if (node.type !== "directory") return 1;
 	return (node.children ?? []).reduce((sum, c) => sum + countSapObjects(c), 0);
@@ -2139,12 +2308,55 @@ function filterTree(nodes: WorkspaceNode[], q: string): WorkspaceNode[] {
 	return out;
 }
 
-function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false, forceOpen = false) {
+//IYH1HC SSO add — marks a folder as a SAP connection, and calls out the one that is
+// currently the adt-cli default profile: that is the system the agent's bare `adt`
+// commands hit, so the user needs to see which one it is at a glance.
+function renderSapConnBadge(conn: string) {
+	const isDefault = conn !== "" && conn === sapDefaultProfile;
+	return html`
+		<span
+			class="shrink-0 rounded px-1 text-[10px] uppercase tracking-wide ${isDefault ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}"
+			title=${isDefault
+				? `SAP ADT connection — active profile. Agent commands without an explicit profile run against ${conn}.`
+				: "SAP ADT connection. Click anything inside it to make it the active profile."}
+		>${isDefault ? "SAP · active" : "SAP"}</span>`;
+}
+
+// Inline form under a SAP connection root for adding an ABAP package to the tree.
+function renderSapAddPackageRow(conn: string, depth: number) {
+	const busy = sapBusy === `package:${conn}`;
+	return html`
+		<div class="flex items-center gap-1 px-2 py-1 text-xs" style="padding-left: ${depth * 12 + 2}px">
+			<input
+				class="min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+				placeholder="ABAP package (e.g. ZACS_3PP_CORE)"
+				.value=${sapAddPackageName}
+				?disabled=${busy}
+				@input=${(e: Event) => { sapAddPackageName = (e.target as HTMLInputElement).value; }}
+				@keydown=${(e: KeyboardEvent) => { if (e.key === "Enter") void addSapPackage(conn); if (e.key === "Escape") { sapAddPackageFor = ""; renderApp(); } }}
+			/>
+			<button class="shrink-0 rounded px-1.5 py-0.5 text-[11px] hover:bg-secondary disabled:opacity-50" ?disabled=${busy || !sapAddPackageName.trim()} @click=${() => void addSapPackage(conn)}>
+				${busy ? "Adding..." : "Add"}
+			</button>
+			<button class="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-secondary" ?disabled=${busy} @click=${() => { sapAddPackageFor = ""; renderApp(); }}>Cancel</button>
+		</div>`;
+}
+
+// `sapConn` carries the enclosing SAP connection down the recursion. It comes from
+// the tree's own `sapConnection` tag rather than from the loaded manifests, so the
+// connection root keeps its Add-package / Refresh actions even before (or without)
+// the manifests being fetched.
+function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false, forceOpen = false, sapConn = "") {
 	return nodes.map((node) => {
 		if (node.type === "directory") {
 			const open = forceOpen || expandedFolders.has(node.path);
-			const isSapFolder = isSapObjectTreeFolder(node.path);
+			const connRoot = node.sapConnection ? node.name : "";
+			// Any folder BELOW a connection root is a projection of the SAP system:
+			// an added package or a Category/Subgroup grouping folder. Those show an
+			// object count and must not offer the generic file actions.
+			const isSapFolder = sapConn !== "";
 			const expanding = sapBusy === `expand:${node.path}`;
+			const refreshing = sapBusy === `refresh:${connRoot}`;
 			const count = isSapFolder ? countSapObjects(node) : -1;
 			return html`<div>
 				<div class="group w-full px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px">
@@ -2152,11 +2364,18 @@ function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false, forc
 						<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${expanding ? icon(LoaderCircle, "xs", "animate-spin") : icon(open ? ChevronDown : ChevronRight, "xs")}</span>
 						<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(open ? FolderOpen : Folder, "xs")}</span>
 						<span class="truncate">${node.name}</span>
+						${connRoot ? renderSapConnBadge(connRoot) : ""}
 						${count >= 0 ? html`<span class="shrink-0 text-[11px] text-muted-foreground">(${count})</span>` : ""}
 					</button>
-					${withActions && !isSapFolder ? renderNodeActions(node.path, true) : ""}
+					${connRoot ? html`
+						<button class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-secondary text-muted-foreground transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title="Add ABAP package"
+							@click=${(e: Event) => { e.stopPropagation(); sapAddPackageFor = connRoot; expandedFolders.add(node.path); renderApp(); }}>${icon(Plus, "xs")}</button>
+						<button class="shrink-0 ${refreshing ? "opacity-100" : "opacity-0 group-hover:opacity-100"} p-0.5 rounded hover:bg-secondary text-muted-foreground transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title="Ping the SAP system and refresh the connection" ?disabled=${sapBusy !== ""}
+							@click=${(e: Event) => { e.stopPropagation(); void refreshSapConnection(connRoot); }}>${icon(RefreshCw, "xs", refreshing ? "animate-spin" : "")}</button>` : ""}
+					${withActions && !isSapFolder && !connRoot ? renderNodeActions(node.path, true) : ""}
 				</div>
-				${open && node.children ? html`<div>${renderTree(node.children, depth + 1, withActions, forceOpen)}</div>` : ""}
+				${connRoot && sapAddPackageFor === connRoot ? renderSapAddPackageRow(connRoot, depth + 1) : ""}
+				${open && node.children ? html`<div>${renderTree(node.children, depth + 1, withActions, forceOpen, sapConn || connRoot)}</div>` : ""}
 			</div>`;
 		}
 		if (isDuckDbFile(node.path)) {
@@ -2946,7 +3165,7 @@ function renderWorkspaceSettingsDialog() {
 							<ui5-button
 								class="corp-ui5-button corp-tab-button"
 								design=${workspaceSettingsTab === "connection" ? "Emphasized" : "Transparent"}
-								@click=${() => { workspaceSettingsTab = "connection"; if (sapConnMode === "local") { if (!sapLocalSystemsLoaded) void loadLocalSystems(); } else if (!sapDestinationsLoaded) { void loadSapDestinations(); } renderApp(); }}
+								@click=${() => { workspaceSettingsTab = "connection"; if (sapConnectMode() === "local") { if (!sapLocalSystemsLoaded) void loadLocalSystems(); } else if (!sapDestinationsLoaded) { void loadSapDestinations(); } renderApp(); }}
 							>
 								Connection
 							</ui5-button>

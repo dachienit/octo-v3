@@ -17,6 +17,7 @@ import { mkdir, writeFile } from "fs/promises";
 import { homedir } from "os";
 import { dirname, isAbsolute, join, relative } from "path";
 import { killSessionShells } from "./background-shells.js";
+import { businessConnectorToolEnv, safeConnectorUserId } from "./connectors.js";
 import { configureOutlineCache } from "./documents/outline-cache.js";
 import { createAcpOrchestratorExtension } from "./extensions/acp-orchestrator.js";
 import { resolveWebSearchConfig } from "./net/search-providers.js";
@@ -326,7 +327,22 @@ export class CoreAgent {
 				? `${containerWorkspacePath}/sessions/${channelId}/attachments`
 				: join(options.channelDir, "attachments"),
 		];
-		this.executor = createExecutor(sandboxConfig, executorCwd, searchRoots);
+		const runtimeUsersRoot = isContainerSandbox ? sandboxConfig.usersPath ?? "/workspace/users" : options.usersRoot;
+		// A CLI the model runs itself (`adt`, `gh`) has to read the same per-user
+		// config store the REST surface writes to. Without this it falls back to the
+		// home directory of the OS account running the service, which is one shared
+		// store for every user on the host.
+		const connectorToolEnv = options.usersRoot
+			? businessConnectorToolEnv(
+					{
+						userId: safeConnectorUserId(options.userId ?? "web-user"),
+						usersRoot: options.usersRoot,
+						runtimeUsersRoot: runtimeUsersRoot ?? options.usersRoot,
+					},
+					{ container: isContainerSandbox },
+				)
+			: {};
+		this.executor = createExecutor(sandboxConfig, executorCwd, searchRoots, connectorToolEnv);
 		this.workspacePath = isContainerSandbox
 			? containerWorkspacePath
 			: this.executor.getWorkspacePath(hostWorkspacePath);
@@ -402,8 +418,6 @@ export class CoreAgent {
 		if (loadedSession.messages.length > 0) {
 			(this.agentInstance.state as any).messages = loadedSession.messages;
 		}
-
-		const runtimeUsersRoot = isContainerSandbox ? sandboxConfig.usersPath ?? "/workspace/users" : options.usersRoot;
 
 		const extensionFactories = options.agentWorkersEnabled === false
 			? []
