@@ -66,6 +66,17 @@ export interface BotContext {
 	 * `apiKey` is already decrypted here. Absent → env-driven default model.
 	 */
 	model?: { provider: string; modelId: string; apiKey?: string; baseUrl?: string; apiType?: string };
+	//IYH1HC capability tool add
+	/**
+	 * Per-turn SAP credentials for the native `adt` tool. Carried on the context so
+	 * they live and die with the turn: a side channel keyed by channel would be one
+	 * slot shared by every session in flight, which is the clobbering bug the broker
+	 * file has today (docs/agent-capability-tool.vi.md §2.4).
+	 *
+	 * Absent when Octo runs outside BTP, where the adt-cli profile authenticates on
+	 * its own (Kerberos/SPNEGO) and no user token is involved.
+	 */
+	sap?: { userJwt?: string; routerBase?: string };
 	channelName?: string;
 	channels: ChannelInfo[];
 	users: UserInfo[];

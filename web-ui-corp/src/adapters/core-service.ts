@@ -198,6 +198,13 @@ export type CoreServiceFeatures = {
 	appTitle: string;
 	/** Label in the app header bar. */
 	appHeader: string;
+	/**
+	 * Which SAP connect surface this deployment can use. On-Premise (SSO) needs a
+	 * Kerberos ticket that only exists on the user's own machine; BTP destinations
+	 * need the destination + connectivity services that only exist on Cloud
+	 * Foundry. The connect form shows exactly one of them.
+	 */
+	sapConnect: "local" | "btp";
 };
 
 export type AgentWorkerLoginStart = {
@@ -228,6 +235,8 @@ export type WorkspaceNode = {
 	name: string;
 	path: string;
 	type: "file" | "directory";
+	/** Set on the folder of a SAP ADT connection (it holds `.adt-connection.json`). */
+	sapConnection?: boolean;
 	children?: WorkspaceNode[];
 };
 
@@ -239,6 +248,11 @@ export type WorkspaceTree = {
 	 * the @-mention picker is the only consumer, and it degrades to artifacts-only.
 	 */
 	attachments?: WorkspaceNode[];
+	/**
+	 * The adt-cli profile bare `adt` commands resolve to (empty when unset). Rides
+	 * along with the tree so the UI can label the connection currently in use.
+	 */
+	sapDefaultProfile?: string;
 };
 
 /** A file or folder the user can tag with `@`. */
@@ -267,9 +281,12 @@ export type SkillUploadResult = {
 
 export type SapConnection = {
 	name: string;
-	destinationName: string;
+	destinationName?: string;
 	url?: string;
 	authType?: string;
+	/** Catalogue system id for SSO connections, e.g. S1R. */
+	systemId?: string;
+	spn?: string;
 	client?: string;
 	language?: string;
 	status?: "connected" | "error" | "unknown";
@@ -285,14 +302,15 @@ export type SapDestination = {
 	description?: string;
 };
 
+// One entry of the corporate SAP system catalogue (sap-systems.json), as served
+// by GET /sap-adt/local-systems. `name` is the 3-character system id.
 export type SapLocalSystem = {
-	systemId: string;
-	client?: string;
-	adtUrl: string;
-	spn: string;
+	name: string;
 	description?: string;
-	type?: string;
-	source?: string;
+	URL: string;
+	host?: string;
+	port?: string;
+	spn: string;
 };
 
 export type SapNode = {
@@ -739,7 +757,7 @@ export class CoreServiceClient {
 	}
 
 	async getFeatures(): Promise<CoreServiceFeatures> {
-		const fallback: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, tools: true, llmProviders: null, appTitle: DEFAULT_APP_TITLE, appHeader: DEFAULT_APP_TITLE };
+		const fallback: CoreServiceFeatures = { agentWorkers: true, reminders: true, connection: true, tools: true, llmProviders: null, appTitle: DEFAULT_APP_TITLE, appHeader: DEFAULT_APP_TITLE, sapConnect: "local" };
 		try {
 			const response = await this.fetch("/features");
 			if (!response.ok) return fallback;
@@ -754,6 +772,10 @@ export class CoreServiceClient {
 				appTitle,
 				// An older service does not send appHeader; the title is the sane stand-in.
 				appHeader: typeof data.features?.appHeader === "string" && data.features.appHeader ? data.features.appHeader : appTitle,
+				// An older service does not send sapConnect either. Default to "local":
+				// a stale BTP service still answers with VCAP set once redeployed, and
+				// guessing "btp" on a dev box would hide the only surface that works there.
+				sapConnect: data.features?.sapConnect === "btp" ? "btp" : "local",
 			};
 		} catch {
 			return fallback;
@@ -1152,7 +1174,7 @@ export class CoreServiceClient {
 
 	async createLocalSapConnection(
 		workspaceId: string,
-		input: { url: string; spn: string; systemId?: string; name: string; client?: string; language?: string },
+		input: { systemId: string; name: string; client?: string; url?: string; spn?: string; language?: string },
 	): Promise<{ connection: SapConnection | null; error?: string }> {
 		try {
 			const response = await this.fetch(`/workspaces/${encodeURIComponent(workspaceId)}/sap-adt/connections`, {
@@ -1167,15 +1189,16 @@ export class CoreServiceClient {
 		}
 	}
 
-	async deleteSapConnection(workspaceId: string, name: string): Promise<boolean> {
+	async deleteSapConnection(workspaceId: string, name: string): Promise<{ ok: boolean; defaultProfile?: string }> {
 		try {
 			const response = await this.fetch(
 				`/workspaces/${encodeURIComponent(workspaceId)}/sap-adt/connections/${encodeURIComponent(name)}`,
 				{ method: "DELETE" },
 			);
-			return response.ok;
+			const data = await response.json().catch(() => ({})) as { defaultProfile?: string };
+			return { ok: response.ok, defaultProfile: data.defaultProfile };
 		} catch {
-			return false;
+			return { ok: false };
 		}
 	}
 
@@ -1187,6 +1210,39 @@ export class CoreServiceClient {
 			);
 			const data = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
 			return { ok: !!data.ok, error: data.error };
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) };
+		}
+	}
+
+	// Marks a connection as the one in use, so bare `adt` commands (which fall back
+	// to the default profile) target the system the user is working in.
+	async activateSapConnection(workspaceId: string, name: string): Promise<{ ok: boolean; defaultProfile?: string }> {
+		try {
+			const response = await this.fetch(
+				`/workspaces/${encodeURIComponent(workspaceId)}/sap-adt/connections/${encodeURIComponent(name)}/activate`,
+				{ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) },
+			);
+			const data = await response.json().catch(() => ({})) as { defaultProfile?: string };
+			return { ok: response.ok, defaultProfile: data.defaultProfile };
+		} catch {
+			return { ok: false };
+		}
+	}
+
+	// Re-pings the system and rewrites the connection's adt-cli profile.
+	async refreshSapConnection(workspaceId: string, name: string): Promise<{ ok: boolean; error?: string; defaultProfile?: string }> {
+		try {
+			const response = await this.fetch(
+				`/workspaces/${encodeURIComponent(workspaceId)}/sap-adt/connections/${encodeURIComponent(name)}/refresh`,
+				{ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) },
+			);
+			const data = await response.json().catch(() => ({})) as { ok?: boolean; error?: string; defaultProfile?: string };
+			return {
+				ok: response.ok && !!data.ok,
+				error: response.ok ? undefined : (data.error ?? `HTTP ${response.status}`),
+				defaultProfile: data.defaultProfile,
+			};
 		} catch (err) {
 			return { ok: false, error: err instanceof Error ? err.message : String(err) };
 		}
@@ -1213,6 +1269,27 @@ export class CoreServiceClient {
 			);
 			const data = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };
 			return { ok: response.ok && !!data.ok, error: response.ok ? undefined : (data.error ?? `HTTP ${response.status}`) };
+		} catch (err) {
+			return { ok: false, error: err instanceof Error ? err.message : String(err) };
+		}
+	}
+
+	// Add an ABAP package as another root of the connection's object tree. The
+	// package contents are listed and materialized server-side in one call, so the
+	// caller only needs to reload the workspace tree afterwards.
+	async addSapPackage(workspaceId: string, name: string, packageName: string): Promise<{ ok: boolean; folder?: string; count?: number; error?: string }> {
+		try {
+			const response = await this.fetch(
+				`/workspaces/${encodeURIComponent(workspaceId)}/sap-adt/connections/${encodeURIComponent(name)}/tree/package`,
+				{ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ package: packageName }) },
+			);
+			const data = await response.json().catch(() => ({})) as { ok?: boolean; folder?: string; count?: number; error?: string };
+			return {
+				ok: response.ok && !!data.ok,
+				folder: data.folder,
+				count: data.count,
+				error: response.ok ? undefined : (data.error ?? `HTTP ${response.status}`),
+			};
 		} catch (err) {
 			return { ok: false, error: err instanceof Error ? err.message : String(err) };
 		}

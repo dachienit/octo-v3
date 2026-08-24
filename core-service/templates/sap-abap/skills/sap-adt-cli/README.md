@@ -1,46 +1,55 @@
-# sap-adt-cli (Claude Agent Skill)
+# sap-adt-cli (Agent Skill)
 
-A Claude Agent Skill that lets an autonomous agent operate **`adt-cli`** — the CLI for SAP ABAP Development Tools (ADT) — to perform ABAP development tasks against an SAP system inside the OctoAgent project.
-
-## What this skill does
-
-It gives the agent a routed, on-demand reference for every `adt-cli` command group: creating/reading/editing/activating ABAP objects, mirroring packages, running ATC checks and offline abaplint analysis, building LLM context bundles, previewing SQL/DDIC data, managing transports (CTS), reading runtime traces, controlling the debugger, and making raw ADT HTTP calls.
-
-The skill activates whenever a task involves ABAP development, SAP system interaction, or mentions ADT, ABAP, SAP objects, transports, ATC, abaplint, or adt-cli commands.
-
-## Directory map
-
-```
-sap-adt-cli/
-├── SKILL.md                 # Lean router: preconditions, connection check, lifecycle, routing table, safety rules
-├── README.md                # This file
-└── references/              # Detailed command docs, loaded on demand
-    ├── objects.md           # adt object: create / read / edit / lifecycle / pull
-    ├── quality.md           # adt atc, adt lint, adt context
-    ├── data-system.md       # adt data, system, service, cts, trace, debug, http
-    └── troubleshooting.md   # global flags, object-URL forms, exit codes, error→fix, safety rules
-```
-
-The agent reads `SKILL.md` first, then opens only the reference file relevant to the task (progressive disclosure).
+Lets the agent operate **`adt-cli`** — the CLI for SAP ABAP Development Tools — against the SAP system
+the user connected in this workspace: reading and writing ABAP source, creating and activating
+objects, pushing code back with a transport request, running ATC checks and offline abaplint,
+mirroring packages, previewing SQL/DDIC data, and reading traces.
 
 ## How the agent uses it
 
-1. Verify the connection: `adt auth login test --name dev` (exit 0 = ok, 2 = failure).
-2. Identify the task domain and read the matching `references/*.md`.
-3. Run commands via the bash tool. Logs go to stderr, data to stdout.
-4. Honor the safety rules on every run (see below).
+1. Commands go through the **`adt` tool**, never through bash. `argv` is the command split into
+   arguments with no leading `adt`.
+2. Connecting a system and choosing a profile are the **user's** job, done in the UI. The agent never
+   touches `auth`, never passes `-p/--profile`, and never asks which system to use.
+3. Code is read from the lazy ADT mirror at `artifacts/<SAP system>/` and written to
+   `artifacts/<SAP system>/artifacts/`.
+4. Every write to SAP outside `$TMP` carries the transport request of the package that owns the
+   object.
 
-## Assumed preconditions (out of scope)
+## Directory map
 
-- A profile named **`dev`** is already configured. Authentication/profile setup is handled separately.
-- Default working package is **`ZADT_LOCAL`**.
+```text
+sap-adt-cli/
+├── SKILL.md                 # Router: how to call, identity, folders, routing table, mandatory rules
+├── README.md                # This file
+└── references/              # Loaded on demand
+    ├── workflows.md         # Read / generate / edit / push code, and how to get the transport
+    ├── objects.md           # adt object: create, read, edit, lifecycle, list, pull
+    ├── quality.md           # adt atc, adt lint, adt context
+    ├── data-system.md       # adt data, system, service, cts, trace, debug, http
+    └── troubleshooting.md   # flags, exit codes, error→fix, conventions
+```
 
-## Safety rules
+The agent reads `SKILL.md` first, then opens only the reference it needs. For anything involving code,
+that is `workflows.md`.
 
-1. STOP AND ASK a human before any destructive SAP operation: `adt object delete`, overwriting source not just read, or any write to a package other than `ZADT_LOCAL`.
-2. NEVER fabricate ADT endpoints — escalate instead of guessing raw `adt http request` paths.
-3. NEVER print or log credentials/tokens.
+## Constraints worth knowing when editing this skill
 
-## Full reference
+- The `adt` tool rejects `--user-jwt`, `--iss`, `--service-binding`, and absolute URLs. `--output` is
+  deliberately allowed (since 2026-08-21) so source can go straight to disk without passing through
+  the model's context — keeping those writes inside the workspace is the skill's job, not the guard's.
+- The tool's working directory is not the connection folder, so every path in `argv` is absolute.
+- The mirror is lazy: files start empty and are hydrated on first read. "Empty" means "not fetched",
+  never "the object is empty".
+- There is no `adt` command that finds an object's transport request; `workflows.md` §E carries the
+  one sanctioned raw ADT call for it.
 
-The complete, authoritative command inventory (every command, flag, and example) lives in [../CLI_REFERENCE.md](../CLI_REFERENCE.md). The deeper internals (auth precedence, pull/lint/context implementation notes) are in [../CLAUDE.md](../CLAUDE.md). This skill never introduces commands or flags absent from those sources.
+## Source of truth
+
+This folder under `core-service/templates/` is the original. The copies under
+`core-service/deploy/templates/` and `workspace/templates/` are generated — do not edit those.
+
+The `references/` files are the complete inventory of what the agent may run — there is no companion
+document next to this folder (the old `../CLI_REFERENCE.md` link pointed at a file that was never
+shipped here). The upstream sources, if you need to extend the skill, are `adt-cli/README.md` and
+`adt-cli/docs/CLI_REFERENCE.md` in the repository.

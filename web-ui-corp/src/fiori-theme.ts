@@ -1,6 +1,8 @@
 import "@ui5/webcomponents/dist/Assets.js";
 import "@ui5/webcomponents/dist/Button.js";
 import "@ui5/webcomponents/dist/CheckBox.js";
+import "@ui5/webcomponents/dist/ComboBox.js";
+import "@ui5/webcomponents/dist/ComboBoxItem.js";
 import "@ui5/webcomponents/dist/Input.js";
 import "@ui5/webcomponents/dist/Option.js";
 import "@ui5/webcomponents/dist/Select.js";
