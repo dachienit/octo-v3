@@ -39,8 +39,10 @@ export interface SapTreeManifest {
 
 export const ADT_TREE_FILE = ".adt-tree.json";
 
-// Folder name of the synthetic root node created on connect (mirrors Eclipse).
-export const LOCAL_OBJECTS_ROOT = "Local Object ($TMP)";
+// Descriptor sidecar written next to the manifest. Its presence is what marks a
+// folder as a SAP connection, both for the workspace tree and for humans reading
+// the folder on disk.
+export const ADT_CONNECTION_FILE = ".adt-connection.json";
 
 // --- one node as returned by `adt object list --json` -----------------------
 export interface AdtNode {
@@ -80,19 +82,11 @@ export function writeManifest(connDir: string, manifest: SapTreeManifest): void 
 	writeFileSync(manifestPath(connDir), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
-// Build a fresh manifest whose only entry is the synthetic $TMP root folder.
+// A fresh connection has no materialized tree at all: connecting only proves the
+// system is reachable. Roots appear when the user adds an ABAP package from the
+// Artifacts panel, so nothing is fetched from ADT at connect time.
 export function initialManifest(): SapTreeManifest {
-	return {
-		version: 1,
-		entries: {
-			[LOCAL_OBJECTS_ROOT]: {
-				kind: "package",
-				adtParentType: "DEVC/K",
-				adtParentName: "$TMP",
-				loaded: false,
-			},
-		},
-	};
+	return { version: 1, entries: {} };
 }
 
 // --- category grouping + naming ---------------------------------------------
@@ -242,7 +236,7 @@ export interface MaterializeChild {
 // Turn a nodestructure result into the set of folders/files to create directly
 // under the expanded parent. Leaf objects are grouped under category folders;
 // sub-packages become lazy folders of their own.
-function sanitizeFolderName(name: string, fallback: string): string {
+export function sanitizeFolderName(name: string, fallback: string): string {
 	return name.replace(/\//g, "#").replace(/[^A-Za-z0-9_#.$ ()-]/g, "_") || fallback;
 }
 

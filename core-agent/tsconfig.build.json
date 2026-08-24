@@ -20,7 +20,12 @@
 		"useDefineForClassFields": false,
 		"types": ["node"],
 		"outDir": "./dist",
-		"rootDir": "./src"
+		"rootDir": "./src",
+		// Without this every build re-parses ~1950 unchanged .d.ts from node_modules
+		// (~12MB from pi-coding-agent alone), which dominates the build time.
+		// The cache lives inside dist/ so `npm run clean` clears it along with the output.
+		"incremental": true,
+		"tsBuildInfoFile": "./dist/.tsbuildinfo"
 	},
 	"include": ["src/**/*.ts"],
 	"exclude": ["node_modules", "dist", "**/*.d.ts", "src/**/*.d.ts"]

@@ -184,6 +184,11 @@ function connectorEnv(connectorId: string, home: string): Record<string, string>
 	if (connectorId === "claude") env.CLAUDE_CONFIG_DIR = home;
 	if (connectorId === "github") env.GH_CONFIG_DIR = home;
 	if (connectorId === "sap-adt") {
+		// ADT_CLI_HOME is the only variable adt-cli actually reads for its profile
+		// store; it otherwise falls back to os.homedir(), which ignores HOME on
+		// Windows and would give this path a different store than the host's REST
+		// surface. Keep the same layout so every caller sees one set of profiles.
+		env.ADT_CLI_HOME = join(home, ".adt-cli");
 		env.ADT_CONFIG_DIR = home;
 		env.SAP_ADT_HOME = home;
 	}
@@ -210,6 +215,34 @@ export function listConnectorRuntimes(kind?: ConnectorKind): ConnectorRuntime[] 
 
 export function getConnectorRuntime(id: string): ConnectorRuntime | undefined {
 	return CONNECTOR_RUNTIMES.find((connector) => connector.id === id);
+}
+
+/**
+ * Env that every command the agent runs through a tool needs, so that a CLI it
+ * invokes itself (`adt`, `gh`) lands in the same per-user store the REST surface
+ * writes to. Without it those CLIs fall back to the OS account's home directory,
+ * which on a multi-user host is one shared store for everybody.
+ *
+ * `HOME` is deliberately dropped: `connectorEnv` sets it for every connector, so
+ * merging several would let them overwrite each other, and the survivor would
+ * then apply to *every* shell command the agent runs, not just the CLI it was
+ * meant for. Only each CLI's own variable is exported.
+ */
+export function businessConnectorToolEnv(
+	ctx: ConnectorRuntimeContext,
+	opts: { container: boolean },
+): Record<string, string> {
+	const env: Record<string, string> = {};
+	for (const connector of listConnectorRuntimes("business-connector")) {
+		const allowed = opts.container ? connector.accessPolicy.allowedInDocker : connector.accessPolicy.allowedInHost;
+		if (!allowed) continue;
+		ensureConnectorHome(ctx.usersRoot, ctx.userId, connector.id);
+		for (const [key, value] of Object.entries(connector.env(ctx))) {
+			if (key === "HOME") continue;
+			env[key] = value;
+		}
+	}
+	return env;
 }
 
 export function getAgentRuntimeConnector(agentId: string): ConnectorRuntime | undefined {

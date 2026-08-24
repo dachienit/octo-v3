@@ -1,16 +1,21 @@
 # Reference: `adt object` — repository objects
 
-Create, read, edit, manage the lifecycle of, and mirror ABAP repository objects. Assume `PKG=ZADT_LOCAL` and profile `dev`.
+Create, read, edit, manage the lifecycle of, and mirror ABAP repository objects. For the end-to-end
+read / generate / edit / push sequences, start from [workflows.md](workflows.md); this file is the
+command detail those workflows refer to.
 
-> **Object URL forms** — every `<objectUrl>` accepts relative, absolute, or full URL:
-> `programs/programs/zhello` · `/sap/bc/adt/programs/programs/zhello` · `https://abap:44300/sap/bc/adt/oo/classes/zcl_demo`
+Every example is the `argv` array you pass to the `adt` tool.
+
+> **Object URL forms** — `<objectUrl>` accepts a relative path (`programs/programs/zhello`,
+> `oo/classes/zcl_demo`) or an absolute one (`/sap/bc/adt/programs/programs/zhello`). Full URLs are
+> rejected by the tool.
 
 ---
 
 ## Create objects
 
-```bash
-adt object create <kind> <name> [common options] [kind-specific options]
+```jsonc
+["object", "create", "<kind>", "<NAME>", ...options]
 ```
 
 **Common options (every kind):**
@@ -19,11 +24,11 @@ adt object create <kind> <name> [common options] [kind-specific options]
 |---|---|
 | `--description <text>` | Short text (`adtcore:description`) |
 | `--responsible <user>` | `adtcore:responsible` (default: profile user) |
-| `--transport <id>` | Transport request (`corrNr`) |
-| `--validate-only` | Validate name then stop |
+| `--transport <id>` | Transport request (`corrNr`) — see workflows.md §E |
+| `--validate-only` | Validate the name, then stop |
 | `--no-validate` | Skip validation |
-| `--source-file <file>` | After create: lock + PUT source from file |
-| `--source-stdin` | After create: read source from stdin + PUT |
+| `--source-file <file>` | After create: lock + PUT source from file (**absolute path**) |
+| `--source-stdin` | Not usable through the tool — stdin is closed. Use `--source-file` |
 | `--activate` | After create (+ optional source push): activate |
 
 **Object kinds (`<kind>` → typeId, parent flag):**
@@ -50,151 +55,158 @@ adt object create <kind> <name> [common options] [kind-specific options]
 | `auth-field` | AUTH | `--package` | 10 |
 | `auth-object` | SUSO/B | `--package` | 10 |
 
-Run `adt object create-types` to list all aliases live (with typeId, parent, max length, creation path).
+`["object", "create-types"]` lists all aliases live, with typeId, parent flag, max length, and
+creation path.
 
 **Kind-specific options:**
-- `package` (DEVC/K): `--super-package <pkg>`, `--swcomp <comp>`, `--transport-layer <layer>`, `--package-type development|structure|main` (default `development`)
+
+- `package` (DEVC/K): `--super-package <pkg>`, `--swcomp <comp>`, `--transport-layer <layer>`,
+  `--package-type development|structure|main` (default `development`)
 - `fmodule`, `finclude`: `--group <fgroup>` (required)
-- `service-binding` (SRVB/SVB): `--service <name>` (required), `--binding-type <type>` (default `ODATA`), `--category 0|1` (0 = Web API, 1 = UI; default 0)
+- `service-binding` (SRVB/SVB): `--service <name>` (required), `--binding-type <type>` (default
+  `ODATA`), `--category 0|1` (0 = Web API, 1 = UI; default 0)
 
 **Examples:**
 
-```bash
-PKG=ZADT_LOCAL
+```jsonc
+// Program: validate → create → source → activate in one command
+["object", "create", "program", "ZHELLO", "--package", "ZADT_LOCAL",
+ "--description", "Hello", "--source-file", "/abs/path/zhello.prog.abap", "--activate"]
 
-# Program: full validate→create→source→activate in one command
-adt object create program ZHELLO --package $PKG --description "Hello" \
-  --source-file ./zhello.abap --activate
+// Class
+["object", "create", "class", "ZCL_DEMO", "--package", "ZADT_LOCAL",
+ "--description", "Demo class", "--source-file", "/abs/path/zcl_demo.clas.abap", "--activate"]
 
-# Class from stdin
-echo 'CLASS zcl_demo DEFINITION PUBLIC FINAL CREATE PUBLIC. ENDCLASS.
-CLASS zcl_demo IMPLEMENTATION. ENDCLASS.' \
-  | adt object create class ZCL_DEMO --package $PKG --source-stdin --activate
+// Function group, then a function module inside it
+["object", "create", "fgroup", "ZGRP_DEMO", "--package", "ZADT_LOCAL", "--description", "Demo FG"]
+["object", "create", "fmodule", "Z_FM_DEMO", "--group", "ZGRP_DEMO", "--description", "Demo FM"]
 
-# Interface
-adt object create interface ZIF_DEMO --package $PKG --description "Demo interface"
+// CDS data definition
+["object", "create", "ddl", "ZI_DEMO", "--package", "ZADT_LOCAL",
+ "--source-file", "/abs/path/zi_demo.ddls.asddls", "--activate"]
 
-# Function group + function module
-adt object create fgroup ZGRP_DEMO --package $PKG --description "Demo FG"
-adt object create fmodule Z_FM_DEMO --group ZGRP_DEMO --description "Demo FM"
+// Service definition + binding
+["object", "create", "service-def", "ZSRVD_DEMO", "--package", "ZADT_LOCAL",
+ "--source-file", "/abs/path/zsrvd_demo.srvd.srvdsrv", "--activate"]
+["object", "create", "service-binding", "ZSB_DEMO", "--package", "ZADT_LOCAL",
+ "--service", "ZSRVD_DEMO", "--binding-type", "ODATA", "--category", "0"]
 
-# CDS data definition + access control + metadata extension
-adt object create ddl  ZI_DEMO     --package $PKG --source-file ./zi_demo.cds --activate
-adt object create dcl  ZDCL_I_DEMO --package $PKG --source-file ./zdcl.dcl    --activate
-adt object create ddlx ZE_DEMO_EXT --package $PKG --description "Metadata ext"
-
-# Service definition + binding
-adt object create service-def YMU_SRVD --package $PKG --source-file ./ymu.srvd --activate
-adt object create service-binding YMU_SB --package $PKG \
-  --service YMU_SRVD --binding-type ODATA --category 0
-
-# Sub-package
-adt object create package ZADT_SUB --super-package $PKG --swcomp HOME \
-  --transport-layer SAP --package-type development
-
-# Validate only (no create)
-adt object create program ZHELLO --package $PKG --validate-only
-adt object validate class ZCL_FOO --package $PKG
+// Validate a name without creating anything
+["object", "validate", "class", "ZCL_FOO", "--package", "ZADT_LOCAL"]
 ```
 
-### `adt object create-generic`
-
-Create by explicit typeId instead of a `<kind>` alias.
-
-```bash
-adt object create-generic --type PROG/P --name ZHELLO --package $PKG --description "..."
-```
-Accepts the same parent/source/activate options as `create`.
+`["object", "create-generic", "--type", "PROG/P", "--name", "ZHELLO", "--package", "ZADT_LOCAL", ...]`
+creates by explicit typeId when no alias fits; it takes the same parent/source/activate options.
 
 ---
 
 ## Read objects
 
-```bash
-adt object structure  oo/classes/zcl_demo                 # metadata + include list
-adt object structure  oo/classes/zcl_demo --version inactive
-adt object properties /sap/bc/adt/programs/programs/zhello/source/main
-adt object source     programs/programs/zhello            # source → stdout
-adt object source     oo/classes/zcl_demo --include definitions
-adt object source     programs/programs/zhello --version inactive --output ./zhello.abap
-adt object versions   programs/programs/zhello            # revision history (atom feed)
+```jsonc
+["object", "structure", "oo/classes/zcl_demo"]                       // metadata + include list
+["object", "structure", "oo/classes/zcl_demo", "--version", "inactive"]
+["object", "properties", "/sap/bc/adt/programs/programs/zhello/source/main"]
+["object", "source", "programs/programs/zhello"]                     // source → result
+["object", "source", "oo/classes/zcl_demo", "--include", "definitions"]
+["object", "versions", "programs/programs/zhello"]                   // revision history
 ```
 
 | Command | Purpose | Key options |
 |---|---|---|
-| `structure <objectUrl>` | Read object metadata | `--version active\|inactive\|workingArea` |
+| `structure <objectUrl>` | Object metadata; also the existence check in workflows.md §D | `--version active\|inactive\|workingArea` |
 | `properties <uri>` | Property values for a source URI | — |
-| `source <objectUrl>` | Read source text | `--include <name>` (default `main`), `--version`, honors global `--output` |
+| `source <objectUrl>` | Read source text | `--include <name>` (default `main`), `--version`, `--output <abs path>` |
 | `versions <objectUrl>` | Version history | `--include <name>` |
+
+`--output <absolute path>` writes the result to a file instead of returning it. Use it whenever you
+do not need to read the content — see workflows.md §A.
+
+```jsonc
+["-q", "object", "source", "programs/programs/zhello", "--output", "/abs/path/zhello.prog.abap"]
+```
 
 ---
 
 ## Edit source
 
-Recommended pattern: **read → edit locally → push → activate**.
+Read → edit → push → activate, as laid out in workflows.md §C and §D.
 
-```bash
-adt object source     programs/programs/zhello > ./zhello.abap
-# ...edit ./zhello.abap...
-adt object set-source programs/programs/zhello --file ./zhello.abap --transport $TR
-adt object activate   programs/programs/zhello
+```jsonc
+["object", "set-source", "programs/programs/zhello",
+ "--file", "/abs/path/zhello.prog.abap", "--transport", "<TR>"]
+["object", "activate", "programs/programs/zhello"]
 ```
 
 `set-source` does lock + PUT + unlock in one stateful session.
 
 | Flag | Effect |
 |---|---|
-| `--file <file>` | Source file (omit to read stdin) |
-| `--source-stdin` | Force stdin even on a TTY |
+| `--file <file>` | Source file — **absolute path** |
 | `--include <name>` | Include name (default `main`) |
 | `--transport <id>` | Transport request |
-| `--keep-locked` | Hold the lock across commands |
+| `--keep-locked` | Hold the lock after the PUT |
 | `--lock-handle <handle>` | Reuse an existing lock |
 
-Manual lock control (rarely needed):
-```bash
-adt object lock   programs/programs/zhello [--mode MODIFY]   # returns LOCK_HANDLE
-adt object unlock programs/programs/zhello --handle <LOCK_HANDLE>
-```
+Manual `lock` / `unlock` exist but are rarely useful: every command runs as a fresh process with a
+fresh cookie jar, so a lock taken in one call is gone by the next.
 
 ---
 
 ## Lifecycle: activate / inactive / delete
 
-```bash
-adt object activate programs/programs/zhello            # exit 1 if success=false
-adt object activate programs/programs/zhello --no-preaudit
-adt object inactive                                     # list inactive objects awaiting activation
-adt object delete   programs/programs/zhello --transport $TR
+```jsonc
+["object", "activate", "programs/programs/zhello"]      // exit 1 when success=false
+["object", "activate", "programs/programs/zhello", "--no-preaudit"]
+["object", "inactive"]                                  // objects awaiting activation
+["object", "delete", "programs/programs/zhello", "--transport", "<TR>"]
 ```
 
-- `activate` returns `{ success, messages, inactive }`; exit code `1` when `success=false`.
-- **`delete` is destructive → STOP AND ASK a human first** (see SKILL.md safety rule 1). Auto-acquires a lock unless `--handle <h>` is given.
+- `activate` returns `{ success, messages, inactive }`; exit `1` means `success=false` and `messages`
+  says why.
+- **`delete` is destructive → STOP AND ASK a human first** (SKILL.md rule 2).
+
+---
+
+## List tree nodes
+
+```jsonc
+["object", "list", "--parent-type", "DEVC/K", "--parent-name", "ZADT_LOCAL", "--json"]
+["object", "list", "--package", "$TMP", "--user", "<user>", "--json"]
+```
+
+Returns `{ nodes, categories, objectTypes }` — the direct children of one tree node. This is the same
+call the Artifacts panel uses to materialize the mirror, so you rarely need it: prefer reading the
+mirror. Reach for it when you need to see objects in a package the user has not added.
 
 ---
 
 ## `adt object pull` — mirror a package to local disk
 
-Offline-first: pull a whole package once, then analyse many times (input for `adt lint package` and `adt context build`). Files are written in abapGit naming (e.g. `zcl_foo.clas.abap`).
+Offline-first: pull a package once, then analyse it many times (input for `lint package` and
+`context build`). Files are written in abapGit naming.
 
-```bash
-adt object pull --package ZADT_LOCAL
-adt object pull --package ZPK_X --print-config        # show resolved config, no SAP call
+```jsonc
+["object", "pull", "--package", "ZADT_LOCAL", "--out", "/abs/path/target-dir"]
+["object", "pull", "--package", "ZADT_LOCAL", "--print-config"]   // resolved config, no SAP call
 ```
+
+`--out` is **not** the blocked `--output` flag and is allowed — but it must be an absolute path, and
+it must point inside your output folder.
 
 | Flag | Effect |
 |---|---|
 | `--package <pkg>` (required) | Package to mirror |
-| `--out <dir>` | Output dir (default `./<package-lowercase>`) |
+| `--out <dir>` | Output dir (default `./<package-lowercase>` — always pass it explicitly) |
 | `--depth <n>` | Recurse sub-packages: `0` = root only, omit = unlimited |
 | `--max <n>` | Max objects (default 500) |
-| `--include-only <ids>` | CSV typeIds — full override of pull-config |
+| `--include-only <ids>` | CSV typeIds — full override of the pull config |
 | `--skip-types <ids>` | CSV typeIds to subtract |
 | `--no-dependencies` | Skip the where-used graph |
-| `--no-docs` | Skip long-text docs (reserved) |
 | `--keep-going` | Continue on per-object failure (default true) |
 | `--skip-unsupported` | Suppress warnings for unknown typeIds |
 | `--namespace-prefixes <csv>` | Name prefixes to keep, e.g. `Z,Y,/RB`. Empty `""` = pull nothing |
-| `--print-config` | Print effective config as JSON and exit |
+| `--print-config` | Print the effective config as JSON and exit |
 
-**Output** (root of `--out`): source files + `.abap-package.json` (manifest v3 `inventory[]` with per-object `status`: `pulled` / `not-in-config` / `not-in-namespace` / `unknown-type` / `fetch-failed`) + `.dependencies.json` (inbound where-used edges).
+**Output** in `--out`: the source files, plus `.abap-package.json` (manifest v3 — an `inventory[]`
+entry for every walked node with `status` `pulled` / `not-in-config` / `not-in-namespace` /
+`unknown-type` / `fetch-failed`) and `.dependencies.json` (inbound where-used edges).
