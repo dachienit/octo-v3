@@ -71,19 +71,19 @@ export interface AuthStorage {
 	setActiveModels(userId: string, provider: string, modelIds: string[]): Promise<void>;
 	getActiveModels(userId: string): Promise<Array<{ provider: string; modelId: string }>>;
 
-	listCustomModels(userId: string): Promise<Array<{ id: string; name: string; baseProvider: string; endpoint: string }>>;
+	listCustomModels(userId: string): Promise<Array<{ id: string; name: string; provider: string; baseProvider: string; endpoint: string; routing?: string }>>;
 	getCustomModel(
 		userId: string,
 		id: string,
-	): Promise<{ id: string; name: string; baseProvider: string; endpoint: string; encryptedKey: string } | undefined>;
+	): Promise<{ id: string; name: string; provider: string; baseProvider: string; endpoint: string; encryptedKey: string; routing?: string } | undefined>;
 	addCustomModel(
 		userId: string,
-		opts: { name: string; baseProvider: string; endpoint: string; encryptedKey: string },
+		opts: { name: string; provider: string; baseProvider: string; endpoint: string; encryptedKey: string; routing?: string },
 	): Promise<string>;
 	updateCustomModel(
 		userId: string,
 		id: string,
-		opts: { name: string; baseProvider: string; endpoint: string; encryptedKey?: string },
+		opts: { name: string; provider: string; baseProvider: string; endpoint: string; encryptedKey?: string; routing?: string },
 	): Promise<void>;
 	deleteCustomModel(userId: string, id: string): Promise<void>;
 }

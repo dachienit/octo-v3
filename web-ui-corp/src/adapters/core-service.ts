@@ -137,8 +137,10 @@ export type ActiveModel = {
 export type CustomModelConfig = {
 	id: string;
 	name: string;
+	provider: string;
 	baseProvider: string;
 	endpoint: string;
+	routing?: string;
 };
 
 export type AcpJob = {
@@ -635,7 +637,7 @@ export class CoreServiceClient {
 	}
 
 	// IYH1HC add: create a custom model (key encrypted server-side); returns the new id.
-	async addCustomModel(body: { name: string; baseProvider: string; endpoint: string; apiKey: string }): Promise<string> {
+	async addCustomModel(body: { name: string; provider: string; baseProvider: string; endpoint: string; apiKey: string; routing?: string }): Promise<string> {
 		const response = await this.fetch("/llm/custom-models", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -649,7 +651,7 @@ export class CoreServiceClient {
 	// IYH1HC add: update a custom model. Omit apiKey to keep the stored key unchanged.
 	async updateCustomModel(
 		id: string,
-		body: { name: string; baseProvider: string; endpoint: string; apiKey?: string },
+		body: { name: string; provider: string; baseProvider: string; endpoint: string; apiKey?: string; routing?: string },
 	): Promise<boolean> {
 		const response = await this.fetch(`/llm/custom-models/${encodeURIComponent(id)}`, {
 			method: "PUT",

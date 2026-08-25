@@ -93,12 +93,18 @@ export class PostgresAuthStorage implements AuthStorage {
 				id TEXT NOT NULL,
 				user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
 				name TEXT NOT NULL,
+				provider TEXT NOT NULL DEFAULT 'custom',
 				base_provider TEXT NOT NULL,
 				endpoint TEXT NOT NULL,
 				encrypted_key TEXT NOT NULL,
+				routing TEXT NOT NULL DEFAULT '',
 				created_at TEXT NOT NULL,
 				PRIMARY KEY (user_id, id)
 			);
+			ALTER TABLE custom_models ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'custom';
+			ALTER TABLE custom_models ADD COLUMN IF NOT EXISTS routing TEXT NOT NULL DEFAULT '';
+			UPDATE custom_models SET provider = 'octo-router' WHERE name LIKE 'octo-router/%';
+			UPDATE custom_models SET provider = 'bosch-genai' WHERE name LIKE 'bosch-genai/%';
 		`);
 	}
 
@@ -302,38 +308,38 @@ export class PostgresAuthStorage implements AuthStorage {
 		return rows.map((row) => ({ provider: row.provider, modelId: row.model_id }));
 	}
 
-	async listCustomModels(userId: string): Promise<Array<{ id: string; name: string; baseProvider: string; endpoint: string }>> {
-		const rows = await this.query<{ id: string; name: string; base_provider: string; endpoint: string }>(
-			`SELECT id, name, base_provider, endpoint FROM custom_models WHERE user_id = $1 ORDER BY created_at`,
+	async listCustomModels(userId: string): Promise<Array<{ id: string; name: string; provider: string; baseProvider: string; endpoint: string; routing?: string }>> {
+		const rows = await this.query<{ id: string; name: string; provider: string; base_provider: string; endpoint: string; routing: string }>(
+			`SELECT id, name, provider, base_provider, endpoint, routing FROM custom_models WHERE user_id = $1 ORDER BY created_at`,
 			[userId],
 		);
-		return rows.map((row) => ({ id: row.id, name: row.name, baseProvider: row.base_provider, endpoint: row.endpoint }));
+		return rows.map((row) => ({ id: row.id, name: row.name, provider: row.provider, baseProvider: row.base_provider, endpoint: row.endpoint, routing: row.routing || undefined }));
 	}
 
 	async getCustomModel(
 		userId: string,
 		id: string,
-	): Promise<{ id: string; name: string; baseProvider: string; endpoint: string; encryptedKey: string } | undefined> {
+	): Promise<{ id: string; name: string; provider: string; baseProvider: string; endpoint: string; encryptedKey: string; routing?: string } | undefined> {
 		const row = (
-			await this.query<{ id: string; name: string; base_provider: string; endpoint: string; encrypted_key: string }>(
-				`SELECT id, name, base_provider, endpoint, encrypted_key FROM custom_models WHERE user_id = $1 AND id = $2 LIMIT 1`,
+			await this.query<{ id: string; name: string; provider: string; base_provider: string; endpoint: string; encrypted_key: string; routing: string }>(
+				`SELECT id, name, provider, base_provider, endpoint, encrypted_key, routing FROM custom_models WHERE user_id = $1 AND id = $2 LIMIT 1`,
 				[userId, id],
 			)
 		)[0];
 		if (!row) return undefined;
-		return { id: row.id, name: row.name, baseProvider: row.base_provider, endpoint: row.endpoint, encryptedKey: row.encrypted_key };
+		return { id: row.id, name: row.name, provider: row.provider, baseProvider: row.base_provider, endpoint: row.endpoint, encryptedKey: row.encrypted_key, routing: row.routing || undefined };
 	}
 
 	async addCustomModel(
 		userId: string,
-		opts: { name: string; baseProvider: string; endpoint: string; encryptedKey: string },
+		opts: { name: string; provider: string; baseProvider: string; endpoint: string; encryptedKey: string; routing?: string },
 	): Promise<string> {
 		const id = createId("cm");
 		const createdAt = new Date().toISOString();
 		await this.query(
-			`INSERT INTO custom_models (id, user_id, name, base_provider, endpoint, encrypted_key, created_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-			[id, userId, opts.name, opts.baseProvider, opts.endpoint, opts.encryptedKey, createdAt],
+			`INSERT INTO custom_models (id, user_id, name, provider, base_provider, endpoint, encrypted_key, routing, created_at)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+			[id, userId, opts.name, opts.provider, opts.baseProvider, opts.endpoint, opts.encryptedKey, opts.routing ?? "", createdAt],
 		);
 		return id;
 	}
@@ -341,18 +347,18 @@ export class PostgresAuthStorage implements AuthStorage {
 	async updateCustomModel(
 		userId: string,
 		id: string,
-		opts: { name: string; baseProvider: string; endpoint: string; encryptedKey?: string },
+		opts: { name: string; provider: string; baseProvider: string; endpoint: string; encryptedKey?: string; routing?: string },
 	): Promise<void> {
 		if (opts.encryptedKey) {
 			await this.query(
-				`UPDATE custom_models SET name = $1, base_provider = $2, endpoint = $3, encrypted_key = $4
-				 WHERE user_id = $5 AND id = $6`,
-				[opts.name, opts.baseProvider, opts.endpoint, opts.encryptedKey, userId, id],
+				`UPDATE custom_models SET name = $1, provider = $2, base_provider = $3, endpoint = $4, routing = $5, encrypted_key = $6
+				 WHERE user_id = $7 AND id = $8`,
+				[opts.name, opts.provider, opts.baseProvider, opts.endpoint, opts.routing ?? "", opts.encryptedKey, userId, id],
 			);
 		} else {
 			await this.query(
-				`UPDATE custom_models SET name = $1, base_provider = $2, endpoint = $3 WHERE user_id = $4 AND id = $5`,
-				[opts.name, opts.baseProvider, opts.endpoint, userId, id],
+				`UPDATE custom_models SET name = $1, provider = $2, base_provider = $3, endpoint = $4, routing = $5 WHERE user_id = $6 AND id = $7`,
+				[opts.name, opts.provider, opts.baseProvider, opts.endpoint, opts.routing ?? "", userId, id],
 			);
 		}
 	}

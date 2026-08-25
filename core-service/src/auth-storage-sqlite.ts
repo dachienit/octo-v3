@@ -94,15 +94,21 @@ export class SqliteAuthStorage implements AuthStorage {
 				id TEXT NOT NULL,
 				user_id TEXT NOT NULL,
 				name TEXT NOT NULL,
+				provider TEXT NOT NULL DEFAULT 'custom',
 				base_provider TEXT NOT NULL,
 				endpoint TEXT NOT NULL,
 				encrypted_key TEXT NOT NULL,
+				routing TEXT NOT NULL DEFAULT '',
 				created_at TEXT NOT NULL,
 				PRIMARY KEY (user_id, id),
 				FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 			);
 		`);
 		this.ensureColumn("users", "avatar_url", "TEXT");
+		this.ensureColumn("custom_models", "provider", "TEXT NOT NULL DEFAULT 'custom'");
+		this.ensureColumn("custom_models", "routing", "TEXT NOT NULL DEFAULT ''");
+		this.run(`UPDATE custom_models SET provider = 'octo-router' WHERE name LIKE 'octo-router/%'`);
+		this.run(`UPDATE custom_models SET provider = 'bosch-genai' WHERE name LIKE 'bosch-genai/%'`);
 	}
 
 	// Idempotent column migration for the already-created `users` table.
@@ -307,36 +313,36 @@ export class SqliteAuthStorage implements AuthStorage {
 		`).map((row) => ({ provider: row.provider, modelId: row.model_id }));
 	}
 
-	async listCustomModels(userId: string): Promise<Array<{ id: string; name: string; baseProvider: string; endpoint: string }>> {
-		return this.all<{ id: string; name: string; base_provider: string; endpoint: string }>(`
-			SELECT id, name, base_provider, endpoint FROM custom_models
+	async listCustomModels(userId: string): Promise<Array<{ id: string; name: string; provider: string; baseProvider: string; endpoint: string; routing?: string }>> {
+		return this.all<{ id: string; name: string; provider: string; base_provider: string; endpoint: string; routing: string }>(`
+			SELECT id, name, provider, base_provider, endpoint, routing FROM custom_models
 			WHERE user_id = ${sqlString(userId)}
 			ORDER BY created_at
-		`).map((row) => ({ id: row.id, name: row.name, baseProvider: row.base_provider, endpoint: row.endpoint }));
+		`).map((row) => ({ id: row.id, name: row.name, provider: row.provider, baseProvider: row.base_provider, endpoint: row.endpoint, routing: row.routing || undefined }));
 	}
 
 	async getCustomModel(
 		userId: string,
 		id: string,
-	): Promise<{ id: string; name: string; baseProvider: string; endpoint: string; encryptedKey: string } | undefined> {
-		const row = this.all<{ id: string; name: string; base_provider: string; endpoint: string; encrypted_key: string }>(`
-			SELECT id, name, base_provider, endpoint, encrypted_key FROM custom_models
+	): Promise<{ id: string; name: string; provider: string; baseProvider: string; endpoint: string; encryptedKey: string; routing?: string } | undefined> {
+		const row = this.all<{ id: string; name: string; provider: string; base_provider: string; endpoint: string; encrypted_key: string; routing: string }>(`
+			SELECT id, name, provider, base_provider, endpoint, encrypted_key, routing FROM custom_models
 			WHERE user_id = ${sqlString(userId)} AND id = ${sqlString(id)}
 			LIMIT 1
 		`)[0];
 		if (!row) return undefined;
-		return { id: row.id, name: row.name, baseProvider: row.base_provider, endpoint: row.endpoint, encryptedKey: row.encrypted_key };
+		return { id: row.id, name: row.name, provider: row.provider, baseProvider: row.base_provider, endpoint: row.endpoint, encryptedKey: row.encrypted_key, routing: row.routing || undefined };
 	}
 
 	async addCustomModel(
 		userId: string,
-		opts: { name: string; baseProvider: string; endpoint: string; encryptedKey: string },
+		opts: { name: string; provider: string; baseProvider: string; endpoint: string; encryptedKey: string; routing?: string },
 	): Promise<string> {
 		const id = createId("cm");
 		const createdAt = new Date().toISOString();
 		this.run(`
-			INSERT INTO custom_models (id, user_id, name, base_provider, endpoint, encrypted_key, created_at)
-			VALUES (${sqlString(id)}, ${sqlString(userId)}, ${sqlString(opts.name)}, ${sqlString(opts.baseProvider)}, ${sqlString(opts.endpoint)}, ${sqlString(opts.encryptedKey)}, ${sqlString(createdAt)})
+			INSERT INTO custom_models (id, user_id, name, provider, base_provider, endpoint, encrypted_key, routing, created_at)
+			VALUES (${sqlString(id)}, ${sqlString(userId)}, ${sqlString(opts.name)}, ${sqlString(opts.provider)}, ${sqlString(opts.baseProvider)}, ${sqlString(opts.endpoint)}, ${sqlString(opts.encryptedKey)}, ${sqlString(opts.routing ?? "")}, ${sqlString(createdAt)})
 		`);
 		return id;
 	}
@@ -344,14 +350,16 @@ export class SqliteAuthStorage implements AuthStorage {
 	async updateCustomModel(
 		userId: string,
 		id: string,
-		opts: { name: string; baseProvider: string; endpoint: string; encryptedKey?: string },
+		opts: { name: string; provider: string; baseProvider: string; endpoint: string; encryptedKey?: string; routing?: string },
 	): Promise<void> {
 		const keyClause = opts.encryptedKey ? `, encrypted_key = ${sqlString(opts.encryptedKey)}` : "";
 		this.run(`
 			UPDATE custom_models SET
 				name = ${sqlString(opts.name)},
+				provider = ${sqlString(opts.provider)},
 				base_provider = ${sqlString(opts.baseProvider)},
-				endpoint = ${sqlString(opts.endpoint)}${keyClause}
+				endpoint = ${sqlString(opts.endpoint)},
+				routing = ${sqlString(opts.routing ?? "")}${keyClause}
 			WHERE user_id = ${sqlString(userId)} AND id = ${sqlString(id)}
 		`);
 	}
