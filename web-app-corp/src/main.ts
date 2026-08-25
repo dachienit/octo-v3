@@ -67,6 +67,13 @@ let boschDraft: { name: string; baseProvider: string; endpoint: string; apiKey: 
 	endpoint: "",
 	apiKey: "",
 };
+let octoDraft: { name: string; baseProvider: string; endpoint: string; apiKey: string; routing: string } = {
+	name: "",
+	baseProvider: "openai",
+	endpoint: "",
+	apiKey: "",
+	routing: "azure",
+};
 
 // App state
 let sidebarOpen = true;
@@ -1464,7 +1471,7 @@ async function addBoschModel() {
 	boschError = "";
 	renderApp();
 	try {
-		await client.addCustomModel({ name, baseProvider: boschDraft.baseProvider, endpoint, apiKey });
+		await client.addCustomModel({ name, provider: "bosch-genai", baseProvider: boschDraft.baseProvider, endpoint, apiKey });
 		boschDraft = { name: "", baseProvider: "openai", endpoint: "", apiKey: "" };
 		await loadBoschModels();
 		void chatPanel.refreshActiveModels();
@@ -1476,16 +1483,18 @@ async function addBoschModel() {
 	}
 }
 
-async function updateBoschModel(model: CustomModelConfig, patch: Partial<Pick<CustomModelConfig, "name" | "baseProvider" | "endpoint">> & { apiKey?: string }) {
+async function updateBoschModel(model: CustomModelConfig, patch: Partial<Pick<CustomModelConfig, "name" | "provider" | "baseProvider" | "endpoint" | "routing">> & { apiKey?: string }) {
 	boschSaving = true;
 	boschError = "";
 	renderApp();
 	try {
 		await client.updateCustomModel(model.id, {
 			name: patch.name ?? model.name,
+			provider: patch.provider ?? model.provider,
 			baseProvider: patch.baseProvider ?? model.baseProvider,
 			endpoint: patch.endpoint ?? model.endpoint,
 			apiKey: patch.apiKey,
+			routing: patch.routing ?? model.routing,
 		});
 		await loadBoschModels();
 		void chatPanel.refreshActiveModels();
@@ -1503,6 +1512,31 @@ async function deleteBoschModel(id: string) {
 	renderApp();
 	try {
 		await client.deleteCustomModel(id);
+		await loadBoschModels();
+		void chatPanel.refreshActiveModels();
+	} catch (err) {
+		boschError = err instanceof Error ? err.message : String(err);
+	} finally {
+		boschSaving = false;
+		renderApp();
+	}
+}
+
+async function addOctoModel() {
+	const name = octoDraft.name.trim();
+	const endpoint = octoDraft.endpoint.trim();
+	const apiKey = octoDraft.apiKey.trim();
+	if (!name || !endpoint || !apiKey) {
+		boschError = "Name, endpoint and API key are required.";
+		renderApp();
+		return;
+	}
+	boschSaving = true;
+	boschError = "";
+	renderApp();
+	try {
+		await client.addCustomModel({ name, provider: "octo-router", baseProvider: octoDraft.baseProvider, endpoint, apiKey, routing: octoDraft.routing });
+		octoDraft = { name: "", baseProvider: "openai", endpoint: "", apiKey: "", routing: "azure" };
 		await loadBoschModels();
 		void chatPanel.refreshActiveModels();
 	} catch (err) {
@@ -2650,6 +2684,7 @@ function renderProviderDialog() {
 	if (!providerDialogOpen) return "";
 	const allProviders = [
 		{ id: "bosch-genai", label: "Bosch GenAI" },
+		{ id: "octo-router", label: "Octo Router" },
 		{ id: "openai-codex", label: "Codex" },
 		{ id: "openai", label: "OpenAI" },
 		{ id: "google", label: "Google Gemini" },
@@ -2725,6 +2760,7 @@ function renderProviderDialog() {
 						: ""}
 
 					${selectedProvider === "bosch-genai" ? renderBoschGenAIConfig() : ""}
+					${selectedProvider === "octo-router" ? renderOctoRouterConfig() : ""}
 
 					${LLM_KEY_PROVIDERS.has(selectedProvider) ? renderLlmKeyAndModels() : ""}
 				</div>
@@ -2744,6 +2780,9 @@ const BOSCH_BASE_PROVIDERS = [
 ];
 
 function renderBoschGenAIConfig() {
+	const filteredModels = boschModels.filter((model) => model.provider === "bosch-genai" || (model.provider !== "octo-router" && !model.name.startsWith("octo-router/")));
+	const cleanModelName = (name: string) => name.replace("bosch-genai/", "").replace("octo-router/", "");
+
 	return html`
 		<div class="flex flex-col gap-3">
 			<p class="text-xs text-muted-foreground">
@@ -2755,9 +2794,9 @@ function renderBoschGenAIConfig() {
 			<div class="flex flex-col gap-3">
 				${boschLoading
 					? html`<div class="px-3 py-4 text-center text-xs italic text-muted-foreground">Loading models...</div>`
-					: boschModels.length === 0
+					: filteredModels.length === 0
 						? html`<div class="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs italic text-muted-foreground">No models configured yet.</div>`
-						: boschModels.map((model) => renderBoschModelBlock(model))}
+						: filteredModels.map((model) => renderBoschModelBlock(model))}
 			</div>
 
 			<!-- Add new block -->
@@ -2813,6 +2852,7 @@ function renderBoschGenAIConfig() {
 
 function renderBoschModelBlock(model: CustomModelConfig) {
 	const open = boschExpanded[model.id] === true;
+	const cleanModelName = (name: string) => name.replace("bosch-genai/", "").replace("octo-router/", "");
 	return html`
 		<div class="rounded-lg border border-border bg-card">
 			<div class="flex items-center gap-2 px-3 py-2">
@@ -2822,7 +2862,7 @@ function renderBoschModelBlock(model: CustomModelConfig) {
 					@click=${() => { boschExpanded[model.id] = !open; renderApp(); }}
 				>
 					${icon(open ? ChevronDown : ChevronRight, "xs")}
-					<span class="min-w-0 flex-1 truncate text-sm font-medium">${model.name}</span>
+					<span class="min-w-0 flex-1 truncate text-sm font-medium">${cleanModelName(model.name)}</span>
 				</button>
 			</div>
 			${open ? html`
@@ -2830,9 +2870,14 @@ function renderBoschModelBlock(model: CustomModelConfig) {
 				<ui5-input
 					class="corp-ui5-input"
 					placeholder="Name"
-					value=${model.name}
+					value=${cleanModelName(model.name)}
 					?disabled=${boschSaving}
-					@change=${(e: Event) => { const v = getUi5Value(e); if (v.trim() && v.trim() !== model.name) void updateBoschModel(model, { name: v.trim() }); }}
+					@change=${(e: Event) => {
+						const v = getUi5Value(e).trim();
+						if (v && v !== model.name) {
+							void updateBoschModel(model, { name: v });
+						}
+					}}
 				></ui5-input>
 				<ui5-select
 					class="corp-ui5-select"
@@ -2846,7 +2891,10 @@ function renderBoschModelBlock(model: CustomModelConfig) {
 					placeholder="Endpoint (full model URL from LLM Farm docs)"
 					value=${model.endpoint}
 					?disabled=${boschSaving}
-					@change=${(e: Event) => { const v = getUi5Value(e); if (v.trim() && v.trim() !== model.endpoint) void updateBoschModel(model, { endpoint: v.trim() }); }}
+					@change=${(e: Event) => {
+						const v = getUi5Value(e).trim();
+						if (v && v !== model.endpoint) void updateBoschModel(model, { endpoint: v });
+					}}
 				></ui5-input>
 				<ui5-input
 					class="corp-ui5-input"
@@ -2860,7 +2908,174 @@ function renderBoschModelBlock(model: CustomModelConfig) {
 					design="Negative"
 					icon="delete"
 					?disabled=${boschSaving}
-					@click=${() => { if (confirm(`Remove model "${model.name}"? This deletes it permanently.`)) void deleteBoschModel(model.id); }}
+					@click=${() => { if (confirm(`Remove model "${cleanModelName(model.name)}"? This deletes it permanently.`)) void deleteBoschModel(model.id); }}
+				>
+					Remove
+				</ui5-button>
+			</div>
+			` : ""}
+		</div>
+	`;
+}
+
+function renderOctoRouterConfig() {
+	const filteredModels = boschModels.filter((model) => model.name.startsWith("octo-router/"));
+	const cleanModelName = (name: string) => name.replace("bosch-genai/", "").replace("octo-router/", "");
+
+	return html`
+		<div class="flex flex-col gap-3">
+			<p class="text-xs text-muted-foreground">
+				Configure models served through your Octo Router / AWS Bedrock gateway. Each entry calls the chosen
+				provider's API format but is routed to your endpoint. Saved entries appear in the model picker.
+			</p>
+
+			<!-- Configured blocks -->
+			<div class="flex flex-col gap-3">
+				${boschLoading
+					? html`<div class="px-3 py-4 text-center text-xs italic text-muted-foreground">Loading models...</div>`
+					: filteredModels.length === 0
+						? html`<div class="rounded-lg border border-dashed border-border px-3 py-4 text-center text-xs italic text-muted-foreground">No models configured yet.</div>`
+						: filteredModels.map((model) => renderOctoModelBlock(model))}
+			</div>
+
+			<!-- Add new block -->
+			<div class="rounded-lg border border-border bg-card">
+				<div class="flex items-center gap-2 px-3 py-2">
+					<span class="text-sm font-semibold">Add model</span>
+				</div>
+				<div class="flex flex-col gap-2 border-t border-border px-3 py-3">
+					<ui5-input
+						class="corp-ui5-input"
+						placeholder="Name (e.g. Bedrock Claude 3.5 Sonnet)"
+						value=${octoDraft.name}
+						?disabled=${boschSaving}
+						@input=${(e: Event) => { octoDraft.name = getUi5Value(e); }}
+					></ui5-input>
+					<ui5-select
+						class="corp-ui5-select"
+						?disabled=${boschSaving}
+						@change=${(e: Event) => {
+							const prev = octoDraft.baseProvider;
+							const next = getUi5SelectValue(e, octoDraft.baseProvider);
+							if (next !== prev) {
+								octoDraft.baseProvider = next;
+								if (next === "openai") octoDraft.routing = "azure";
+								else if (next === "google") octoDraft.routing = "vertex";
+								else if (next === "anthropic") octoDraft.routing = "vertex";
+								renderApp();
+							}
+						}}
+					>
+						${BOSCH_BASE_PROVIDERS.map((p) => html`<ui5-option value=${p.id} ?selected=${p.id === octoDraft.baseProvider}>${p.label}</ui5-option>`)}
+					</ui5-select>
+					<ui5-select
+						class="corp-ui5-select"
+						?disabled=${boschSaving}
+						@change=${(e: Event) => { octoDraft.routing = getUi5SelectValue(e, octoDraft.routing); }}
+					>
+						<ui5-option value="azure" ?selected=${octoDraft.routing === "azure"}>Azure OpenAI routing</ui5-option>
+						<ui5-option value="vertex" ?selected=${octoDraft.routing === "vertex"}>Google Vertex AI routing</ui5-option>
+						<ui5-option value="bedrock" ?selected=${octoDraft.routing === "bedrock"}>AWS Bedrock routing</ui5-option>
+					</ui5-select>
+					<ui5-input
+						class="corp-ui5-input"
+						placeholder="Endpoint (e.g. https://<host>/api/aws/v1/publishers/anthropic/models/claude-3-5-sonnet)"
+						value=${octoDraft.endpoint}
+						?disabled=${boschSaving}
+						@input=${(e: Event) => { octoDraft.endpoint = getUi5Value(e); }}
+					></ui5-input>
+					<ui5-input
+						class="corp-ui5-input"
+						type="Password"
+						placeholder="API Key"
+						value=${octoDraft.apiKey}
+						?disabled=${boschSaving}
+						@input=${(e: Event) => { octoDraft.apiKey = getUi5Value(e); }}
+					></ui5-input>
+					<ui5-button
+						class="corp-ui5-button corp-wide-button"
+						design="Emphasized"
+						?disabled=${boschSaving}
+						@click=${() => void addOctoModel()}
+					>
+						${boschSaving ? "Saving..." : "Add model"}
+					</ui5-button>
+				</div>
+			</div>
+
+			${boschError ? html`<div class="text-xs text-destructive">${boschError}</div>` : ""}
+		</div>
+	`;
+}
+
+function renderOctoModelBlock(model: CustomModelConfig) {
+	const open = boschExpanded[model.id] === true;
+	const cleanModelName = (name: string) => name.replace("bosch-genai/", "").replace("octo-router/", "");
+	return html`
+		<div class="rounded-lg border border-border bg-card">
+			<div class="flex items-center gap-2 px-3 py-2">
+				<button
+					type="button"
+					class="flex min-w-0 flex-1 items-center gap-2 text-left hover:opacity-80"
+					@click=${() => { boschExpanded[model.id] = !open; renderApp(); }}
+				>
+					${icon(open ? ChevronDown : ChevronRight, "xs")}
+					<span class="min-w-0 flex-1 truncate text-sm font-medium">${cleanModelName(model.name)}</span>
+				</button>
+			</div>
+			${open ? html`
+			<div class="flex flex-col gap-2 border-t border-border px-3 py-3">
+				<ui5-input
+					class="corp-ui5-input"
+					placeholder="Name"
+					value=${cleanModelName(model.name)}
+					?disabled=${boschSaving}
+					@change=${(e: Event) => {
+						const v = getUi5Value(e).trim();
+						if (v && v !== model.name) {
+							void updateBoschModel(model, { name: v });
+						}
+					}}
+				></ui5-input>
+				<ui5-select
+					class="corp-ui5-select"
+					?disabled=${boschSaving}
+					@change=${(e: Event) => { const v = getUi5SelectValue(e, model.baseProvider); if (v !== model.baseProvider) void updateBoschModel(model, { baseProvider: v }); }}
+				>
+					${BOSCH_BASE_PROVIDERS.map((p) => html`<ui5-option value=${p.id} ?selected=${p.id === model.baseProvider}>${p.label}</ui5-option>`)}
+				</ui5-select>
+				<ui5-select
+					class="corp-ui5-select"
+					?disabled=${boschSaving}
+					@change=${(e: Event) => { const v = getUi5SelectValue(e, model.routing ?? "azure"); if (v !== model.routing) void updateBoschModel(model, { routing: v }); }}
+				>
+					<ui5-option value="azure" ?selected=${(model.routing ?? "azure") === "azure"}>Azure OpenAI routing</ui5-option>
+					<ui5-option value="vertex" ?selected=${model.routing === "vertex"}>Google Vertex AI routing</ui5-option>
+					<ui5-option value="bedrock" ?selected=${model.routing === "bedrock"}>AWS Bedrock routing</ui5-option>
+				</ui5-select>
+				<ui5-input
+					class="corp-ui5-input"
+					placeholder="Endpoint (full model URL)"
+					value=${model.endpoint}
+					?disabled=${boschSaving}
+					@change=${(e: Event) => {
+						const v = getUi5Value(e).trim();
+						if (v && v !== model.endpoint) void updateBoschModel(model, { endpoint: v });
+					}}
+				></ui5-input>
+				<ui5-input
+					class="corp-ui5-input"
+					type="Password"
+					placeholder="Replace API Key (leave blank to keep)"
+					?disabled=${boschSaving}
+					@change=${(e: Event) => { const v = getUi5Value(e); if (v.trim()) void updateBoschModel(model, { apiKey: v.trim() }); }}
+				></ui5-input>
+				<ui5-button
+					class="corp-ui5-button corp-wide-button"
+					design="Negative"
+					icon="delete"
+					?disabled=${boschSaving}
+					@click=${() => { if (confirm(`Remove model "${cleanModelName(model.name)}"? This deletes it permanently.`)) void deleteBoschModel(model.id); }}
 				>
 					Remove
 				</ui5-button>

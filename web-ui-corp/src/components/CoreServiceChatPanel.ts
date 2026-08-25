@@ -450,7 +450,12 @@ export class CoreServiceChatPanel extends LitElement {
 	}
 
 	private quickModelOptions(): QuickModelOption[] {
-		return this.activeModels.map((m) => ({ value: `${m.provider}:${m.modelId}`, label: m.label, provider: m.provider }));
+		return this.activeModels.map((m) => {
+			let label = m.label;
+			if (label.startsWith("bosch-genai/")) label = label.slice("bosch-genai/".length);
+			if (label.startsWith("octo-router/")) label = label.slice("octo-router/".length);
+			return { value: `${m.provider}:${m.modelId}`, label, provider: m.provider };
+		});
 	}
 
 	override disconnectedCallback() {

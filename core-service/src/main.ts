@@ -67,6 +67,10 @@ const LLM_PROVIDERS_ALLOWLIST = (process.env.CORE_SERVICE_LLM_PROVIDERS ?? "")
 	.map((id) => id.trim())
 	.filter(Boolean);
 
+if (LLM_PROVIDERS_ALLOWLIST.includes("bosch-genai") && !LLM_PROVIDERS_ALLOWLIST.includes("octo-router")) {
+	LLM_PROVIDERS_ALLOWLIST.push("octo-router");
+}
+
 interface ParsedArgs {
 	workingDir?: string;
 	sandbox: SandboxConfig;

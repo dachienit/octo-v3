@@ -30,6 +30,7 @@ import { getAppHeader, getAppTitle } from "./branding.js";
 import { registerAdtRunner } from "./capabilities/adt-tool.js";
 import { decryptSecret, encryptSecret } from "./crypto.js";
 import { prepareBoschAnthropicEndpoint, prepareBoschGoogleEndpoint, prepareBoschOpenAIEndpoint } from "./extensions/bosch-genai-adapter.js";
+import { prepareOctoRouterAnthropicEndpoint, prepareOctoRouterGoogleEndpoint, prepareOctoRouterOpenAIEndpoint } from "./extensions/octo-router-adapter.js";
 import { GithubSsoProvider, loadSsoConfig } from "./sso.js";
 import type { ObjectStoreGateway } from "./object-store.js";
 import {
@@ -1082,7 +1083,7 @@ export class HttpServer {
 			label: this.modelLabel(m.provider, m.modelId),
 		}));
 		for (const cm of await store.listCustomModels(userId)) {
-			models.push({ provider: "custom", modelId: cm.id, label: cm.name });
+			models.push({ provider: cm.provider, modelId: cm.id, label: cm.name });
 		}
 		res.json({ models });
 	}
@@ -1142,29 +1143,41 @@ export class HttpServer {
 	private parseCustomModelBody(
 		req: express.Request,
 		requireKey: boolean,
-	): { name: string; baseProvider: string; endpoint: string; apiKey?: string } | { error: string } {
-		const { name, baseProvider, endpoint, apiKey } = req.body as {
-			name?: string; baseProvider?: string; endpoint?: string; apiKey?: string;
+	): { name: string; provider: string; baseProvider: string; endpoint: string; apiKey?: string; routing?: string } | { error: string } {
+		const { name, provider, baseProvider, endpoint, apiKey, routing } = req.body as {
+			name?: string; provider?: string; baseProvider?: string; endpoint?: string; apiKey?: string; routing?: string;
 		};
 		if (!name || !name.trim()) return { error: "Missing name" };
 		if (!baseProvider || !this.isAllowedBaseProvider(baseProvider)) return { error: "Unsupported baseProvider" };
 		if (!endpoint || !endpoint.trim()) return { error: "Missing endpoint" };
 		if (requireKey && (!apiKey || !apiKey.trim())) return { error: "Missing apiKey" };
+
+		let resolvedProvider = provider && provider.trim() ? provider.trim() : "custom";
+		if (resolvedProvider === "custom" || !resolvedProvider) {
+			if (name.startsWith("octo-router/")) {
+				resolvedProvider = "octo-router";
+			} else if (name.startsWith("bosch-genai/")) {
+				resolvedProvider = "bosch-genai";
+			}
+		}
+
 		return {
 			name: name.trim(),
+			provider: resolvedProvider,
 			baseProvider,
 			endpoint: endpoint.trim(),
 			apiKey: apiKey && apiKey.trim() ? apiKey.trim() : undefined,
+			routing: routing && routing.trim() ? routing.trim() : undefined,
 		};
 	}
 
-	// GET /llm/custom-models → { customModels: [{ id, name, baseProvider, endpoint }] }. Never returns keys.
+	// GET /llm/custom-models → { customModels: [{ id, name, provider, baseProvider, endpoint, routing }] }. Never returns keys.
 	private async handleListCustomModels(req: express.Request, res: express.Response): Promise<void> {
 		const customModels = await this.auth.getStore().listCustomModels(this.getUserId(req));
 		res.json({ customModels });
 	}
 
-	// POST /llm/custom-models  body { name, baseProvider, endpoint, apiKey } → encrypt + store.
+	// POST /llm/custom-models  body { name, provider?, baseProvider, endpoint, apiKey, routing? } → encrypt + store.
 	private async handleCreateCustomModel(req: express.Request, res: express.Response): Promise<void> {
 		const parsed = this.parseCustomModelBody(req, true);
 		if ("error" in parsed) {
@@ -1175,9 +1188,11 @@ export class HttpServer {
 			const encryptedKey = encryptSecret(parsed.apiKey as string);
 			const id = await this.auth.getStore().addCustomModel(this.getUserId(req), {
 				name: parsed.name,
+				provider: parsed.provider,
 				baseProvider: parsed.baseProvider,
 				endpoint: parsed.endpoint,
 				encryptedKey,
+				routing: parsed.routing,
 			});
 			res.json({ ok: true, id });
 		} catch (err) {
@@ -1185,7 +1200,7 @@ export class HttpServer {
 		}
 	}
 
-	// PUT /llm/custom-models/:id  body { name, baseProvider, endpoint, apiKey? } → update (key optional).
+	// PUT /llm/custom-models/:id  body { name, provider?, baseProvider, endpoint, apiKey?, routing? } → update (key optional).
 	private async handleUpdateCustomModel(req: express.Request, res: express.Response): Promise<void> {
 		const id = String(req.params.id);
 		const userId = this.getUserId(req);
@@ -1202,9 +1217,11 @@ export class HttpServer {
 			const encryptedKey = parsed.apiKey ? encryptSecret(parsed.apiKey) : undefined;
 			await this.auth.getStore().updateCustomModel(userId, id, {
 				name: parsed.name,
+				provider: parsed.provider,
 				baseProvider: parsed.baseProvider,
 				endpoint: parsed.endpoint,
 				encryptedKey,
+				routing: parsed.routing,
 			});
 			res.json({ ok: true });
 		} catch (err) {
@@ -2687,7 +2704,7 @@ export class HttpServer {
 				}
 			}
 			resolvedModel = { provider: modelSel.provider, modelId: modelSel.modelId, apiKey };
-		} else if (modelSel?.provider === "custom" && modelSel?.modelId) {
+		} else if ((modelSel?.provider === "custom" || modelSel?.provider === "octo-router" || modelSel?.provider === "bosch-genai") && modelSel?.modelId) {
 			const cm = await this.auth.getStore().getCustomModel(userId, modelSel.modelId);
 			if (cm) {
 				let apiKey: string | undefined;
@@ -2709,16 +2726,25 @@ export class HttpServer {
 				const isOpenAiBase = cm.baseProvider === "openai";
 				let baseUrl: string;
 				let modelId = cm.name;
+				const isOcto = modelSel.provider === "octo-router";
 				if (isOpenAiBase) {
-					baseUrl = prepareBoschOpenAIEndpoint(cm.endpoint);
+					baseUrl = isOcto ? prepareOctoRouterOpenAIEndpoint(cm.endpoint) : prepareBoschOpenAIEndpoint(cm.endpoint);
 				} else if (cm.baseProvider === "google") {
-					const g = prepareBoschGoogleEndpoint(cm.endpoint);
-					baseUrl = g.baseUrl;
-					modelId = g.modelId ?? cm.name;
+					if (isOcto) {
+						baseUrl = prepareOctoRouterGoogleEndpoint(cm.endpoint);
+					} else {
+						const g = prepareBoschGoogleEndpoint(cm.endpoint);
+						baseUrl = g.baseUrl;
+						modelId = g.modelId ?? modelId;
+					}
 				} else {
-					const a = prepareBoschAnthropicEndpoint(cm.endpoint);
-					baseUrl = a.baseUrl;
-					modelId = a.modelId ?? cm.name;
+					if (isOcto) {
+						baseUrl = prepareOctoRouterAnthropicEndpoint(cm.endpoint, cm.routing);
+					} else {
+						const a = prepareBoschAnthropicEndpoint(cm.endpoint);
+						baseUrl = a.baseUrl;
+						modelId = a.modelId ?? modelId;
+					}
 				}
 				resolvedModel = {
 					provider: cm.baseProvider,   // openai|google|anthropic → drives header/body format

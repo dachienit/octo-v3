@@ -12,6 +12,7 @@
 		"sourceMap": true,
 		"inlineSources": true,
 		"inlineSourceMap": false,
+		"incremental": true,
 		"moduleResolution": "Node16",
 		"resolveJsonModule": true,
 		"allowImportingTsExtensions": false,
