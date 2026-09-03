@@ -20,7 +20,7 @@ The mirror is **lazy**: adding a package creates the folder and file names, but 
 
 1. Read the file under `<conn>`.
 2. **If it has content, use it and stop.** Do not call SAP again for an object you already have.
-3. If it is empty, look its path up in `<conn>/.adt-tree.json` → `entries["<path relative to conn>"]
+3. If it is empty, look its path up in `<conn>/.adt/tree.json` → `entries["<path relative to conn>"]
    .adtUri`, then let the CLI fill the file directly:
 
    ```jsonc

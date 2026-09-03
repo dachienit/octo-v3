@@ -48,6 +48,12 @@ did not break a rule the system actually enforces.
 Runs `@abaplint/core` locally. Supported types: `CLAS/OC`, `INTF/OI`, `PROG/P`, `PROG/I`.
 **Exit codes: `0` clean, `1` errors, `2` warnings only.**
 
+**Do not pass `--config`.** The rules are already configured per system in `<conn>/.adt/abaplint.json`,
+which the CLI finds on its own. Passing a path overrides that file and lints against different rules
+than the system's owner chose. The stderr line `Using abaplint config: …` names the file that won —
+check it if a result surprises you. The same folder holds `pull-config.json`, which decides which
+object types `object pull` mirrors. Both are the user's to edit, not yours.
+
 ```jsonc
 // One object, fetched through ADT then linted offline
 ["lint", "object", "oo/classes/zcl_foo"]

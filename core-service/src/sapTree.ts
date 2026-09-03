@@ -3,8 +3,11 @@
 // The host-direct SAP flow (see core-service/src/http.ts) materializes an
 // Eclipse-style ADT object tree as real folders + files on disk under
 // `artifacts/<connection>/`, so the agent can read them and users can @mention
-// them. A sidecar manifest (`.adt-tree.json`) records, for each materialized
-// path, how to reach the corresponding ADT node:
+// them. Everything that describes the connection itself lives in one `.adt/`
+// folder beside the materialized tree — the descriptor, the manifest, and the
+// two adt-cli config files that apply to this system only. A sidecar manifest
+// (`.adt/tree.json`) records, for each materialized path, how to reach the
+// corresponding ADT node:
 //   - expandable folders (packages / sub-packages) carry the parent_type +
 //     parent_name needed to call `adt object list` again (lazy expansion);
 //   - object files carry the ADT source URI needed to hydrate their content.
@@ -37,12 +40,22 @@ export interface SapTreeManifest {
 	entries: Record<string, SapTreeEntry>;
 }
 
-export const ADT_TREE_FILE = ".adt-tree.json";
+// Everything that describes a connection lives under this one folder inside the
+// connection directory. The name matches adt-cli's local config layer, which
+// reads `<cwd>/.adt/pull-config.json` and `<cwd>/.adt/abaplint.json` — so the
+// same folder carries both our sidecars and the CLI's per-system config.
+export const ADT_DIR = ".adt";
+
+export const ADT_TREE_FILE = "tree.json";
 
 // Descriptor sidecar written next to the manifest. Its presence is what marks a
 // folder as a SAP connection, both for the workspace tree and for humans reading
 // the folder on disk.
-export const ADT_CONNECTION_FILE = ".adt-connection.json";
+export const ADT_CONNECTION_FILE = "connection.json";
+
+// adt-cli's two local config files, seeded per connection by the host.
+export const ADT_PULL_CONFIG_FILE = "pull-config.json";
+export const ADT_ABAPLINT_FILE = "abaplint.json";
 
 // --- one node as returned by `adt object list --json` -----------------------
 export interface AdtNode {
@@ -62,8 +75,18 @@ export interface AdtListResult {
 
 // --- manifest IO ------------------------------------------------------------
 
+// The `.adt/` folder of a connection. Callers go through these helpers rather
+// than joining ".adt" themselves, so the layout is defined in exactly one place.
+export function adtDir(connDir: string): string {
+	return join(connDir, ADT_DIR);
+}
+
 export function manifestPath(connDir: string): string {
-	return join(connDir, ADT_TREE_FILE);
+	return join(adtDir(connDir), ADT_TREE_FILE);
+}
+
+export function connectionPath(connDir: string): string {
+	return join(adtDir(connDir), ADT_CONNECTION_FILE);
 }
 
 export function readManifest(connDir: string): SapTreeManifest {
@@ -79,6 +102,9 @@ export function readManifest(connDir: string): SapTreeManifest {
 }
 
 export function writeManifest(connDir: string, manifest: SapTreeManifest): void {
+	// The manifest now sits one level deeper than the connection folder, so the
+	// parent is no longer guaranteed to exist by the caller having mkdir'd it.
+	mkdirSync(adtDir(connDir), { recursive: true });
 	writeFileSync(manifestPath(connDir), `${JSON.stringify(manifest, null, 2)}\n`);
 }
 
