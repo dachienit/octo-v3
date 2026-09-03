@@ -49,6 +49,23 @@ import { createSlackContext, SlackBot as SlackBotClass } from "./slack.js";
 import { ChannelStore } from "./store.js";
 import type { BotContext, BotEvent, BotHandler, EventRouter } from "./types.js";
 import { WorkspaceStore } from "./workspaces.js";
+import { injectMetricsHeaders, metricsStorage } from "./metrics-context.js";
+
+// Hook globalThis.fetch to automatically append oc-metric-* headers when MetricsContext is active
+const originalFetch = globalThis.fetch;
+(globalThis as any).fetch = async function (input: any, init?: any) {
+	let nextInit = init;
+	if (input instanceof Request) {
+		injectMetricsHeaders(input.headers);
+	} else {
+		nextInit = init || {};
+		if (!nextInit.headers) {
+			nextInit.headers = {};
+		}
+		injectMetricsHeaders(nextInit.headers);
+	}
+	return originalFetch.call(this, input, nextInit);
+};
 
 // ============================================================================
 // Config
@@ -418,10 +435,19 @@ const handler: BotHandler = {
 
 			log.logInfo(`[${channelId}] Starting run: ${ctx.message.text.substring(0, 50)}`);
 
+			const session = workspaceStore.findSession(channelId);
+			const metricsContext = {
+				workOrderId: session?.workOrderId,
+				workItemId: session?.workItemId,
+				activityId: ctx.activityId,
+			};
+
 			try {
 				await ctx.setTyping(true);
 				await ctx.setWorking(true);
-				const result = await state.runner.run(ctx, state.store);
+				const result = await metricsStorage.run(metricsContext, () => {
+					return state.runner.run(ctx, state.store);
+				});
 				await ctx.setWorking(false);
 
 				if (result.stopReason === "aborted" && state.stopRequested) {

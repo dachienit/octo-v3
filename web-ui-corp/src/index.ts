@@ -14,6 +14,8 @@ export {
 	type SseEvent,
 	type SessionInfo,
 	type SessionRecord,
+	type WorkOrder,
+	type WorkItem,
 	type SkillUploadFile,
 	type SkillUploadResult,
 	type SsoConfig,

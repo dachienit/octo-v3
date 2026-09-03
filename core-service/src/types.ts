@@ -77,6 +77,7 @@ export interface BotContext {
 	 * its own (Kerberos/SPNEGO) and no user token is involved.
 	 */
 	sap?: { userJwt?: string; routerBase?: string };
+	activityId?: string;
 	channelName?: string;
 	channels: ChannelInfo[];
 	users: UserInfo[];
