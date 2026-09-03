@@ -235,7 +235,7 @@ export type WorkspaceNode = {
 	name: string;
 	path: string;
 	type: "file" | "directory";
-	/** Set on the folder of a SAP ADT connection (it holds `.adt-connection.json`). */
+	/** Set on the folder of a SAP ADT connection (it holds `.adt/connection.json`). */
 	sapConnection?: boolean;
 	children?: WorkspaceNode[];
 };

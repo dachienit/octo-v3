@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "pullTypes": [
+    "CLAS/OC",
+    "INTF/OI",
+    "PROG/P",
+    "PROG/I",
+    "FUGR/F",
+    "FUGR/FF",
+    "FUGR/I",
+    "TABL/DT",
+    "TABL/DS",
+    "STRU/DS",
+    "DTEL/DE",
+    "DOMA/DD",
+    "TTYP/DA",
+    "DDLS/DF",
+    "DDLS/DL",
+    "DCLS/DL"
+  ],
+  "namespacePrefixes": [
+    "Z",
+    "Y",
+    "/RB"
+  ]
+}
