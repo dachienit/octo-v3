@@ -691,6 +691,11 @@ async function loadWorkspace() {
 	]);
 	workspaceTree = tree ?? { artifacts: [], skills: [] };
 	workspaceSettings = settings ?? {};
+	workspaceTree = (await client.getWorkspace(channelId!)) ?? { artifacts: [], skills: [] };
+	// The composer's `@` picker and Skills menu read the same tree. Pushing it here -
+	// rather than letting the panel fetch its own - is what keeps `@` in step with the
+	// Artifacts explorer after every mutation, for the price of no extra request.
+	chatPanel.setWorkspaceTree(workspaceTree);
 	sapDefaultProfile = workspaceTree.sapDefaultProfile ?? "";
 	await loadSapManifests();
 	await refreshAcpJobs(false);
@@ -818,9 +823,9 @@ async function submitSkillUpload(event?: Event) {
 	skillUploadSkipped = [];
 	workspaceTab = "skills";
 	if (result.path) expandedFolders.add(result.path);
+	// Also lands the new skill in the composer's Skills menu: loadWorkspace() pushes
+	// the refreshed tree to the chat panel.
 	await loadWorkspace();
-	// So the composer's Skills menu lists the new skill without a reload.
-	await chatPanel.refreshWorkspaceContext();
 }
 
 function normalizeWorkspaceArtifactFilename(path: string): string {

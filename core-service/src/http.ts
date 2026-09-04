@@ -1,9 +1,10 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 //IYH1HC SAP ADT add
 import { randomBytes } from "node:crypto";
-import { Dirent, type Stats, appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { Dirent, type Stats, appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "path";
+import { fileURLToPath } from "url";
 import {
 	getModel,
 	getModels,
@@ -34,10 +35,13 @@ import { prepareOctoRouterAnthropicEndpoint, prepareOctoRouterGoogleEndpoint, pr
 import { GithubSsoProvider, loadSsoConfig } from "./sso.js";
 import type { ObjectStoreGateway } from "./object-store.js";
 import {
-	ADT_CONNECTION_FILE,
-	ADT_TREE_FILE,
+	ADT_ABAPLINT_FILE,
+	ADT_PULL_CONFIG_FILE,
+	adtDir,
 	applyPlan,
+	connectionPath,
 	initialManifest,
+	manifestPath,
 	manifestView,
 	planChildren,
 	readManifest,
@@ -63,6 +67,12 @@ import type { SapConnection, WorkspaceRole } from "./workspaces.js";
 import type { SandboxConfig } from "@octo/core-agent";
 
 const localRequire = createRequire(import.meta.url);
+
+//IYH1HC adt-config tiers
+// Root of this package, where `templates/` sits beside `dist/`. Same shape in
+// dev (core-service/) and in the assembled CF payload (deploy/), because
+// assemble-deploy.mjs copies both folders side by side.
+const packageRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 interface SapRemoteDest {
 	Name: string;
@@ -93,6 +103,32 @@ function resolveSapConnectMode(): "local" | "btp" {
 // the client verbatim; a local SSO connection runs with an insecure TLS profile,
 // whose "NODE_TLS_REJECT_UNAUTHORIZED" warning would otherwise become the error
 // message the user sees instead of the real cause.
+// Opt-in verbose tracing of every adt-cli call. Off by default because `-v` mixes
+// adt-cli's own step log into stderr, which is what surfaces to the user as an
+// error message when a command fails.
+function adtTraceEnabled(): boolean {
+	const value = (process.env.OCTO_ADT_TRACE ?? "").trim().toLowerCase();
+	return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+// A short, log-safe name for an adt-cli invocation: the subcommand path plus its
+// first positional argument. Flags and their values are dropped so a profile name
+// or a JWT can never reach the log.
+function adtCliLabel(argv: string[]): string {
+	const words: string[] = [];
+	for (const arg of argv) {
+		// Leading global flags (-q, --raw) come before the subcommand; skip them, then
+		// take positionals until the first option, which is where values start.
+		if (arg.startsWith("-")) {
+			if (words.length === 0) continue;
+			break;
+		}
+		words.push(arg);
+		if (words.length === 3) break;
+	}
+	return words.join(" ") || "adt";
+}
+
 function cliStderr(raw: string): string {
 	return raw
 		.split(/\r?\n/)
@@ -405,6 +441,11 @@ export class HttpServer {
 			const destination = profileName ? this.getConnectionDestination(userId, workspaceId, profileName) : undefined;
 			const result = await this.runAdtCli(userId, argv, {
 				userJwt,
+				// Same reason as adtOpts: the connection folder is where adt-cli finds
+				// this system's `.adt/` config. Without a resolved profile there is no
+				// folder to name, so runAdtCli keeps its own fallback.
+				//IYH1HC adt-config tiers
+				cwd: profileName ? this.sapConnDir(workspaceId, profileName) : undefined,
 				profileName: profileName || undefined,
 				destinationName: destination,
 				routerBase,
@@ -1429,24 +1470,37 @@ export class HttpServer {
 			}
 			const cwd = opts.cwd && existsSync(opts.cwd) ? opts.cwd : this.workingDir;
 			const timeoutMs = Math.min(Math.max(opts.timeoutMs ?? 120000, 1000), 300000);
-			const child = spawn(process.execPath, [adtBin, ...argv], { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
+			// Every adt-cli call is a fresh process talking to an on-prem system, so the
+			// only way to tell "slow because we spawn twice" from "slow because SAP is
+			// slow" is to time each one. OCTO_ADT_TRACE swaps the CLI's `-q` for `-v` so
+			// its own timestamped step/HTTP lines survive into this log.
+			const effectiveArgv = adtTraceEnabled() ? argv.map((arg) => (arg === "-q" ? "-v" : arg)) : argv;
+			const label = adtCliLabel(effectiveArgv);
+			const startedAt = Date.now();
+			const child = spawn(process.execPath, [adtBin, ...effectiveArgv], { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
 			let stdout = "";
 			let stderr = "";
 			let settled = false;
 			const cap = (text: string) => (text.length > 10 * 1024 * 1024 ? text.slice(-10 * 1024 * 1024) : text);
 			const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+			const trace = (exitCode: number) => {
+				log.logInfo(`[adt-cli] ${label} -> exit ${exitCode} in ${Date.now() - startedAt}ms`);
+				if (adtTraceEnabled() && stderr.trim()) log.logInfo(`[adt-cli] ${label} trace:\n${cliStderr(stderr)}`);
+			};
 			child.stdout.on("data", (chunk: Buffer) => { stdout = cap(stdout + chunk.toString("utf-8")); });
 			child.stderr.on("data", (chunk: Buffer) => { stderr = cap(stderr + chunk.toString("utf-8")); });
 			child.on("error", (err) => {
 				clearTimeout(timer);
 				if (settled) return;
 				settled = true;
+				trace(1);
 				resolveP({ stdout, stderr: cliStderr(stderr) || err.message, exitCode: 1 });
 			});
 			child.on("close", (code) => {
 				clearTimeout(timer);
 				if (settled) return;
 				settled = true;
+				trace(code ?? 0);
 				resolveP({ stdout, stderr: cliStderr(stderr), exitCode: code ?? 0 });
 			});
 		});
@@ -1495,9 +1549,12 @@ export class HttpServer {
 	// fall back to `defaultProfile`. Pointing that at whichever connection the user is
 	// working in keeps the agent on the same system as the UI.
 	//
-	// The config file is read first so the common case (acting repeatedly inside one
-	// connection) costs a file read instead of a process spawn; the CLI is still what
-	// performs the write.
+	// Setting one key is done here rather than by spawning `adt auth profile use`.
+	// That spawn was measured at 67s of a 79s "add package": the command touches no
+	// network at all, so the whole cost was starting a Node process that loads the
+	// CLI's entire module graph. Writing the key we already read back costs a rename.
+	// Only the bootstrap case — no config file yet, or one we cannot parse — still
+	// goes through the CLI, which is what knows how to create a config from nothing.
 	private async setDefaultProfile(userId: string, name: string): Promise<void> {
 		if (!name) return;
 		const configPath = this.adtConfigPath(userId);
@@ -1507,8 +1564,15 @@ export class HttpServer {
 				if (cfg.defaultProfile === name) return;
 				// `profile use` throws on an unknown profile; skip rather than log a failure.
 				if (cfg.profiles && !cfg.profiles[name]) return;
-			} catch {
-				/* unreadable config -> let the CLI decide */
+				cfg.defaultProfile = name;
+				// Write-then-rename: adt-cli processes read this file concurrently and a
+				// partial write would look like a corrupt config to them.
+				const tmp = `${configPath}.${process.pid}.tmp`;
+				writeFileSync(tmp, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
+				renameSync(tmp, configPath);
+				return;
+			} catch (err) {
+				log.logWarning("[sap-adt] could not set default profile in place", `${name}: ${err instanceof Error ? err.message : String(err)}`);
 			}
 		}
 		const result = await this.runAdtCli(userId, ["-q", "auth", "profile", "use", name]);
@@ -1524,7 +1588,7 @@ export class HttpServer {
 		ctx: { userId: string; workspaceId: string },
 		req: express.Request,
 		name: string,
-	): Promise<{ userJwt?: string; profileName: string; destinationName?: string; routerBase?: string }> {
+	): Promise<{ userJwt?: string; cwd: string; profileName: string; destinationName?: string; routerBase?: string }> {
 		await this.setDefaultProfile(ctx.userId, name);
 		return this.adtOpts(ctx, req, name);
 	}
@@ -1535,9 +1599,15 @@ export class HttpServer {
 	// /adt-proxy for principal propagation), while a local SSO connection has none
 	// and the CLI talks to the profile's own URL over Kerberos/SPNEGO. No handler
 	// needs to branch on the auth type.
-	private adtOpts(ctx: { userId: string; workspaceId: string }, req: express.Request, name: string): { userJwt?: string; profileName: string; destinationName?: string; routerBase?: string } {
+	//
+	// `cwd` is the connection folder because adt-cli resolves its local config
+	// layer against the process cwd: `<cwd>/.adt/pull-config.json` and
+	// `<cwd>/.adt/abaplint.json`. Pointing it anywhere else silently demotes every
+	// command to the global config. //IYH1HC adt-config tiers
+	private adtOpts(ctx: { userId: string; workspaceId: string }, req: express.Request, name: string): { userJwt?: string; cwd: string; profileName: string; destinationName?: string; routerBase?: string } {
 		return {
 			userJwt: this.extractUserJwt(req),
+			cwd: this.sapConnDir(ctx.workspaceId, name),
 			profileName: name,
 			destinationName: this.getConnectionDestination(ctx.userId, ctx.workspaceId, name),
 			routerBase: this.resolveRouterBase(req),
@@ -1702,14 +1772,34 @@ export class HttpServer {
 		return this.runAdtCli(userId, argv, { cwd, profileName: profile.name });
 	}
 
-	// The connection folder holds exactly two sidecars after a successful connect:
-	// the connection descriptor and an empty object-tree manifest. No object tree
-	// is materialized here — packages are added explicitly from the Artifacts panel.
-	private writeConnectionSidecars(workspaceId: string, connection: SapConnection): string {
+	//IYH1HC adt-config tiers
+	// Everything describing a connection goes into its `.adt/` folder: the
+	// descriptor, an empty object-tree manifest, and adt-cli's two config files.
+	// No object tree is materialized here — packages are added explicitly from the
+	// Artifacts panel.
+	//
+	// The config files are seeded into both tiers, and only when absent, so a user
+	// who has edited either copy keeps their edits across every reconnect:
+	//   local  <conn>/.adt/            → applies to this SAP system only
+	//   global <ADT_CLI_HOME>/         → applies to everything this user runs
+	// adt-cli resolves them by location (local outranks global), so seeding the
+	// files is the whole wiring — nothing else has to point at them.
+	private writeConnectionSidecars(userId: string, workspaceId: string, connection: SapConnection): string {
 		const folder = join(this.workspaceStore.getWorkspaceRoot(workspaceId), "artifacts", connection.name);
-		mkdirSync(folder, { recursive: true });
+		this.writeConnectionDescriptor(folder, connection);
+		if (!existsSync(manifestPath(folder))) writeManifest(folder, initialManifest());
+		this.seedAdtConfigs(userId, folder);
+		return folder;
+	}
+
+	//IYH1HC adt-config tiers
+	// The descriptor alone. Split out because the BTP destination flow writes it
+	// even when the login failed — a breadcrumb of the attempt — while the tree
+	// manifest and the config seeds only appear once the system actually answered.
+	private writeConnectionDescriptor(folder: string, connection: SapConnection): void {
+		mkdirSync(adtDir(folder), { recursive: true });
 		writeFileSync(
-			join(folder, ADT_CONNECTION_FILE),
+			connectionPath(folder),
 			`${JSON.stringify(
 				{
 					connectionName: connection.name,
@@ -1717,6 +1807,7 @@ export class HttpServer {
 					url: connection.url,
 					spn: connection.spn,
 					systemId: connection.systemId,
+					destinationName: connection.destinationName,
 					client: connection.client,
 					language: connection.language,
 				},
@@ -1724,8 +1815,40 @@ export class HttpServer {
 				2,
 			)}\n`,
 		);
-		if (!existsSync(join(folder, ADT_TREE_FILE))) writeManifest(folder, initialManifest());
-		return folder;
+	}
+
+	//IYH1HC adt-config tiers
+	// Copy the bundled adt-cli config defaults into the local and global tiers.
+	// Never overwrites: an existing file is the user's, seeded or hand-edited.
+	// A missing bundle is logged and skipped — a connect must not fail over it.
+	private seedAdtConfigs(userId: string, connFolder: string): void {
+		const bundledRoot = join(packageRoot, "templates", "sap-adt");
+		const targets: Array<{ dir: string; tier: string }> = [{ dir: adtDir(connFolder), tier: "local" }];
+
+		const connector = this.resolveConnector("sap-adt", "business-connector");
+		if (connector) {
+			// The global tier is the adt-cli config dir itself — the same path
+			// runAdtCli hands the child process as ADT_CLI_HOME.
+			targets.push({ dir: join(getConnectorHome(this.getUsersRoot(), userId, connector.id), ".adt-cli"), tier: "global" });
+		}
+
+		for (const file of [ADT_PULL_CONFIG_FILE, ADT_ABAPLINT_FILE]) {
+			const source = join(bundledRoot, file);
+			if (!existsSync(source)) {
+				log.logWarning("[sap-adt] bundled config missing", `${source} — skipped`);
+				continue;
+			}
+			for (const { dir, tier } of targets) {
+				const target = join(dir, file);
+				if (existsSync(target)) continue;
+				try {
+					mkdirSync(dir, { recursive: true });
+					copyFileSync(source, target);
+				} catch (err) {
+					log.logWarning("[sap-adt] could not seed config", `${tier} ${target}: ${(err as Error).message}`);
+				}
+			}
+		}
 	}
 
 	// Resolve the ADT URL + Kerberos SPN for an SSO connect. The browser only
@@ -1795,7 +1918,7 @@ export class HttpServer {
 			createdAt: new Date().toISOString(),
 		};
 		await this.setDefaultProfile(ctx.userId, name);
-		this.writeConnectionSidecars(ctx.workspaceId, connection);
+		this.writeConnectionSidecars(ctx.userId, ctx.workspaceId, connection);
 
 		const next = this.workspaceStore.getSapConnections(ctx.userId, ctx.workspaceId).filter((c) => c.name !== name);
 		next.push(connection);
@@ -1839,16 +1962,6 @@ export class HttpServer {
 		const result = await this.runAdtCli(ctx.userId, argv, { userJwt, cwd: folder, profileName: name, destinationName: destination, routerBase: this.resolveRouterBase(req) });
 		const connected = result.exitCode === 0;
 
-		writeFileSync(
-			join(folder, ADT_CONNECTION_FILE),
-			`${JSON.stringify({ connectionName: name, destination, client, language }, null, 2)}\n`,
-		);
-
-		if (connected) {
-			writeManifest(folder, initialManifest());
-			await this.setDefaultProfile(ctx.userId, name);
-		}
-
 		const connection: SapConnection = {
 			name,
 			destinationName: destination,
@@ -1857,6 +1970,17 @@ export class HttpServer {
 			status: connected ? "connected" : "error",
 			createdAt: new Date().toISOString(),
 		};
+
+		//IYH1HC adt-config tiers
+		// Was an inline sidecar write that bypassed writeConnectionSidecars, so this
+		// flow would have been the one connection type that never got the config
+		// seeds. Same split as before: descriptor always, tree + seeds on success.
+		if (connected) {
+			this.writeConnectionSidecars(ctx.userId, ctx.workspaceId, connection);
+			await this.setDefaultProfile(ctx.userId, name);
+		} else {
+			this.writeConnectionDescriptor(folder, connection);
+		}
 		const next = this.workspaceStore.getSapConnections(ctx.userId, ctx.workspaceId).filter((c) => c.name !== name);
 		next.push(connection);
 		this.workspaceStore.setSapConnections(ctx.userId, ctx.workspaceId, next);
@@ -1916,7 +2040,10 @@ export class HttpServer {
 			result = await this.runBasicSsoLogin(
 				ctx.userId,
 				{ name, url: target.url, spn: target.spn, client: existing.client, language: existing.language },
-				this.workspaceStore.getWorkspaceRoot(ctx.workspaceId),
+				// The connection folder, not the workspace root: every other ADT call
+				// runs there, and consistency is what keeps the local config layer
+				// predictable. //IYH1HC adt-config tiers
+				this.sapConnDir(ctx.workspaceId, name),
 			);
 		} else {
 			// BTP destination connections re-verify through the shared adtOpts path.
@@ -1926,7 +2053,7 @@ export class HttpServer {
 		const ok = result.exitCode === 0;
 		if (ok) await this.setDefaultProfile(ctx.userId, name);
 		const connection: SapConnection = { ...existing, status: ok ? "connected" : "error" };
-		this.writeConnectionSidecars(ctx.workspaceId, connection);
+		this.writeConnectionSidecars(ctx.userId, ctx.workspaceId, connection);
 		this.workspaceStore.setSapConnections(
 			ctx.userId,
 			ctx.workspaceId,
@@ -1951,7 +2078,7 @@ export class HttpServer {
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		// Only a folder that carries the connection descriptor may claim the default.
-		if (!name || !existsSync(join(this.sapConnDir(ctx.workspaceId, name), ADT_CONNECTION_FILE))) {
+		if (!name || !existsSync(connectionPath(this.sapConnDir(ctx.workspaceId, name)))) {
 			res.status(404).json({ error: `Connection "${name}" not found` });
 			return;
 		}
@@ -2076,19 +2203,54 @@ export class HttpServer {
 		res.json({ ok: true, count: plan.length });
 	}
 
+	// Does this ABAP package exist on the connected system? Answered by the repository
+	// information system, which is the one lookup that behaves the same on every ADT
+	// release. Returns a verdict rather than writing the response so the caller keeps
+	// one place where the request is answered.
+	private async verifyPackageExists(
+		userId: string,
+		pkg: string,
+		opts: { userJwt?: string; cwd?: string; profileName?: string; destinationName?: string; routerBase?: string },
+	): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+		const probe = await this.runAdtCli(userId, ["-q", "object", "search", pkg, "--type", "DEVC/K", "--max", "10", "--json"], opts);
+		if (probe.exitCode !== 0) {
+			// A missing package is an empty result set, not a failure, so anything
+			// that fails here is real (auth, network) and is reported verbatim.
+			return { ok: false, status: 502, error: probe.stderr || "Failed to look up the package" };
+		}
+		let found: boolean;
+		try {
+			// The search is exact-match, but compare the name anyway so a fuzzier
+			// backend could never satisfy "Z001" with "Z0011".
+			const { results } = JSON.parse(probe.stdout) as { results?: { name?: string }[] };
+			found = (results ?? []).some((r) => String(r.name ?? "").toUpperCase() === pkg);
+		} catch {
+			return { ok: false, status: 502, error: "Invalid object search output" };
+		}
+		return found ? { ok: true } : { ok: false, status: 404, error: `Package ${pkg} was not found on this system` };
+	}
+
 	// POST /workspaces/:id/sap-adt/connections/:name/tree/package  body { package }
 	//
 	// Adds an ABAP package as a root of the connection's object tree. Connecting
 	// materializes nothing, so this is the only way objects get into the tree.
-	// Existence is checked against the packages endpoint first,
-	// because a nodestructure call for an unknown package succeeds with an empty
-	// node list and would otherwise materialize a folder for a typo.
+	//
+	// A nodestructure call for an unknown package succeeds with an empty node list,
+	// so an empty listing still has to be told apart from a typo before a folder is
+	// created. That check runs only when the listing IS empty: every adt-cli call is
+	// a fresh process with its own SPNEGO handshake, so ordering it the other way
+	// round made the common case pay for a second one it never needed.
+	//
+	// The check is deliberately not a GET on /sap/bc/adt/packages/<name>: that
+	// resource only exists on newer ADT backends. An R/3 system answers it with
+	// 404 "No suitable resource found" for every package, which made this handler
+	// report every package on such a system as missing.
 	private async handleSapAddPackage(req: express.Request, res: express.Response): Promise<void> {
 		const ctx = this.assertWorkspaceRole(req, res, true);
 		if (!ctx) return;
 		const name = this.sanitizeConnectionName(req.params.name);
 		const connDir = this.sapConnDir(ctx.workspaceId, name);
-		if (!existsSync(join(connDir, ADT_TREE_FILE))) {
+		if (!existsSync(manifestPath(connDir))) {
 			res.status(404).json({ error: "Connection is not connected" });
 			return;
 		}
@@ -2097,17 +2259,11 @@ export class HttpServer {
 			res.status(400).json({ error: "A valid ABAP package name is required" });
 			return;
 		}
+		// Timed end to end so the total can be reconciled against the per-spawn
+		// [adt-cli] lines: whatever the two do not account for is our own overhead.
+		const startedAt = Date.now();
 		const opts = await this.adtOptsFor(ctx, req, name);
-		const probe = await this.runAdtCli(ctx.userId, ["-q", "--raw", "http", "request", "GET", `/sap/bc/adt/packages/${encodeURIComponent(pkg.toLowerCase())}`], opts);
-		if (probe.exitCode !== 0) {
-			// A 404 is the expected "no such package" answer; anything else (auth, network)
-			// is reported verbatim because the user needs to see it.
-			const missing = /\b404\b/.test(probe.stderr);
-			res.status(missing ? 404 : 502).json({
-				error: missing ? `Package ${pkg} was not found on this system` : (probe.stderr || "Failed to look up the package"),
-			});
-			return;
-		}
+		log.logInfo(`[add-package] ${name}/${pkg}: setup took ${Date.now() - startedAt}ms`);
 		const listed = await this.runAdtCli(ctx.userId, ["-q", "object", "list", "--parent-type", "DEVC/K", "--parent-name", pkg, "--json"], opts);
 		if (listed.exitCode !== 0) {
 			res.status(502).json({ error: listed.stderr || "Failed to list the package contents" });
@@ -2120,6 +2276,16 @@ export class HttpServer {
 			res.status(502).json({ error: "Invalid object list output", raw: listed.stdout });
 			return;
 		}
+		// An empty listing is either a genuinely empty package or a name that does not
+		// exist; only the second must not leave a folder behind.
+		if ((contents.nodes ?? []).length === 0) {
+			const verdict = await this.verifyPackageExists(ctx.userId, pkg, opts);
+			if (!verdict.ok) {
+				res.status(verdict.status).json({ error: verdict.error });
+				return;
+			}
+		}
+		const materializeStartedAt = Date.now();
 		const folder = sanitizeFolderName(pkg, pkg);
 		const manifest = readManifest(connDir);
 		manifest.entries[folder] = { kind: "package", adtParentType: "DEVC/K", adtParentName: pkg, loaded: true };
@@ -2127,6 +2293,9 @@ export class HttpServer {
 		const plan = planChildren(contents);
 		applyPlan(connDir, folder, plan, manifest);
 		writeManifest(connDir, manifest);
+		log.logInfo(
+			`[add-package] ${name}/${pkg}: ${plan.length} nodes, materialize ${Date.now() - materializeStartedAt}ms, total ${Date.now() - startedAt}ms`,
+		);
 		res.json({ ok: true, folder, count: plan.length });
 	}
 
@@ -3095,18 +3264,18 @@ export class HttpServer {
 	}
 
 	private handleWorkspace(req: express.Request, channelId: string, res: express.Response): void {
-		// `sapConnection` tags the folder of a SAP ADT connection. The sidecars that
-		// identify it are filtered out of the listing, so without this flag the
-		// frontend could only recognize such a folder after separately loading the
-		// workspace settings — which is why the tree rendered them as ordinary
-		// folders on a plain reload.
+		// `sapConnection` tags the folder of a SAP ADT connection, which the frontend
+		// would otherwise only recognize after separately loading the workspace
+		// settings — the reason such folders rendered as ordinary ones on a plain
+		// reload. The descriptor now lives inside `.adt/`, which is listed like any
+		// other folder: the two config files in it are meant to be opened and edited
+		// from the Artifacts panel. //IYH1HC adt-config tiers
 		type WorkspaceNode = { name: string; path: string; type: "file" | "directory"; sapConnection?: true; children?: WorkspaceNode[] };
 
 		const makeTree = (rootPath: string, relativeBase: string): WorkspaceNode[] => {
 			if (!existsSync(rootPath)) return [];
 			const walk = (absDir: string, relDir: string): WorkspaceNode[] => {
 				const entries = readdirSync(absDir, { withFileTypes: true })
-					.filter((e: Dirent) => e.name !== ADT_TREE_FILE && e.name !== ADT_CONNECTION_FILE)
 					.sort((a: Dirent, b: Dirent) => {
 						if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
 						return a.name.localeCompare(b.name);
@@ -3122,7 +3291,7 @@ export class HttpServer {
 							type: "directory" as const,
 							children: walk(abs, relPath),
 						};
-						if (existsSync(join(abs, ADT_CONNECTION_FILE))) node.sapConnection = true;
+						if (existsSync(connectionPath(abs))) node.sapConnection = true;
 						return node;
 					}
 					return { name: entry.name, path: normalizedPath, type: "file" as const };
