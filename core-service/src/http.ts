@@ -1,7 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "child_process";
 //IYH1HC SAP ADT add
 import { randomBytes } from "node:crypto";
-import { Dirent, type Stats, appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { Dirent, type Stats, appendFileSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "fs";
 import { createRequire } from "module";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from "path";
 import { fileURLToPath } from "url";
@@ -103,6 +103,32 @@ function resolveSapConnectMode(): "local" | "btp" {
 // the client verbatim; a local SSO connection runs with an insecure TLS profile,
 // whose "NODE_TLS_REJECT_UNAUTHORIZED" warning would otherwise become the error
 // message the user sees instead of the real cause.
+// Opt-in verbose tracing of every adt-cli call. Off by default because `-v` mixes
+// adt-cli's own step log into stderr, which is what surfaces to the user as an
+// error message when a command fails.
+function adtTraceEnabled(): boolean {
+	const value = (process.env.OCTO_ADT_TRACE ?? "").trim().toLowerCase();
+	return value === "1" || value === "true" || value === "yes" || value === "on";
+}
+
+// A short, log-safe name for an adt-cli invocation: the subcommand path plus its
+// first positional argument. Flags and their values are dropped so a profile name
+// or a JWT can never reach the log.
+function adtCliLabel(argv: string[]): string {
+	const words: string[] = [];
+	for (const arg of argv) {
+		// Leading global flags (-q, --raw) come before the subcommand; skip them, then
+		// take positionals until the first option, which is where values start.
+		if (arg.startsWith("-")) {
+			if (words.length === 0) continue;
+			break;
+		}
+		words.push(arg);
+		if (words.length === 3) break;
+	}
+	return words.join(" ") || "adt";
+}
+
 function cliStderr(raw: string): string {
 	return raw
 		.split(/\r?\n/)
@@ -1441,24 +1467,37 @@ export class HttpServer {
 			}
 			const cwd = opts.cwd && existsSync(opts.cwd) ? opts.cwd : this.workingDir;
 			const timeoutMs = Math.min(Math.max(opts.timeoutMs ?? 120000, 1000), 300000);
-			const child = spawn(process.execPath, [adtBin, ...argv], { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
+			// Every adt-cli call is a fresh process talking to an on-prem system, so the
+			// only way to tell "slow because we spawn twice" from "slow because SAP is
+			// slow" is to time each one. OCTO_ADT_TRACE swaps the CLI's `-q` for `-v` so
+			// its own timestamped step/HTTP lines survive into this log.
+			const effectiveArgv = adtTraceEnabled() ? argv.map((arg) => (arg === "-q" ? "-v" : arg)) : argv;
+			const label = adtCliLabel(effectiveArgv);
+			const startedAt = Date.now();
+			const child = spawn(process.execPath, [adtBin, ...effectiveArgv], { env, cwd, stdio: ["ignore", "pipe", "pipe"] });
 			let stdout = "";
 			let stderr = "";
 			let settled = false;
 			const cap = (text: string) => (text.length > 10 * 1024 * 1024 ? text.slice(-10 * 1024 * 1024) : text);
 			const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+			const trace = (exitCode: number) => {
+				log.logInfo(`[adt-cli] ${label} -> exit ${exitCode} in ${Date.now() - startedAt}ms`);
+				if (adtTraceEnabled() && stderr.trim()) log.logInfo(`[adt-cli] ${label} trace:\n${cliStderr(stderr)}`);
+			};
 			child.stdout.on("data", (chunk: Buffer) => { stdout = cap(stdout + chunk.toString("utf-8")); });
 			child.stderr.on("data", (chunk: Buffer) => { stderr = cap(stderr + chunk.toString("utf-8")); });
 			child.on("error", (err) => {
 				clearTimeout(timer);
 				if (settled) return;
 				settled = true;
+				trace(1);
 				resolveP({ stdout, stderr: cliStderr(stderr) || err.message, exitCode: 1 });
 			});
 			child.on("close", (code) => {
 				clearTimeout(timer);
 				if (settled) return;
 				settled = true;
+				trace(code ?? 0);
 				resolveP({ stdout, stderr: cliStderr(stderr), exitCode: code ?? 0 });
 			});
 		});
@@ -1507,9 +1546,12 @@ export class HttpServer {
 	// fall back to `defaultProfile`. Pointing that at whichever connection the user is
 	// working in keeps the agent on the same system as the UI.
 	//
-	// The config file is read first so the common case (acting repeatedly inside one
-	// connection) costs a file read instead of a process spawn; the CLI is still what
-	// performs the write.
+	// Setting one key is done here rather than by spawning `adt auth profile use`.
+	// That spawn was measured at 67s of a 79s "add package": the command touches no
+	// network at all, so the whole cost was starting a Node process that loads the
+	// CLI's entire module graph. Writing the key we already read back costs a rename.
+	// Only the bootstrap case — no config file yet, or one we cannot parse — still
+	// goes through the CLI, which is what knows how to create a config from nothing.
 	private async setDefaultProfile(userId: string, name: string): Promise<void> {
 		if (!name) return;
 		const configPath = this.adtConfigPath(userId);
@@ -1519,8 +1561,15 @@ export class HttpServer {
 				if (cfg.defaultProfile === name) return;
 				// `profile use` throws on an unknown profile; skip rather than log a failure.
 				if (cfg.profiles && !cfg.profiles[name]) return;
-			} catch {
-				/* unreadable config -> let the CLI decide */
+				cfg.defaultProfile = name;
+				// Write-then-rename: adt-cli processes read this file concurrently and a
+				// partial write would look like a corrupt config to them.
+				const tmp = `${configPath}.${process.pid}.tmp`;
+				writeFileSync(tmp, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
+				renameSync(tmp, configPath);
+				return;
+			} catch (err) {
+				log.logWarning("[sap-adt] could not set default profile in place", `${name}: ${err instanceof Error ? err.message : String(err)}`);
 			}
 		}
 		const result = await this.runAdtCli(userId, ["-q", "auth", "profile", "use", name]);
@@ -2151,13 +2200,48 @@ export class HttpServer {
 		res.json({ ok: true, count: plan.length });
 	}
 
+	// Does this ABAP package exist on the connected system? Answered by the repository
+	// information system, which is the one lookup that behaves the same on every ADT
+	// release. Returns a verdict rather than writing the response so the caller keeps
+	// one place where the request is answered.
+	private async verifyPackageExists(
+		userId: string,
+		pkg: string,
+		opts: { userJwt?: string; cwd?: string; profileName?: string; destinationName?: string; routerBase?: string },
+	): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+		const probe = await this.runAdtCli(userId, ["-q", "object", "search", pkg, "--type", "DEVC/K", "--max", "10", "--json"], opts);
+		if (probe.exitCode !== 0) {
+			// A missing package is an empty result set, not a failure, so anything
+			// that fails here is real (auth, network) and is reported verbatim.
+			return { ok: false, status: 502, error: probe.stderr || "Failed to look up the package" };
+		}
+		let found: boolean;
+		try {
+			// The search is exact-match, but compare the name anyway so a fuzzier
+			// backend could never satisfy "Z001" with "Z0011".
+			const { results } = JSON.parse(probe.stdout) as { results?: { name?: string }[] };
+			found = (results ?? []).some((r) => String(r.name ?? "").toUpperCase() === pkg);
+		} catch {
+			return { ok: false, status: 502, error: "Invalid object search output" };
+		}
+		return found ? { ok: true } : { ok: false, status: 404, error: `Package ${pkg} was not found on this system` };
+	}
+
 	// POST /workspaces/:id/sap-adt/connections/:name/tree/package  body { package }
 	//
 	// Adds an ABAP package as a root of the connection's object tree. Connecting
 	// materializes nothing, so this is the only way objects get into the tree.
-	// Existence is checked against the packages endpoint first,
-	// because a nodestructure call for an unknown package succeeds with an empty
-	// node list and would otherwise materialize a folder for a typo.
+	//
+	// A nodestructure call for an unknown package succeeds with an empty node list,
+	// so an empty listing still has to be told apart from a typo before a folder is
+	// created. That check runs only when the listing IS empty: every adt-cli call is
+	// a fresh process with its own SPNEGO handshake, so ordering it the other way
+	// round made the common case pay for a second one it never needed.
+	//
+	// The check is deliberately not a GET on /sap/bc/adt/packages/<name>: that
+	// resource only exists on newer ADT backends. An R/3 system answers it with
+	// 404 "No suitable resource found" for every package, which made this handler
+	// report every package on such a system as missing.
 	private async handleSapAddPackage(req: express.Request, res: express.Response): Promise<void> {
 		const ctx = this.assertWorkspaceRole(req, res, true);
 		if (!ctx) return;
@@ -2172,17 +2256,11 @@ export class HttpServer {
 			res.status(400).json({ error: "A valid ABAP package name is required" });
 			return;
 		}
+		// Timed end to end so the total can be reconciled against the per-spawn
+		// [adt-cli] lines: whatever the two do not account for is our own overhead.
+		const startedAt = Date.now();
 		const opts = await this.adtOptsFor(ctx, req, name);
-		const probe = await this.runAdtCli(ctx.userId, ["-q", "--raw", "http", "request", "GET", `/sap/bc/adt/packages/${encodeURIComponent(pkg.toLowerCase())}`], opts);
-		if (probe.exitCode !== 0) {
-			// A 404 is the expected "no such package" answer; anything else (auth, network)
-			// is reported verbatim because the user needs to see it.
-			const missing = /\b404\b/.test(probe.stderr);
-			res.status(missing ? 404 : 502).json({
-				error: missing ? `Package ${pkg} was not found on this system` : (probe.stderr || "Failed to look up the package"),
-			});
-			return;
-		}
+		log.logInfo(`[add-package] ${name}/${pkg}: setup took ${Date.now() - startedAt}ms`);
 		const listed = await this.runAdtCli(ctx.userId, ["-q", "object", "list", "--parent-type", "DEVC/K", "--parent-name", pkg, "--json"], opts);
 		if (listed.exitCode !== 0) {
 			res.status(502).json({ error: listed.stderr || "Failed to list the package contents" });
@@ -2195,6 +2273,16 @@ export class HttpServer {
 			res.status(502).json({ error: "Invalid object list output", raw: listed.stdout });
 			return;
 		}
+		// An empty listing is either a genuinely empty package or a name that does not
+		// exist; only the second must not leave a folder behind.
+		if ((contents.nodes ?? []).length === 0) {
+			const verdict = await this.verifyPackageExists(ctx.userId, pkg, opts);
+			if (!verdict.ok) {
+				res.status(verdict.status).json({ error: verdict.error });
+				return;
+			}
+		}
+		const materializeStartedAt = Date.now();
 		const folder = sanitizeFolderName(pkg, pkg);
 		const manifest = readManifest(connDir);
 		manifest.entries[folder] = { kind: "package", adtParentType: "DEVC/K", adtParentName: pkg, loaded: true };
@@ -2202,6 +2290,9 @@ export class HttpServer {
 		const plan = planChildren(contents);
 		applyPlan(connDir, folder, plan, manifest);
 		writeManifest(connDir, manifest);
+		log.logInfo(
+			`[add-package] ${name}/${pkg}: ${plan.length} nodes, materialize ${Date.now() - materializeStartedAt}ms, total ${Date.now() - startedAt}ms`,
+		);
 		res.json({ ok: true, folder, count: plan.length });
 	}
 

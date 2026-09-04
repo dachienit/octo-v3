@@ -133,6 +133,16 @@ modules:
           name: octo-srv
           url: ~{srv-url}
           forwardAuthToken: true
+          # The approuter defaults every destination to 30s
+          # (@sap/approuter/lib/utils/destination-utils.js) and, on expiry, aborts the
+          # connection itself and answers 504 - while core-service carries on to
+          # completion, so the user saw an error for work that had actually succeeded.
+          # A single SAP call can outlast 30s: adt-cli spawns a fresh process per
+          # command, each paying its own principal-propagation handshake. Matches
+          # runAdtCli's own 300000ms hard cap, so the CLI is what gives up first.
+          # Number, not a string: for env-declared destinations the approuter passes
+          # this straight to clientReq.setTimeout() without coercing it.
+          timeout: 300000
     build-parameters:
       builder: custom
       # Cross-platform copy of the built SPA into approuter/resources. Node is used

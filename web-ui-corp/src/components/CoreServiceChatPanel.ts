@@ -4,7 +4,7 @@ import { createRef, ref } from "lit/directives/ref.js";
 import { icon } from "@mariozechner/mini-lit";
 import { Check, Download, Loader, Sparkles, X, Zap } from "lucide";
 import type { ComposerSkill, MessageEditor, QuickModelOption } from "./MessageEditor.js";
-import { CoreServiceClient, type ActiveModel, type AgentUsage, type AttachmentPayload, type MentionPayload, type ReplayBlock, type SseEvent, type WorkspaceTableRows } from "../adapters/core-service.js";
+import { CoreServiceClient, type ActiveModel, type AgentUsage, type AttachmentPayload, type MentionPayload, type ReplayBlock, type SseEvent, type WorkspaceTableRows, type WorkspaceTree } from "../adapters/core-service.js";
 import { buildMentionCandidates, type MentionCandidate } from "../utils/mention-utils.js";
 import "./ThinkingBlock.js";
 import type { Attachment } from "../utils/attachment-utils.js";
@@ -493,28 +493,47 @@ export class CoreServiceChatPanel extends LitElement {
 	}
 
 	/**
+	 * Points the composer at a workspace tree the host already has.
+	 *
+	 * A host that renders its own file explorer fetches this very tree for it, so
+	 * pushing it here keeps `@` in step with the explorer without a second request.
+	 * Without the push the two copies drift the moment anything outside this
+	 * component changes files, and `@` only catches up on a page reload.
+	 */
+	setWorkspaceTree(tree: WorkspaceTree | null | undefined) {
+		this.mentionCandidates = buildMentionCandidates(tree);
+		// Each top-level directory under skills/ is one skill.
+		const skills = (tree?.skills ?? [])
+			.filter((node) => node.type === "directory")
+			.map((node) => ({ name: node.name, path: node.path }));
+		// Descriptions cost one request per skill, so they are only invalidated when
+		// the set of skills actually changed - this runs after every workspace load.
+		const changed =
+			skills.length !== this.composerSkills.length ||
+			skills.some((skill, i) => skill.path !== this.composerSkills[i]?.path);
+		this.composerSkills = changed ? skills : this.composerSkills;
+		if (changed) this.skillDescriptionsLoaded = false;
+	}
+
+	/**
 	 * Refreshes what `@` can tag and what the `+` menu can offer as skills. The workspace
 	 * tree is fetched whole and feeds both, so the picker filters in memory and never
 	 * issues a request while the user types.
+	 *
+	 * This is the fallback for a host that does not push the tree itself; web-app-corp
+	 * does, so there it only carries the initial load and the channel switch.
 	 */
 	private async loadWorkspaceContext() {
 		if (!this.channelId) return;
 		try {
-			const tree = await this.client.getWorkspace(this.channelId);
-			this.mentionCandidates = buildMentionCandidates(tree);
-			// Each top-level directory under skills/ is one skill.
-			this.composerSkills = (tree?.skills ?? [])
-				.filter((node) => node.type === "directory")
-				.map((node) => ({ name: node.name, path: node.path }));
-			this.skillDescriptionsLoaded = false;
+			this.setWorkspaceTree(await this.client.getWorkspace(this.channelId));
 		} catch {
 			// A picker that cannot load is not worth failing the chat over.
-			this.mentionCandidates = [];
-			this.composerSkills = [];
+			this.setWorkspaceTree(null);
 		}
 	}
 
-	/** Lets the host refresh the composer's skills after installing one. */
+	/** Lets a host that has no tree of its own refresh the composer after a change. */
 	async refreshWorkspaceContext() {
 		await this.loadWorkspaceContext();
 	}
