@@ -320,6 +320,7 @@ function getRunnerOptions(userId: string, workspaceId: string, authFilePath?: st
 		remindersEnabled: REMINDERS_ENABLED,
 		mcpServers: workspaceStore.getWorkspaceSettings(userId, workspaceId).mcp?.servers,
 		enabledTools: workspaceStore.getWorkspaceSettings(userId, workspaceId).tools?.enabled,
+		allowedConnectors: workspaceStore.getWorkspace(workspaceId)?.settings?.connectors?.allowed,
 	};
 }
 

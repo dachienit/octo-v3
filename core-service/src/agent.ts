@@ -50,6 +50,8 @@ export interface RunnerOptions {
 	mcpServers?: McpServerConfig[];
 	/** Workspace `settings.tools.enabled`; omitted means "never configured". */
 	enabledTools?: string[];
+	/** Workspace `settings.connectors.allowed`. */
+	allowedConnectors?: string[];
 }
 
 function truncate(text: string, maxLen: number): string {
@@ -545,11 +547,16 @@ export async function getOrCreateRunner(
 	// once per CoreAgent, so its closure is the only thing that can carry the channel:
 	// AgentTool.execute receives no ambient context of any kind. Nothing per-turn is
 	// captured here — the tool looks that up when it is called.
+	const allowedConnectors = options.allowedConnectors;
+	const hasSapAdt = !allowedConnectors || allowedConnectors.includes("sap-adt");
+
 	const extraTools = [
 		...mcpTools,
-		createAdtTool({ channelId, channelDir }),
-		createSapGitTool({ channelId, channelDir }),
 	];
+	if (hasSapAdt) {
+		extraTools.push(createAdtTool({ channelId, channelDir }));
+		extraTools.push(createSapGitTool({ channelId, channelDir }));
+	}
 
 	const agent = new CoreAgent(channelId, {
 		sandboxConfig,

@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { basename, resolve, join, relative, isAbsolute } from "path";
+import { basename, resolve, join, relative, isAbsolute, dirname } from "path";
 import * as fs from "fs";
 import { spawnSync } from "child_process";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -14,7 +14,7 @@ const sapGitSchema = {
 	properties: {
 		command: {
 			type: "string",
-			enum: ["clone", "pull", "push", "activate", "status", "diff", "add", "commit", "log", "branch", "switch", "merge", "restore", "check"],
+			enum: ["clone", "pull", "push", "activate", "status", "diff", "add", "commit", "log", "branch", "switch", "merge", "restore", "check", "create"],
 			description: "The sapgit command to run."
 		},
 		connectionName: {
@@ -23,7 +23,7 @@ const sapGitSchema = {
 		},
 		packageName: {
 			type: "string",
-			description: "The name of the SAP package (required only for 'clone', e.g. 'ZCUSTOM_PACKAGE')."
+			description: "The name of the SAP package (required only for 'clone' and 'create', e.g. 'ZCUSTOM_PACKAGE')."
 		},
 		files: {
 			type: "array",
@@ -37,7 +37,23 @@ const sapGitSchema = {
 		},
 		transport: {
 			type: "string",
-			description: "An optional target Transport Request for pushing code (e.g. 'DEVK900123')."
+			description: "An optional target Transport Request for pushing or creating code (e.g. 'DEVK900123')."
+		},
+		activate: {
+			type: "boolean",
+			description: "For 'push' and 'create' commands: if true, automatically activates the object on the SAP server right after creation or writing."
+		},
+		objectType: {
+			type: "string",
+			description: "For 'create' command: The SAP ADT type ID of the object to create (e.g. 'CLAS/OC' for Class, 'INTF/OI' for Interface, 'PROG/P' for Program)."
+		},
+		objectName: {
+			type: "string",
+			description: "For 'create' command: The name of the new SAP object to create (e.g. 'ZCL_MY_CLASS')."
+		},
+		description: {
+			type: "string",
+			description: "For 'create' command: Optional short text description for the new SAP object."
 		}
 	},
 	required: ["command", "connectionName"]
@@ -77,6 +93,78 @@ function getAbsPath(workspaceRoot: string, connDir: string, connectionName: stri
 	return resolve(connDir, file);
 }
 
+function getCategoryFolder(typeId: string): string {
+	const mainType = typeId.split("/")[0].toUpperCase();
+	if (mainType === "CLAS") return "Source Code Library/Classes";
+	if (mainType === "INTF") return "Source Code Library/Interfaces";
+	if (mainType === "PROG") return "Source Code Library/Programs";
+	if (mainType === "FUGR") return "Source Code Library/Function Groups";
+	return "Source Code Library/Programs"; // Default fallback
+}
+
+function getInitialShell(typeId: string, name: string, description: string): string {
+	const mainType = typeId.split("/")[0].toUpperCase();
+	const cleanName = name.toUpperCase();
+	if (mainType === "CLAS") {
+		return [
+			`CLASS ${cleanName} DEFINITION`,
+			`  PUBLIC`,
+			`  FINAL`,
+			`  CREATE PUBLIC.`,
+			``,
+			`  PUBLIC SECTION.`,
+			`  PROTECTED SECTION.`,
+			`  PRIVATE SECTION.`,
+			`ENDCLASS.`,
+			``,
+			`CLASS ${cleanName} IMPLEMENTATION.`,
+			`ENDCLASS.`
+		].join("\n");
+	}
+	if (mainType === "INTF") {
+		return [
+			`INTERFACE ${cleanName}`,
+			`  PUBLIC.`,
+			`ENDINTERFACE.`
+		].join("\n");
+	}
+	if (mainType === "PROG") {
+		return [
+			`*&---------------------------------------------------------------------*`,
+			`*& Report ${name}`,
+			`*& Description: ${description || "Created via sapgit"}`,
+			`*&---------------------------------------------------------------------*`,
+			`REPORT ${cleanName}.`,
+			``
+		].join("\n");
+	}
+	return ""; // Default empty
+}
+
+function parseSapDiagnostics(output: string): string {
+	if (!output) return "";
+	try {
+		const data = JSON.parse(output);
+		if (data && Array.isArray(data.messages)) {
+			const list = data.messages.map((m: any) => {
+				const type = m.severity || "error";
+				return `* **[${type.toUpperCase()}]** Line ${m.line || "?"}, Col ${m.column || m.col || "?"}: ${m.text || m.message}`;
+			});
+			if (list.length > 0) {
+				return `\n### SAP Syntax/Check Diagnostics:\n${list.join("\n")}\n`;
+			}
+		}
+	} catch {
+		// Fallback to regex text scanning
+	}
+	const lines = output.split("\n");
+	const matches = lines.filter(l => l.match(/(error|warning|info|finding)/i) || l.match(/line\s+\d+/i));
+	if (matches.length > 0) {
+		return `\n### SAP Syntax/Check Findings:\n${matches.map(m => `* ${m}`).join("\n")}\n`;
+	}
+	return "";
+}
+
 export interface SapGitToolClosure {
 	channelId: string;
 	channelDir: string;
@@ -98,27 +186,32 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 			"3. push: Resolves the Transport Request and pushes local changes to SAP as inactive code.",
 			"4. activate: Activates changes on the SAP system.",
 			"5. check: Runs ATC check or abaplint quality checks.",
-			"6. status: Lists files changed locally since last commit.",
-			"7. diff: Inspects local file differences.",
-			"8. add: Stages files (equivalent to git add).",
-			"9. commit: Commits staged changes (equivalent to git commit, pass message via gitArgs).",
-			"10. log: Views Git branch history (equivalent to git log).",
-			"11. branch: Manages Git branches (equivalent to git branch).",
-			"12. switch: Switches Git branches (equivalent to git switch).",
-			"13. merge: Merges Git branches (equivalent to git merge).",
-			"14. restore: Discards local changes (equivalent to git restore).",
+			"6. create: Registers a new ABAP object (Class, Interface, Program) in SAP, creates its empty local file shell, updates tree.json, and commits to Git.",
+			"7. status: Lists files changed locally since last commit.",
+			"8. diff: Inspects local file differences.",
+			"9. add: Stages files (equivalent to git add).",
+			"10. commit: Commits staged changes (equivalent to git commit, pass message via gitArgs).",
+			"11. log: Views Git branch history (equivalent to git log).",
+			"12. branch: Manages Git branches (equivalent to git branch).",
+			"13. switch: Switches Git branches (equivalent to git switch).",
+			"14. merge: Merges Git branches (equivalent to git merge).",
+			"15. restore: Discards local changes (equivalent to git restore).",
 		].join(" "),
 		parameters: sapGitSchema,
 		executionMode: "sequential",
 		execute: async (toolCallId: string, params: unknown) => {
 			const startedAt = Date.now();
-			const { command, connectionName, packageName, files, gitArgs, transport } = (params ?? {}) as {
-				command: "clone" | "pull" | "push" | "activate" | "status" | "diff" | "add" | "commit" | "log" | "branch" | "switch" | "merge" | "restore" | "check";
+			const { command, connectionName, packageName, files, gitArgs, transport, activate, objectType, objectName, description } = (params ?? {}) as {
+				command: "clone" | "pull" | "push" | "activate" | "status" | "diff" | "add" | "commit" | "log" | "branch" | "switch" | "merge" | "restore" | "check" | "create";
 				connectionName: string;
 				packageName?: string;
 				files?: string[];
 				gitArgs?: string[];
 				transport?: string;
+				activate?: boolean;
+				objectType?: string;
+				objectName?: string;
+				description?: string;
 			};
 
 			const workspaceRoot = resolve(closure.channelDir, "..", "..");
@@ -141,7 +234,6 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 						throw new Error("packageName is required for 'clone' command.");
 					}
 
-					// Ensure package is added to the tree
 					const folder = sanitizeFolderName(packageName, packageName);
 					const manifest = readManifest(connDir);
 
@@ -166,7 +258,6 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 					applyPlan(connDir, folder, plan, manifest);
 					writeManifest(connDir, manifest);
 
-					// Filter objects to hydrate
 					const objectsToHydrate: Array<{ relPath: string; adtUri: string }> = [];
 					for (const [relPath, entry] of Object.entries(manifest.entries)) {
 						if (relPath.startsWith(`${folder}/`) && entry.kind === "object" && entry.adtUri) {
@@ -202,7 +293,6 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 						}));
 					}
 
-					// Git repository initialization
 					if (!fs.existsSync(join(connDir, ".git"))) {
 						runGit(connDir, ["init"]);
 						fs.writeFileSync(join(connDir, ".gitignore"), ".adt/\n");
@@ -324,7 +414,6 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 					if (!filesToPush || filesToPush.length === 0) {
 						const list = new Set<string>();
 
-						// 1. Get local uncommitted/unstaged changes
 						const diffRes = runGit(connDir, ["diff", "--name-only"]);
 						const untrackedRes = runGit(connDir, ["status", "--porcelain"]);
 						if (diffRes.exitCode === 0) {
@@ -339,13 +428,11 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 							});
 						}
 
-						// 2. Get committed changes relative to the SAP baseline (main/master) if on a feature branch
 						const currentBranchRes = runGit(connDir, ["branch", "--show-current"]);
 						const currentBranch = currentBranchRes.exitCode === 0 ? currentBranchRes.stdout.trim() : "";
 						const defaultBranch = runGit(connDir, ["show-ref", "--verify", "--quiet", "refs/heads/main"]).exitCode === 0 ? "main" : "master";
 
 						if (currentBranch && currentBranch !== defaultBranch) {
-							// Compare feature branch HEAD with default branch to get all committed changes
 							const branchDiffRes = runGit(connDir, ["diff", "--name-only", `${defaultBranch}...HEAD`]);
 							if (branchDiffRes.exitCode === 0) {
 								branchDiffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
@@ -375,7 +462,6 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 
 						let resolvedTr = transport;
 						if (!resolvedTr && parentPkg !== "$TMP") {
-							// Check locks and modifiable TRs
 							const xml = `<?xml version="1.0" encoding="UTF-8"?><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><DATA><DEVCLASS>${parentPkg}</DEVCLASS><OPERATION>I</OPERATION><URI>${entry.adtUri}</URI></DATA></asx:values></asx:abap>`;
 							const transportRes = await executeAdt({
 								userId: turn.userId,
@@ -437,8 +523,25 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 
 						if (pushRes.exitCode === 0) {
 							resultText += "OK\n";
+							if (activate) {
+								resultText += `Activating ${file} in SAP... `;
+								const actRes = await executeAdt({
+									userId: turn.userId,
+									workspaceId,
+									argv: ["object", "activate", entry.adtUri],
+									userJwt: turn.userJwt,
+									routerBase: turn.routerBase
+								});
+
+								if (actRes.exitCode === 0) {
+									resultText += "OK\n";
+								} else {
+									resultText += `FAILED:\n${actRes.stderr}\n`;
+								}
+							}
 						} else {
 							resultText += `FAILED:\n${pushRes.stderr}\n`;
+							resultText += parseSapDiagnostics(pushRes.stderr);
 						}
 					}
 					break;
@@ -447,8 +550,34 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 				case "activate": {
 					let filesToActivate = files;
 					if (!filesToActivate || filesToActivate.length === 0) {
+						const list = new Set<string>();
+
 						const diffRes = runGit(connDir, ["diff", "--name-only"]);
-						filesToActivate = diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean);
+						const untrackedRes = runGit(connDir, ["status", "--porcelain"]);
+						if (diffRes.exitCode === 0) {
+							diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
+						}
+						if (untrackedRes.exitCode === 0) {
+							untrackedRes.stdout.split("\n").forEach(line => {
+								const trimmed = line.trim();
+								if (trimmed.startsWith("??") || trimmed.startsWith("A")) {
+									list.add(trimmed.slice(2).trim());
+								}
+							});
+						}
+
+						const currentBranchRes = runGit(connDir, ["branch", "--show-current"]);
+						const currentBranch = currentBranchRes.exitCode === 0 ? currentBranchRes.stdout.trim() : "";
+						const defaultBranch = runGit(connDir, ["show-ref", "--verify", "--quiet", "refs/heads/main"]).exitCode === 0 ? "main" : "master";
+
+						if (currentBranch && currentBranch !== defaultBranch) {
+							const branchDiffRes = runGit(connDir, ["diff", "--name-only", `${defaultBranch}...HEAD`]);
+							if (branchDiffRes.exitCode === 0) {
+								branchDiffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
+							}
+						}
+
+						filesToActivate = Array.from(list);
 					}
 
 					if (filesToActivate.length === 0) {
@@ -487,8 +616,34 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 				case "check": {
 					let filesToCheck = files;
 					if (!filesToCheck || filesToCheck.length === 0) {
+						const list = new Set<string>();
+
 						const diffRes = runGit(connDir, ["diff", "--name-only"]);
-						filesToCheck = diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean);
+						const untrackedRes = runGit(connDir, ["status", "--porcelain"]);
+						if (diffRes.exitCode === 0) {
+							diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
+						}
+						if (untrackedRes.exitCode === 0) {
+							untrackedRes.stdout.split("\n").forEach(line => {
+								const trimmed = line.trim();
+								if (trimmed.startsWith("??") || trimmed.startsWith("A")) {
+									list.add(trimmed.slice(2).trim());
+								}
+							});
+						}
+
+						const currentBranchRes = runGit(connDir, ["branch", "--show-current"]);
+						const currentBranch = currentBranchRes.exitCode === 0 ? currentBranchRes.stdout.trim() : "";
+						const defaultBranch = runGit(connDir, ["show-ref", "--verify", "--quiet", "refs/heads/main"]).exitCode === 0 ? "main" : "master";
+
+						if (currentBranch && currentBranch !== defaultBranch) {
+							const branchDiffRes = runGit(connDir, ["diff", "--name-only", `${defaultBranch}...HEAD`]);
+							if (branchDiffRes.exitCode === 0) {
+								branchDiffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
+							}
+						}
+
+						filesToCheck = Array.from(list);
 					}
 
 					if (filesToCheck.length === 0) {
@@ -516,7 +671,153 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 						});
 
 						resultText += checkRes.stdout || checkRes.stderr || "No findings.";
+						if (checkRes.exitCode !== 0) {
+							resultText += parseSapDiagnostics(checkRes.stderr);
+						}
 					}
+					break;
+				}
+
+				case "create": {
+					if (!packageName) {
+						throw new Error("packageName is required for 'create' command.");
+					}
+					if (!objectType) {
+						throw new Error("objectType is required for 'create' command (e.g. 'CLAS/OC', 'INTF/OI', 'PROG/P').");
+					}
+					if (!objectName) {
+						throw new Error("objectName is required for 'create' command (e.g. 'ZCL_MY_CLASS').");
+					}
+
+					const parentPkg = packageName.toUpperCase();
+					const cleanName = objectName.toUpperCase();
+					const cleanType = objectType.toUpperCase();
+
+					let resolvedTr = transport;
+					if (!resolvedTr && parentPkg !== "$TMP") {
+						// Lock/TR Discovery
+						const xml = `<?xml version="1.0" encoding="UTF-8"?><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><DATA><DEVCLASS>${parentPkg}</DEVCLASS><OPERATION>I</OPERATION></DATA></asx:values></asx:abap>`;
+						const transportRes = await executeAdt({
+							userId: turn.userId,
+							workspaceId,
+							argv: [
+								"-q", "http", "request", "POST", "/sap/bc/adt/cts/transportchecks",
+								"-H", "Accept: application/vnd.sap.as+xml;charset=UTF-8;dataname=com.sap.adt.transport.service.checkData",
+								"--content-type", "application/vnd.sap.as+xml; charset=UTF-8; dataname=com.sap.adt.transport.service.checkData",
+								"--data", xml
+							],
+							userJwt: turn.userJwt,
+							routerBase: turn.routerBase
+						});
+
+						const lockMatch = transportRes.stdout.match(/<LOCK_HOLDER>[\s\S]*?<TRKORR>([^<]+)<\/TRKORR>/);
+						if (lockMatch) {
+							resolvedTr = lockMatch[1].trim();
+						} else {
+							const trMatches = transportRes.stdout.match(/<CTS_REQUEST>[\s\S]*?<\/CTS_REQUEST>/g) || [];
+							const modifiableTrs: Array<{ tr: string; text: string }> = [];
+							for (const block of trMatches) {
+								const userMatch = block.match(/<AS4USER>([^<]+)<\/AS4USER>/);
+								const statusMatch = block.match(/<TRSTATUS>([^<]+)<\/TRSTATUS>/);
+								const trkorrMatch = block.match(/<TRKORR>([^<]+)<\/TRKORR>/);
+								const textMatch = block.match(/<AS4TEXT>([^<]+)<\/AS4TEXT>/);
+								if (trkorrMatch && userMatch && userMatch[1].trim().toUpperCase() === turn.userId.toUpperCase()) {
+									const status = statusMatch ? statusMatch[1].trim().toUpperCase() : "D";
+									if (status === "D" || status === "L") {
+										modifiableTrs.push({
+											tr: trkorrMatch[1].trim(),
+											text: textMatch ? textMatch[1].trim() : ""
+										});
+									}
+								}
+							}
+							if (modifiableTrs.length === 1) {
+								resolvedTr = modifiableTrs[0].tr;
+							} else if (modifiableTrs.length > 1) {
+								throw new Error(`Multiple modifiable transports found for package ${parentPkg}. Please specify one of: ${modifiableTrs.map(t => `${t.tr} (${t.text})`).join(", ")} using the transport parameter.`);
+							} else {
+								throw new Error(`No modifiable transport request found for package ${parentPkg} under user ${turn.userId}. Please create or select one first.`);
+							}
+						}
+					}
+
+					// 1. Create the Object shell in SAP
+					resultText += `Creating object ${cleanName} (${cleanType}) in SAP under package ${parentPkg}...\n`;
+					const createArgv = ["object", "create", cleanType, cleanName, "--package", parentPkg, "--description", description || "Created via sapgit"];
+					if (resolvedTr) {
+						createArgv.push("--transport", resolvedTr);
+					}
+					
+					const createRes = await executeAdt({
+						userId: turn.userId,
+						workspaceId,
+						argv: createArgv,
+						userJwt: turn.userJwt,
+						routerBase: turn.routerBase
+					});
+
+					if (createRes.exitCode !== 0) {
+						throw new Error(`Failed to create object shell in SAP: ${createRes.stderr}`);
+					}
+
+					// 2. Generate slug, file structure, and seed content on disk
+					const slug = cleanType.split("/")[0].toLowerCase();
+					const ext = slug === "clas" || slug === "intf" || slug === "prog" ? "abap" : "xml";
+					const base = cleanName.toLowerCase().replace(/\//g, "#");
+					const fileSlug = `${base}.${slug}.${ext}`;
+					
+					const folder = sanitizeFolderName(packageName, packageName);
+					const catFolder = getCategoryFolder(cleanType);
+					const relPath = `${folder}/${catFolder}/${fileSlug}`.replace(/\\/g, "/");
+					
+					resultText += `Writing initial code shell to artifacts/${connectionName}/${relPath}...\n`;
+					const absPath = join(connDir, relPath);
+					fs.mkdirSync(dirname(absPath), { recursive: true });
+					const initialCode = getInitialShell(cleanType, cleanName, description || "");
+					fs.writeFileSync(absPath, initialCode);
+
+					// 3. Register the newly created object in tree.json manifest
+					resultText += `Updating tree.json manifest...\n`;
+					const manifest = readManifest(connDir);
+					
+					let adtUri = "";
+					const mainType = cleanType.split("/")[0].toUpperCase();
+					if (mainType === "CLAS") adtUri = `/sap/bc/adt/oo/classes/${base}`;
+					else if (mainType === "INTF") adtUri = `/sap/bc/adt/oo/interfaces/${base}`;
+					else if (mainType === "PROG") adtUri = `/sap/bc/adt/programs/programs/${base}`;
+
+					manifest.entries[relPath] = {
+						kind: "object",
+						adtUri,
+						typeId: cleanType,
+						label: cleanName,
+						description: description || "Created via sapgit"
+					};
+					writeManifest(connDir, manifest);
+
+					// 4. Git track baseline
+					runGit(connDir, ["add", "."]);
+					runGit(connDir, ["commit", "-m", `Create object shell: ${cleanName} [${cleanType}]`]);
+					
+					// 5. Optional auto-activation
+					if (activate) {
+						resultText += `Activating new object ${cleanName} in SAP... `;
+						const actRes = await executeAdt({
+							userId: turn.userId,
+							workspaceId,
+							argv: ["object", "activate", adtUri],
+							userJwt: turn.userJwt,
+							routerBase: turn.routerBase
+						});
+
+						if (actRes.exitCode === 0) {
+							resultText += "OK\n";
+						} else {
+							resultText += `FAILED:\n${actRes.stderr}\n`;
+						}
+					}
+					
+					resultText += `Successfully created and initialized ${cleanName}!\n`;
 					break;
 				}
 			}
