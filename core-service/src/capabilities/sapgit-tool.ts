@@ -1,5 +1,5 @@
 import { randomBytes } from "crypto";
-import { basename, resolve, join, relative } from "path";
+import { basename, resolve, join, relative, isAbsolute } from "path";
 import * as fs from "fs";
 import { spawnSync } from "child_process";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
@@ -58,6 +58,23 @@ function capOutput(text: string): { text: string; truncated: boolean } {
 		text: `${text.slice(0, MAX_OUTPUT_CHARS)}\n\n[... ${text.length - MAX_OUTPUT_CHARS} more characters truncated]`,
 		truncated: true,
 	};
+}
+
+function getAbsPath(workspaceRoot: string, connDir: string, connectionName: string, file: string): string {
+	const normFile = file.replace(/\\/g, "/");
+	if (isAbsolute(file)) {
+		return file;
+	}
+	// Check if path is relative to workspace root (e.g. starts with "artifacts/S4H")
+	if (normFile.startsWith("artifacts/") || normFile.startsWith("./artifacts/")) {
+		return resolve(workspaceRoot, file);
+	}
+	// Check if it already contains the connection name at the start
+	if (normFile.startsWith(`${connectionName}/`) || normFile.startsWith(`./${connectionName}/`)) {
+		return resolve(join(workspaceRoot, "artifacts"), file);
+	}
+	// Otherwise, assume it is relative to connDir (the connection directory)
+	return resolve(connDir, file);
 }
 
 export interface SapGitToolClosure {
@@ -305,9 +322,11 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 				case "push": {
 					let filesToPush = files;
 					if (!filesToPush || filesToPush.length === 0) {
+						const list = new Set<string>();
+
+						// 1. Get local uncommitted/unstaged changes
 						const diffRes = runGit(connDir, ["diff", "--name-only"]);
 						const untrackedRes = runGit(connDir, ["status", "--porcelain"]);
-						const list = new Set<string>();
 						if (diffRes.exitCode === 0) {
 							diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
 						}
@@ -319,6 +338,20 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 								}
 							});
 						}
+
+						// 2. Get committed changes relative to the SAP baseline (main/master) if on a feature branch
+						const currentBranchRes = runGit(connDir, ["branch", "--show-current"]);
+						const currentBranch = currentBranchRes.exitCode === 0 ? currentBranchRes.stdout.trim() : "";
+						const defaultBranch = runGit(connDir, ["show-ref", "--verify", "--quiet", "refs/heads/main"]).exitCode === 0 ? "main" : "master";
+
+						if (currentBranch && currentBranch !== defaultBranch) {
+							// Compare feature branch HEAD with default branch to get all committed changes
+							const branchDiffRes = runGit(connDir, ["diff", "--name-only", `${defaultBranch}...HEAD`]);
+							if (branchDiffRes.exitCode === 0) {
+								branchDiffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
+							}
+						}
+
 						filesToPush = Array.from(list);
 					}
 
@@ -330,7 +363,7 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 					const manifest = readManifest(connDir);
 
 					for (const file of filesToPush) {
-						const relPath = relative(connDir, resolve(connDir, file)).replace(/\\/g, "/");
+						const relPath = relative(connDir, getAbsPath(workspaceRoot, connDir, connectionName, file)).replace(/\\/g, "/");
 						const entry = manifest.entries[relPath];
 						if (!entry || entry.kind !== "object" || !entry.adtUri) {
 							resultText += `Skipping ${file}: Not an ADT-backed object.\n`;
@@ -388,7 +421,7 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 							}
 						}
 
-						const argv = ["object", "set-source", entry.adtUri, "--file", resolve(connDir, relPath)];
+						const argv = ["object", "set-source", entry.adtUri, "--file", getAbsPath(workspaceRoot, connDir, connectionName, file)];
 						if (resolvedTr) {
 							argv.push("--transport", resolvedTr);
 						}
@@ -426,7 +459,7 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 					const manifest = readManifest(connDir);
 
 					for (const file of filesToActivate) {
-						const relPath = relative(connDir, resolve(connDir, file)).replace(/\\/g, "/");
+						const relPath = relative(connDir, getAbsPath(workspaceRoot, connDir, connectionName, file)).replace(/\\/g, "/");
 						const entry = manifest.entries[relPath];
 						if (!entry || entry.kind !== "object" || !entry.adtUri) {
 							resultText += `Skipping ${file}: Not an ADT-backed object.\n`;
@@ -466,7 +499,7 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 					const manifest = readManifest(connDir);
 
 					for (const file of filesToCheck) {
-						const relPath = relative(connDir, resolve(connDir, file)).replace(/\\/g, "/");
+						const relPath = relative(connDir, getAbsPath(workspaceRoot, connDir, connectionName, file)).replace(/\\/g, "/");
 						const entry = manifest.entries[relPath];
 						if (!entry || entry.kind !== "object" || !entry.adtUri) {
 							resultText += `Skipping ${file}: Not an ADT-backed object.\n`;
