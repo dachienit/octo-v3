@@ -1,9 +1,24 @@
 import { DEFAULT_ENABLED_TOOLS } from "@octo/core-agent";
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
+import { appendFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "fs";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 
 export type WorkspaceRole = "owner" | "admin" | "editor" | "viewer";
+
+export interface WorkOrder {
+	id: string;
+	title: string;
+	description?: string;
+	createdAt: string;
+}
+
+export interface WorkItem {
+	id: string;
+	workOrderId: string;
+	title: string;
+	description?: string;
+	createdAt: string;
+}
 
 export interface WorkspaceInfo {
 	id: string;
@@ -70,6 +85,14 @@ export interface WorkspaceSettings {
 			required?: boolean;
 		}>;	
 	};
+	activities?: WorkspaceActivity[];
+}
+
+export interface WorkspaceActivity {
+	id: string;
+	label: string;
+	instruction?: string;
+	skills?: string[];
 }
 
 export interface WorkspaceMember {
@@ -88,6 +111,8 @@ export interface SessionRecord {
 	createdBy: string;
 	createdAt: string;
 	lastModified: number;
+	workOrderId?: string;
+	workItemId?: string;
 }
 
 export interface SessionInfo {
@@ -98,6 +123,8 @@ export interface SessionInfo {
 	preview: string;
 	messageCount: number;
 	lastModified: number;
+	workOrderId?: string;
+	workItemId?: string;
 }
 
 export type WorkspaceTemplateId = "default" | "sap-cap" | "sap-abap";
@@ -233,6 +260,7 @@ export class WorkspaceStore {
 		mkdirSync(join(root, "artifacts"), { recursive: true });
 		mkdirSync(join(root, "skills"), { recursive: true });
 		mkdirSync(join(root, "events"), { recursive: true });
+		mkdirSync(join(root, "works"), { recursive: true });
 		this.copyTemplateContent(template.id, root);
 
 		const workspace: WorkspaceInfo = {
@@ -384,6 +412,7 @@ export class WorkspaceStore {
 			tools: settings.tools ?? {},
 			connectors: settings.connectors ?? {},
 			mcp: settings.mcp ?? {},
+			activities: settings.activities ?? workspace.settings?.activities ?? [],
 		};
 		writeJson(join(root, "workspace.json"), { ...workspace, settings: nextSettings });
 		return this.getWorkspaceSettings(userId, workspaceId);
@@ -427,13 +456,13 @@ export class WorkspaceStore {
 		return member.role;
 	}
 
-	createSession(opts: { workspaceId: string; userId: string; title?: string }): SessionRecord {
+	createSession(opts: { workspaceId: string; userId: string; title?: string; workOrderId?: string; workItemId?: string }): SessionRecord {
 		this.assertWorkspaceAccess(opts.userId, opts.workspaceId);
 		const id = createId("s");
 		return this.createSessionWithId({ ...opts, sessionId: id });
 	}
 
-	createSessionWithId(opts: { workspaceId: string; sessionId: string; userId: string; title?: string }): SessionRecord {
+	createSessionWithId(opts: { workspaceId: string; sessionId: string; userId: string; title?: string; workOrderId?: string; workItemId?: string }): SessionRecord {
 		this.assertWorkspaceAccess(opts.userId, opts.workspaceId);
 		const id = opts.sessionId;
 		const root = this.getSessionRoot(opts.workspaceId, id);
@@ -447,20 +476,44 @@ export class WorkspaceStore {
 			createdBy: opts.userId,
 			createdAt: now,
 			lastModified: Date.now(),
+			workOrderId: opts.workOrderId,
+			workItemId: opts.workItemId,
 		};
 		writeJson(join(root, "session.json"), session);
 		return session;
 	}
 
-	ensureSession(opts: { sessionId: string; workspaceId?: string; userId: string }): SessionRecord {
+	updateSession(sessionId: string, updates: { title?: string; workOrderId?: string; workItemId?: string }): SessionRecord | undefined {
+		const session = this.findSession(sessionId);
+		if (!session) return undefined;
+		const updatedSession: SessionRecord = {
+			...session,
+			title: updates.title !== undefined ? (updates.title?.trim() || "New session") : session.title,
+			workOrderId: updates.workOrderId !== undefined ? updates.workOrderId : session.workOrderId,
+			workItemId: updates.workItemId !== undefined ? updates.workItemId : session.workItemId,
+			lastModified: Date.now(),
+		};
+		const root = this.getSessionRoot(session.workspaceId, sessionId);
+		writeJson(join(root, "session.json"), updatedSession);
+		return updatedSession;
+	}
+
+	ensureSession(opts: { sessionId: string; workspaceId?: string; userId: string; workOrderId?: string; workItemId?: string }): SessionRecord {
 		const existing = this.findSession(opts.sessionId);
-		if (existing) return existing;
+		if (existing) {
+			if (opts.workOrderId !== undefined || opts.workItemId !== undefined) {
+				return this.updateSession(opts.sessionId, { workOrderId: opts.workOrderId, workItemId: opts.workItemId }) ?? existing;
+			}
+			return existing;
+		}
 		const workspaceId = opts.workspaceId ?? this.ensureDefaultWorkspace(opts.userId).id;
 		return this.createSessionWithId({
 			workspaceId,
 			sessionId: opts.sessionId,
 			userId: opts.userId,
 			title: "New session",
+			workOrderId: opts.workOrderId,
+			workItemId: opts.workItemId,
 		});
 	}
 
@@ -559,6 +612,95 @@ export class WorkspaceStore {
 			preview: preview.length > 80 ? `${preview.slice(0, 80)}...` : preview,
 			messageCount,
 			lastModified,
+			workOrderId: session.workOrderId,
+			workItemId: session.workItemId,
 		};
+	}
+
+	getWorksRoot(workspaceId: string): string {
+		return join(this.getWorkspaceRoot(workspaceId), "works");
+	}
+
+	getWorkOrdersPath(workspaceId: string): string {
+		return join(this.getWorksRoot(workspaceId), "workorders.jsonl");
+	}
+
+	getWorkItemsPath(workspaceId: string): string {
+		return join(this.getWorksRoot(workspaceId), "workitems.jsonl");
+	}
+
+	listWorks(userId: string, workspaceId: string): { workOrders: WorkOrder[]; workItems: WorkItem[] } {
+		this.assertWorkspaceAccess(userId, workspaceId);
+		const worksRoot = this.getWorksRoot(workspaceId);
+		mkdirSync(worksRoot, { recursive: true });
+
+		const workOrders: WorkOrder[] = [];
+		const workOrdersPath = this.getWorkOrdersPath(workspaceId);
+		if (existsSync(workOrdersPath)) {
+			const content = readFileSync(workOrdersPath, "utf-8");
+			for (const line of content.split("\n").filter(Boolean)) {
+				try {
+					workOrders.push(JSON.parse(line) as WorkOrder);
+				} catch {
+					// Ignore malformed lines
+				}
+			}
+		}
+
+		const workItems: WorkItem[] = [];
+		const workItemsPath = this.getWorkItemsPath(workspaceId);
+		if (existsSync(workItemsPath)) {
+			const content = readFileSync(workItemsPath, "utf-8");
+			for (const line of content.split("\n").filter(Boolean)) {
+				try {
+					workItems.push(JSON.parse(line) as WorkItem);
+				} catch {
+					// Ignore malformed lines
+				}
+			}
+		}
+
+		return { workOrders, workItems };
+	}
+
+	createWorkOrder(opts: { workspaceId: string; userId: string; title: string; description?: string }): WorkOrder {
+		this.assertWorkspaceAccess(opts.userId, opts.workspaceId);
+		const worksRoot = this.getWorksRoot(opts.workspaceId);
+		mkdirSync(worksRoot, { recursive: true });
+
+		const workOrder: WorkOrder = {
+			id: createId("wo"),
+			title: opts.title.trim() || "New Work Order",
+			description: opts.description?.trim(),
+			createdAt: new Date().toISOString(),
+		};
+
+		const path = this.getWorkOrdersPath(opts.workspaceId);
+		appendFileSync(path, `${JSON.stringify(workOrder)}\n`, "utf-8");
+		return workOrder;
+	}
+
+	createWorkItem(opts: { workspaceId: string; userId: string; workOrderId: string; title: string; description?: string }): WorkItem {
+		this.assertWorkspaceAccess(opts.userId, opts.workspaceId);
+		const worksRoot = this.getWorksRoot(opts.workspaceId);
+		mkdirSync(worksRoot, { recursive: true });
+
+		// Verify work order exists
+		const { workOrders } = this.listWorks(opts.userId, opts.workspaceId);
+		if (!workOrders.some((wo) => wo.id === opts.workOrderId)) {
+			throw new Error(`Work Order ${opts.workOrderId} does not exist in this workspace.`);
+		}
+
+		const workItem: WorkItem = {
+			id: createId("wi"),
+			workOrderId: opts.workOrderId,
+			title: opts.title.trim() || "New Work Item",
+			description: opts.description?.trim(),
+			createdAt: new Date().toISOString(),
+		};
+
+		const path = this.getWorkItemsPath(opts.workspaceId);
+		appendFileSync(path, `${JSON.stringify(workItem)}\n`, "utf-8");
+		return workItem;
 	}
 }

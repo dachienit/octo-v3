@@ -1,4 +1,4 @@
-import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, DEFAULT_APP_TITLE, fileToBase64, translations, type AcpJob, type AuthUser, type ConnectorStatus, type CoreServiceFeatures, type CustomModelConfig, type LlmConfig, type SapDestination, type SapLocalSystem, type SapTreeManifestEntry, type SessionInfo, type SkillUploadFile, type SsoConfig, type ToolCatalogEntry, type WorkspaceInfo, type WorkspaceNode, type WorkspaceSandboxStatus, type WorkspaceScheduledEvent, type WorkspaceSettings, type WorkspaceTableSummary, type WorkspaceTemplate, type WorkspaceTree } from "@octo/web-ui-corp";
+import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, DEFAULT_APP_TITLE, fileToBase64, translations, type AcpJob, type AuthUser, type ConnectorStatus, type CoreServiceFeatures, type CustomModelConfig, type LlmConfig, type SapDestination, type SapLocalSystem, type SapTreeManifestEntry, type SessionInfo, type SkillUploadFile, type SsoConfig, type ToolCatalogEntry, type WorkspaceInfo, type WorkspaceNode, type WorkspaceSandboxStatus, type WorkspaceScheduledEvent, type WorkspaceSettings, type WorkspaceTableSummary, type WorkspaceTemplate, type WorkspaceTree, type WorkOrder, type WorkItem } from "@octo/web-ui-corp";
 import { setTranslations } from "@mariozechner/mini-lit";
 import { html, render } from "lit";
 import { icon } from "@mariozechner/mini-lit";
@@ -14,6 +14,8 @@ setTranslations(translations);
 // Read config from URL params
 const urlParams = new URLSearchParams(window.location.search);
 const baseUrl = urlParams.get("baseUrl") || "/api";
+const workOrderId = urlParams.get("workOrderId") || urlParams.get("workOrder") || undefined;
+const workItemId = urlParams.get("workItemId") || urlParams.get("workItem") || undefined;
 const initialRoute = getRouteFromPath();
 const authTokenKey = `coreServiceAuthToken:${baseUrl}`;
 const providerKey = `coreServiceProvider:${baseUrl}`;
@@ -32,7 +34,7 @@ let themeMenuOpen = false;
 let providerDialogOpen = false;
 let createWorkspaceDialogOpen = false;
 let workspaceSettingsDialogOpen = false;
-let workspaceSettingsTab: "agent" | "connection" | "tools" | "workers" | "sandbox" = "agent";
+let workspaceSettingsTab: "agent" | "connection" | "tools" | "workers" | "sandbox" | "activities" = "agent";
 // Tools tab: the catalog comes from the server, the draft is the unsaved selection.
 let toolCatalog: ToolCatalogEntry[] = [];
 let toolCatalogLoaded = false;
@@ -51,6 +53,16 @@ let llmConfig: LlmConfig = { providers: [] };
 let llmConfigLoading = false;
 let providerKeyInput = "";
 let providerKeySaving = false;
+let workOrders: WorkOrder[] = [];
+let workItems: WorkItem[] = [];
+let newWorkOrderTitle = "";
+let newWorkItemTitle = "";
+let selectedWorkOrderIdForNewItem = "";
+let showAddWorkOrderInput = false;
+let showAddWorkItemInputForOrderId = "";
+let activeActivityId = "general";
+let newActivityTitle = "";
+let showAddActivityInput = false;
 let providerKeyError = "";
 let providerSavedNotice = "";
 let modelFilter = "";
@@ -166,6 +178,15 @@ chatPanel.channelId = channelId;
 chatPanel.userName = userName;
 chatPanel.agentName = serviceFeatures.appTitle;
 chatPanel.authToken = authToken;
+chatPanel.workOrderId = workOrderId;
+chatPanel.workItemId = workItemId;
+chatPanel.onActivityChange = (id: string) => {
+	activeActivityId = id;
+	renderApp();
+};
+chatPanel.onActivityCreate = (title: string) => {
+	void handleCreateActivity(title);
+};
 chatPanel.addEventListener("file-preview-open", () => {
 	if (workspaceOpen && sidebarOpen) {
 		sidebarOpen = false;
@@ -362,19 +383,287 @@ async function loadWorkspaces() {
 	startAcpJobPolling();
 }
 
+async function loadWorks() {
+	if (!workspaceId) {
+		workOrders = [];
+		workItems = [];
+		return;
+	}
+	try {
+		const data = await client.getWorks(workspaceId);
+		workOrders = data.workOrders ?? [];
+		workItems = data.workItems ?? [];
+	} catch {
+		workOrders = [];
+		workItems = [];
+	}
+}
+
+async function handleCreateWorkOrder(title: string) {
+	if (!workspaceId || !title.trim()) return;
+	const wo = await client.createWorkOrder(workspaceId, title.trim());
+	if (wo) {
+		newWorkOrderTitle = "";
+		showAddWorkOrderInput = false;
+		await loadSessions();
+	}
+}
+
+async function handleCreateWorkItem(workOrderId: string, title: string) {
+	if (!workspaceId || !title.trim()) return;
+	const wi = await client.createWorkItem(workspaceId, workOrderId, title.trim());
+	if (wi) {
+		newWorkItemTitle = "";
+		showAddWorkItemInputForOrderId = "";
+		await loadSessions();
+	}
+}
+
+async function handleCreateUnassignedSession() {
+	if (!workspaceId) return;
+	const session = await client.createSession(workspaceId, "New session");
+	if (!session) return;
+	await loadSessions();
+	switchSession(session.id);
+}
+
+async function handleCreateSessionForWorkItem(workOrderId: string, workItemId: string) {
+	if (!workspaceId) return;
+	const session = await client.createSession(workspaceId, "New session", undefined, workOrderId, workItemId);
+	if (!session) return;
+	await loadSessions();
+	switchSession(session.id);
+}
+
+async function handleCreateActivity(title: string) {
+	if (!workspaceId || !title.trim()) return;
+	const cleanTitle = title.trim();
+	const id = cleanTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+	
+	const currentActivities = workspaceSettings.activities ?? [];
+	if (currentActivities.some((act) => act.id === id)) {
+		alert(`Activity "${cleanTitle}" already exists.`);
+		return;
+	}
+
+	const newActivity = { id, label: cleanTitle, instruction: "", skills: [] };
+	const updatedActivities = [...currentActivities, newActivity];
+	
+	try {
+		const saved = await client.updateWorkspaceSettings(workspaceId, {
+			...workspaceSettings,
+			activities: updatedActivities,
+		});
+		if (saved) {
+			workspaceSettings = saved;
+			activeActivityId = id;
+			chatPanel.activityId = id;
+			newActivityTitle = "";
+			showAddActivityInput = false;
+			renderApp();
+		}
+	} catch (err) {
+		alert(`Failed to save activity: ${err instanceof Error ? err.message : String(err)}`);
+	}
+}
+
+function selectActivityTab(id: string) {
+	activeActivityId = id;
+	chatPanel.activityId = id;
+	renderApp();
+}
+
+function renderActivitiesTabs() {
+	const activities = workspaceSettings.activities ?? [];
+	const allActivities = [
+		{ id: "general", label: "General", instruction: "", skills: [] },
+		...activities,
+	];
+
+	return html`
+		<div class="border-b border-border bg-muted/10 flex items-center justify-between px-3 py-1 gap-2 select-none shrink-0 min-w-0">
+			<!-- Tabs Row -->
+			<div class="flex items-center gap-1 overflow-x-auto min-w-0">
+				${allActivities.map((act) => {
+					const isSelected = activeActivityId === act.id;
+					return html`
+						<button
+							type="button"
+							class="px-3 py-1 rounded text-xs font-medium border transition-all truncate max-w-[120px] ${
+								isSelected
+									? "bg-background border-border text-foreground shadow-sm font-semibold"
+									: "border-transparent text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+							}"
+							@click=${() => selectActivityTab(act.id)}
+							title=${act.label}
+						>
+							${act.label}
+						</button>
+					`;
+				})}
+
+				<!-- Inline Add Activity Form or Trigger -->
+				${showAddActivityInput
+					? html`
+						<div class="flex items-center gap-1 px-1 pl-2">
+							<input
+								class="min-w-[100px] max-w-[140px] rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+								placeholder="Activity name..."
+								.value=${newActivityTitle}
+								@input=${(e: Event) => { newActivityTitle = (e.target as HTMLInputElement).value; }}
+								@keydown=${(e: KeyboardEvent) => {
+									if (e.key === "Enter") void handleCreateActivity(newActivityTitle);
+									if (e.key === "Escape") { showAddActivityInput = false; renderApp(); }
+								}}
+							/>
+							<button
+								type="button"
+								class="rounded bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground hover:opacity-90 font-medium"
+								@click=${() => void handleCreateActivity(newActivityTitle)}
+							>Add</button>
+							<button
+								type="button"
+								class="text-xs text-muted-foreground hover:text-foreground px-1"
+								@click=${() => { showAddActivityInput = false; renderApp(); }}
+							>×</button>
+						</div>
+					`
+					: html`
+						<button
+							type="button"
+							class="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all ml-1 shrink-0"
+							title="Quick Create Activity Type"
+							@click=${() => { showAddActivityInput = true; renderApp(); }}
+						>
+							${icon(Plus, "xs")}
+						</button>
+					`}
+			</div>
+
+			<!-- Quick Indicator or Settings link -->
+			${activeActivityId !== "general"
+				? html`
+					<button
+						type="button"
+						class="text-[11px] text-muted-foreground hover:text-primary transition-all shrink-0 hover:underline"
+						@click=${() => void openWorkspaceSettingsDialog()}
+					>
+						Configure Activity Instructions & Skills
+					</button>
+				`
+				: ""}
+		</div>
+	`;
+}
+
+function renderActivitiesSettings() {
+	const activities = workspaceSettings.activities ?? [];
+	return html`
+		<section class="flex flex-col gap-4 min-h-[52vh]">
+			<div>
+				<div class="text-sm font-medium">Activity Types Configuration</div>
+				<div class="text-xs text-muted-foreground">Customize instructions and allowed skills for each activity type. These restrict what the agent can do while working on a specific activity tab.</div>
+			</div>
+
+			${activities.length === 0
+				? html`
+					<div class="rounded-lg border border-dashed border-border px-4 py-8 text-center text-xs italic text-muted-foreground">
+						No custom activities configured yet. Create one using the [+] button on the activity tabs above the chat box!
+					</div>
+				`
+				: html`
+					<div class="flex flex-col gap-4 max-h-[46vh] overflow-y-auto pr-1">
+						${activities.map((act, index) => html`
+							<div class="rounded-lg border border-border bg-card/40 p-3 flex flex-col gap-3">
+								<div class="flex items-center justify-between border-b border-border pb-2 gap-2">
+									<ui5-input
+										class="corp-ui5-input font-semibold min-w-0"
+										value=${act.label}
+										@input=${(e: Event) => { act.label = getUi5Value(e); }}
+									></ui5-input>
+									<ui5-button
+										class="corp-ui5-button shrink-0"
+										design="Negative"
+										icon="delete"
+										title="Delete activity"
+										@click=${() => {
+											if (confirm(`Delete activity "${act.label}"?`)) {
+												workspaceSettings.activities = activities.filter((_, i) => i !== index);
+												if (activeActivityId === act.id) {
+													activeActivityId = "general";
+													chatPanel.activityId = "general";
+												}
+												renderApp();
+											}
+										}}
+									>Delete</ui5-button>
+								</div>
+
+								<div class="flex flex-col gap-1.5">
+									<span class="text-xs font-semibold text-muted-foreground">Activity Instruction</span>
+									<ui5-textarea
+										class="corp-ui5-textarea"
+										placeholder="Custom system instructions, guidelines, and rules for this specific activity..."
+										rows="5"
+										value=${act.instruction ?? ""}
+										@input=${(e: Event) => { act.instruction = getUi5Value(e); }}
+									></ui5-textarea>
+								</div>
+
+								<div class="flex flex-col gap-1.5">
+									<span class="text-xs font-semibold text-muted-foreground">Allowed Workspace Skills</span>
+									<div class="text-[11px] text-muted-foreground mb-1">If specified, the agent will only be allowed to load the checked skills when this activity is active. Leave all unchecked to allow all skills.</div>
+									<div class="flex flex-wrap gap-x-4 gap-y-1.5 bg-background border border-border/60 rounded p-2 max-h-32 overflow-y-auto">
+										${workspaceTree.skills.length === 0
+											? html`<span class="text-xs text-muted-foreground italic">No skills installed in this workspace</span>`
+											: workspaceTree.skills.map((skill) => {
+												const isChecked = (act.skills ?? []).includes(skill.name);
+												return html`
+													<ui5-checkbox
+														class="corp-ui5-checkbox"
+														text=${skill.name}
+														?checked=${isChecked}
+														@change=${(e: Event) => {
+															const checked = (e.target as HTMLInputElement).checked;
+															const currentSkills = act.skills ?? [];
+															let nextSkills: string[];
+															if (checked) {
+																nextSkills = [...currentSkills, skill.name];
+															} else {
+																nextSkills = currentSkills.filter((sk) => sk !== skill.name);
+															}
+															act.skills = nextSkills;
+															renderApp();
+														}}
+													></ui5-checkbox>
+												`;
+											})}
+									</div>
+								</div>
+							</div>
+						`)}
+					</div>
+				`}
+		</section>
+	`;
+}
+
 async function loadSessions() {
 	if (!workspaceId) {
 		sessions = [];
+		workOrders = [];
+		workItems = [];
 		channelId = "";
 		chatPanel.channelId = "";
 		renderApp();
 		return;
 	}
+	await loadWorks();
 	const route = getRouteFromPath();
 	const routedSessionId = route.workspaceId === workspaceId ? route.sessionId : undefined;
 	sessions = await client.getSessions(workspaceId);
 	if (sessions.length === 0) {
-		const created = await client.createSession(workspaceId, "New session");
+		const created = await client.createSession(workspaceId, "New session", undefined, workOrderId, workItemId);
 		if (created) sessions = await client.getSessions(workspaceId);
 	}
 	const savedSessionId = sessionStorage.getItem(`sessionId:${workspaceId}`) || "";
@@ -396,6 +685,12 @@ async function loadSessions() {
 
 async function loadWorkspace() {
 	if (!channelId) return;
+	const [tree, settings] = await Promise.all([
+		client.getWorkspace(channelId),
+		client.getWorkspaceSettings(workspaceId),
+	]);
+	workspaceTree = tree ?? { artifacts: [], skills: [] };
+	workspaceSettings = settings ?? {};
 	workspaceTree = (await client.getWorkspace(channelId!)) ?? { artifacts: [], skills: [] };
 	// The composer's `@` picker and Skills menu read the same tree. Pushing it here -
 	// rather than letting the panel fetch its own - is what keeps `@` in step with the
@@ -627,7 +922,7 @@ async function submitCreateWorkspace(event?: Event) {
 
 async function newSession() {
 	if (!workspaceId) return;
-	const session = await client.createSession(workspaceId, "New session");
+	const session = await client.createSession(workspaceId, "New session", undefined, workOrderId, workItemId);
 	if (!session) return;
 	await loadSessions();
 	switchSession(session.id);
@@ -1572,6 +1867,254 @@ function filteredSessions(): SessionInfo[] {
 	const q = sessionFilter.trim().toLowerCase();
 	if (!q) return sessions;
 	return sessions.filter((s) => (s.preview || "").toLowerCase().includes(q) || (s.title ?? "").toLowerCase().includes(q));
+}
+
+interface GroupedSessions {
+	key: string;
+	label: string;
+	workOrderId?: string;
+	workItemId?: string;
+	sessions: SessionInfo[];
+}
+
+function getGroupedSessions(): GroupedSessions[] {
+	const filtered = filteredSessions();
+	const groupsMap = new Map<string, SessionInfo[]>();
+	const noGroup: SessionInfo[] = [];
+
+	for (const s of filtered) {
+		const wo = s.workOrderId;
+		const wi = s.workItemId;
+		if (wo || wi) {
+			const key = `${wo || ""}|${wi || ""}`;
+			if (!groupsMap.has(key)) {
+				groupsMap.set(key, []);
+			}
+			groupsMap.get(key)!.push(s);
+		} else {
+			noGroup.push(s);
+		}
+	}
+
+	const result: GroupedSessions[] = [];
+	for (const [key, list] of groupsMap.entries()) {
+		const [wo, wi] = key.split("|");
+		let label = "";
+		if (wo && wi) label = `Work Order: ${wo} / Item: ${wi}`;
+		else if (wo) label = `Work Order: ${wo}`;
+		else label = `Work Item: ${wi}`;
+
+		result.push({
+			key,
+			label,
+			workOrderId: wo || undefined,
+			workItemId: wi || undefined,
+			sessions: list,
+		});
+	}
+
+	// Sort groups alphabetically by label or by latest modified session inside them
+	result.sort((a, b) => {
+		const aMax = Math.max(...a.sessions.map((s) => s.lastModified));
+		const bMax = Math.max(...b.sessions.map((s) => s.lastModified));
+		return bMax - aMax;
+	});
+
+	if (noGroup.length > 0) {
+		result.push({
+			key: "no-group",
+			label: "Other Sessions",
+			sessions: noGroup,
+		});
+	}
+
+	return result;
+}
+
+function renderGroupedSidebar() {
+	const q = sessionFilter.trim().toLowerCase();
+	
+	// Helper to check if a session matches search query
+	const matchesQuery = (s: SessionInfo) => {
+		if (!q) return true;
+		return (s.preview || "").toLowerCase().includes(q) || (s.title ?? "").toLowerCase().includes(q);
+	};
+
+	const filteredSessionsList = sessions.filter(matchesQuery);
+
+	// Sessions with neither workOrderId nor workItemId
+	const otherSessions = filteredSessionsList.filter((s) => !s.workOrderId && !s.workItemId);
+
+	return html`
+		<div class="flex flex-col gap-2 p-2">
+			<!-- Work Orders Header / Add Work Order Action -->
+			<div class="flex items-center justify-between px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider select-none">
+				<span class="flex items-center gap-1">${icon(Tags, "xs")} Work Orders</span>
+				<button 
+					type="button"
+					class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+					title="Add Work Order"
+					@click=${() => { showAddWorkOrderInput = !showAddWorkOrderInput; renderApp(); }}
+				>
+					${icon(Plus, "xs")}
+				</button>
+			</div>
+
+			<!-- Inline Add Work Order Input -->
+			${showAddWorkOrderInput
+				? html`
+					<div class="px-2 py-1 flex items-center gap-1">
+						<input 
+							class="min-w-0 flex-1 rounded border border-border bg-background px-2 py-1 text-xs"
+							placeholder="New Work Order title..."
+							.value=${newWorkOrderTitle}
+							@input=${(e: Event) => { newWorkOrderTitle = (e.target as HTMLInputElement).value; }}
+							@keydown=${(e: KeyboardEvent) => {
+								if (e.key === "Enter") void handleCreateWorkOrder(newWorkOrderTitle);
+								if (e.key === "Escape") { showAddWorkOrderInput = false; renderApp(); }
+							}}
+						/>
+						<button 
+							type="button"
+							class="rounded bg-primary px-2 py-1 text-[11px] text-primary-foreground hover:opacity-90 font-medium"
+							@click=${() => void handleCreateWorkOrder(newWorkOrderTitle)}
+						>Add</button>
+					</div>
+				`
+				: ""}
+
+			<!-- List of Work Orders -->
+			${workOrders.map((wo) => {
+				const items = workItems.filter((wi) => wi.workOrderId === wo.id);
+				const woSessions = filteredSessionsList.filter((s) => s.workOrderId === wo.id && !s.workItemId);
+				const isAddingItem = showAddWorkItemInputForOrderId === wo.id;
+
+				// Skip rendering this Work Order if filtering is active and it has no matching items or sessions
+				if (q && items.every(wi => filteredSessionsList.filter(s => s.workItemId === wi.id).length === 0) && woSessions.length === 0) {
+					return "";
+				}
+
+				return html`
+					<div class="rounded border border-border/40 bg-muted/10 p-1.5 flex flex-col gap-1">
+						<!-- Work Order Row -->
+						<div class="group flex items-center justify-between px-1.5 py-0.5 text-xs font-semibold text-foreground select-none">
+							<span class="truncate" title=${wo.title}>${wo.title}</span>
+							<button 
+								type="button"
+								class="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+								title="Add Work Item to this Work Order"
+								@click=${() => { showAddWorkItemInputForOrderId = isAddingItem ? "" : wo.id; renderApp(); }}
+							>
+								${icon(Plus, "xs")}
+							</button>
+						</div>
+
+						<!-- Inline Add Work Item Input -->
+						${isAddingItem
+							? html`
+								<div class="px-1.5 py-0.5 flex items-center gap-1">
+									<input 
+										class="min-w-0 flex-1 rounded border border-border bg-background px-1.5 py-0.5 text-xs"
+										placeholder="New Work Item..."
+										.value=${newWorkItemTitle}
+										@input=${(e: Event) => { newWorkItemTitle = (e.target as HTMLInputElement).value; }}
+										@keydown=${(e: KeyboardEvent) => {
+											if (e.key === "Enter") void handleCreateWorkItem(wo.id, newWorkItemTitle);
+											if (e.key === "Escape") { showAddWorkItemInputForOrderId = ""; renderApp(); }
+										}}
+									/>
+									<button 
+										type="button"
+										class="rounded bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground hover:opacity-90 font-medium"
+										@click=${() => void handleCreateWorkItem(wo.id, newWorkItemTitle)}
+									>Add</button>
+								</div>
+							`
+							: ""}
+
+						<!-- Work Items list -->
+						<div class="flex flex-col gap-1 pl-1">
+							${items.map((wi) => {
+								const wiSessions = filteredSessionsList.filter((s) => s.workItemId === wi.id);
+
+								if (q && wiSessions.length === 0) {
+									return "";
+								}
+
+								return html`
+									<div class="flex flex-col gap-0.5 pl-1.5 border-l border-border/40">
+										<!-- Work Item Row -->
+										<div class="group flex items-center justify-between px-1 py-0.5 text-xs font-medium text-muted-foreground select-none">
+											<span class="truncate" title=${wi.title}>${wi.title}</span>
+											<button 
+												type="button"
+												class="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-all"
+												title="Create new Session for this Work Item"
+												@click=${() => void handleCreateSessionForWorkItem(wo.id, wi.id)}
+											>
+												${icon(Plus, "xs")}
+											</button>
+										</div>
+
+										<!-- Work Item Sessions -->
+										${wiSessions.map((s) => renderSessionItem(s))}
+									</div>
+								`;
+							})}
+
+							<!-- Work Order Sessions (without item) -->
+							${woSessions.map((s) => renderSessionItem(s))}
+						</div>
+					</div>
+				`;
+			})}
+
+			<!-- Other / General Sessions Header -->
+			<div class="flex items-center justify-between px-2 py-1 text-xs font-semibold text-muted-foreground uppercase tracking-wider select-none mt-2">
+				<span>Other Sessions</span>
+				<button 
+					type="button"
+					class="p-0.5 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+					title="Create New Unassigned Session"
+					@click=${() => void handleCreateUnassignedSession()}
+				>
+					${icon(Plus, "xs")}
+				</button>
+			</div>
+			<div class="flex flex-col gap-0.5">
+				${otherSessions.length === 0
+					? html`<div class="px-3 py-2 text-xs text-muted-foreground italic">No other sessions</div>`
+					: otherSessions.map((s) => renderSessionItem(s))}
+			</div>
+		</div>
+	`;
+}
+
+function renderSessionItem(s: SessionInfo) {
+	return html`
+		<div class="group w-full px-2 py-1 hover:bg-accent transition-colors flex items-start gap-1 rounded ${s.channelId === channelId ? "bg-accent" : ""}">
+			<button
+				type="button"
+				class="flex-1 min-w-0 text-left flex flex-col gap-0.5"
+				@click=${() => switchSession(s.channelId)}
+			>
+				<div class="flex items-center gap-1.5 min-w-0">
+					${icon(MessageSquare, "xs")}
+					<span class="text-xs font-medium truncate flex-1">${s.title || s.preview || "Empty session"}</span>
+				</div>
+				<div class="text-xs text-muted-foreground flex gap-2 pl-4">
+					<span>${s.messageCount} msg${s.messageCount !== 1 ? "s" : ""}</span>
+					<span>${formatTime(s.lastModified)}</span>
+				</div>
+			</button>
+			<button
+				type="button"
+				class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 mt-0.5 rounded hover:bg-destructive/10 text-destructive transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5"
+				title="Delete session"
+				@click=${(e: Event) => { e.stopPropagation(); void deleteSession(s.channelId); }}
+			>${icon(Trash2, "xs")}</button>
+		</div>
+	`;
 }
 
 function filteredModels() {
@@ -2923,7 +3466,7 @@ function renderBoschModelBlock(model: CustomModelConfig) {
 }
 
 function renderOctoRouterConfig() {
-	const filteredModels = boschModels.filter((model) => model.name.startsWith("octo-router/"));
+	const filteredModels = boschModels.filter((model) => model.provider === "octo-router" || model.name.startsWith("octo-router/"));
 	const cleanModelName = (name: string) => name.replace("bosch-genai/", "").replace("octo-router/", "");
 
 	return html`
@@ -3362,8 +3905,8 @@ function renderWorkspaceSettingsDialog() {
 	}
 	const sap = workspaceSettings.sapConnection ?? {};
 	const promptFile = workspaceSettings.agent?.promptFile ?? "AGENTS.md";
-	const visibleTabs = 2 + (serviceFeatures.connection ? 1 : 0) + (serviceFeatures.tools ? 1 : 0) + (serviceFeatures.agentWorkers ? 1 : 0);
-	const tabColumns = visibleTabs >= 5 ? "grid-cols-5" : visibleTabs === 4 ? "grid-cols-4" : visibleTabs === 3 ? "grid-cols-3" : "grid-cols-2";
+	const visibleTabs = 3 + (serviceFeatures.connection ? 1 : 0) + (serviceFeatures.tools ? 1 : 0) + (serviceFeatures.agentWorkers ? 1 : 0);
+	const tabColumns = visibleTabs >= 6 ? "grid-cols-6" : visibleTabs === 5 ? "grid-cols-5" : visibleTabs === 4 ? "grid-cols-4" : visibleTabs === 3 ? "grid-cols-3" : "grid-cols-2";
 	return html`
 		<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4" @click=${closeWorkspaceSettingsDialog}>
 			<form class="w-full max-w-2xl rounded border border-border bg-background shadow-xl" @submit=${saveWorkspaceSettings} @click=${(e: Event) => e.stopPropagation()}>
@@ -3379,6 +3922,13 @@ function renderWorkspaceSettingsDialog() {
 							@click=${() => { workspaceSettingsTab = "agent"; renderApp(); }}
 						>
 							Agent
+						</ui5-button>
+						<ui5-button
+							class="corp-ui5-button corp-tab-button"
+							design=${workspaceSettingsTab === "activities" ? "Emphasized" : "Transparent"}
+							@click=${() => { workspaceSettingsTab = "activities"; renderApp(); }}
+						>
+							Activities
 						</ui5-button>
 						${serviceFeatures.connection ? html`
 							<ui5-button
@@ -3437,6 +3987,8 @@ function renderWorkspaceSettingsDialog() {
 											></ui5-textarea>
 										</section>
 									`
+									: workspaceSettingsTab === "activities"
+											? renderActivitiesSettings()
 									: workspaceSettingsTab === "connection"
 											? html`${renderBusinessConnectorSettings(sap)}${renderMcpSettings()}`
 											: workspaceSettingsTab === "tools"
@@ -3469,6 +4021,9 @@ function renderWorkspaceSettingsDialog() {
 }
 
 function renderApp() {
+	chatPanel.activities = workspaceSettings.activities;
+	chatPanel.activityId = activeActivityId;
+
 	if (!currentUser) {
 		if (ssoConfig.hideAuthUi || !authResolved) {
 			render(
@@ -3591,16 +4146,7 @@ function renderApp() {
 					${sidebarOpen
 						? html`
 							<div class="w-60 shrink-0 border-r border-border flex flex-col overflow-hidden bg-background">
-								<div class="p-2 shrink-0">
-									${Ui5Button({
-										className: "corp-wide-button",
-										ui5Icon: "add",
-										children: "New session",
-										onClick: newSession,
-										title: "New session",
-									})}
-								</div>
-								<div class="px-2 pb-2 shrink-0">
+								<div class="px-2 pt-2 pb-2 shrink-0">
 									<ui5-input
 										class="corp-ui5-input w-full"
 										placeholder="Search sessions"
@@ -3610,34 +4156,7 @@ function renderApp() {
 									></ui5-input>
 								</div>
 								<div class="flex-1 overflow-y-auto">
-									${sessions.length === 0
-										? html`<div class="px-3 py-4 text-xs text-muted-foreground italic">No sessions yet</div>`
-										: filteredSessions().length === 0
-											? html`<div class="px-3 py-4 text-xs text-muted-foreground italic">No matching sessions</div>`
-											: filteredSessions().map(
-												(s) => html`
-													<div class="group w-full px-3 py-2 hover:bg-accent transition-colors flex items-start gap-1 ${s.channelId === channelId ? "bg-accent" : ""}">
-														<button
-															class="flex-1 min-w-0 text-left flex flex-col gap-0.5"
-															@click=${() => switchSession(s.channelId)}
-														>
-															<div class="flex items-center gap-1.5 min-w-0">
-																${icon(MessageSquare, "xs")}
-																<span class="text-xs font-medium truncate flex-1">${s.preview || "Empty session"}</span>
-															</div>
-															<div class="text-xs text-muted-foreground flex gap-2 pl-4">
-																<span>${s.messageCount} msg${s.messageCount !== 1 ? "s" : ""}</span>
-																<span>${formatTime(s.lastModified)}</span>
-															</div>
-														</button>
-														<button
-															class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 mt-0.5 rounded hover:bg-destructive/10 text-destructive transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5"
-															title="Delete session"
-															@click=${(e: Event) => { e.stopPropagation(); void deleteSession(s.channelId); }}
-														>${icon(Trash2, "xs")}</button>
-													</div>
-												`,
-											)}
+									${renderGroupedSidebar()}
 								</div>
 							</div>
 						`

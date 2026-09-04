@@ -138,6 +138,9 @@ export interface SessionMetadata {
 	 * Tool calls and tool results are excluded.
 	 */
 	preview: string;
+
+	workOrderId?: string;
+	workItemId?: string;
 }
 
 /**

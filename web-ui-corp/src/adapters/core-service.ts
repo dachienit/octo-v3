@@ -331,6 +331,13 @@ export type SapTreeManifestEntry = {
 	description?: string; // short description (shown italic, like Eclipse)
 };
 
+export type WorkspaceActivity = {
+	id: string;
+	label: string;
+	instruction?: string;
+	skills?: string[];
+};
+
 export type WorkspaceSettings = {
 	agent?: {
 		prompt?: string;
@@ -354,6 +361,7 @@ export type WorkspaceSettings = {
 	mcp?: {
 		servers?: Array<{ name: string; command: string; enabled?: boolean }>;
 	};
+	activities?: WorkspaceActivity[];
 };
 
 /** One row of the workspace settings Tools tab; served by GET /tools. */
@@ -679,12 +687,29 @@ export class CoreServiceClient {
 		mentions?: MentionPayload[],
 		/** Skill names the message invoked with `/name`; the server resolves them to SKILL.md paths. */
 		skills?: string[],
+		workOrderId?: string,
+		workItemId?: string,
+		activityId?: string,
 	): AsyncGenerator<SseEvent> {
 		const userQuery = userName ? `?userId=${encodeURIComponent(userName)}` : "";
 		const response = await this.fetch(`/sessions/${encodeURIComponent(channelId)}/messages${userQuery}`, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ text, userName, attachments, mentions, skills, model, structured: true }),
+			body: JSON.stringify({
+				text,
+				userName,
+				attachments,
+				mentions,
+				skills,
+				model,
+				structured: true,
+				workOrderId,
+				workItemId,
+				workOrder: workOrderId,
+				workItem: workItemId,
+				activityId,
+				activity: activityId,
+			}),
 			signal,
 		});
 
@@ -1342,12 +1367,57 @@ export class CoreServiceClient {
 		}
 	}
 
-	async createSession(workspaceId: string, title?: string, userName?: string): Promise<SessionRecord | null> {
+	async createSession(workspaceId: string, title?: string, userName?: string, workOrderId?: string, workItemId?: string): Promise<SessionRecord | null> {
 		try {
 			const response = await this.fetch(`/workspaces/${encodeURIComponent(workspaceId)}/sessions`, {
 				method: "POST",
 				headers: { "Content-Type": "application/json" },
-				body: JSON.stringify({ title, userName }),
+				body: JSON.stringify({
+					title,
+					userName,
+					workOrderId,
+					workItemId,
+					workOrder: workOrderId,
+					workItem: workItemId,
+				}),
+			});
+			if (!response.ok) return null;
+			return response.json();
+		} catch {
+			return null;
+		}
+	}
+
+	async getWorks(workspaceId: string): Promise<{ workOrders: WorkOrder[]; workItems: WorkItem[] }> {
+		try {
+			const response = await this.fetch(`/workspaces/${encodeURIComponent(workspaceId)}/works`);
+			if (!response.ok) return { workOrders: [], workItems: [] };
+			return response.json();
+		} catch {
+			return { workOrders: [], workItems: [] };
+		}
+	}
+
+	async createWorkOrder(workspaceId: string, title: string, description?: string): Promise<WorkOrder | null> {
+		try {
+			const response = await this.fetch(`/workspaces/${encodeURIComponent(workspaceId)}/work-orders`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ title, description }),
+			});
+			if (!response.ok) return null;
+			return response.json();
+		} catch {
+			return null;
+		}
+	}
+
+	async createWorkItem(workspaceId: string, workOrderId: string, title: string, description?: string): Promise<WorkItem | null> {
+		try {
+			const response = await this.fetch(`/workspaces/${encodeURIComponent(workspaceId)}/work-items`, {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ workOrderId, title, description }),
 			});
 			if (!response.ok) return null;
 			return response.json();
@@ -1378,6 +1448,8 @@ export type SessionRecord = {
 	createdBy: string;
 	createdAt: string;
 	lastModified: number;
+	workOrderId?: string;
+	workItemId?: string;
 };
 
 export type SessionInfo = {
@@ -1388,4 +1460,21 @@ export type SessionInfo = {
 	preview: string;
 	messageCount: number;
 	lastModified: number;
+	workOrderId?: string;
+	workItemId?: string;
+};
+
+export type WorkOrder = {
+	id: string;
+	title: string;
+	description?: string;
+	createdAt: string;
+};
+
+export type WorkItem = {
+	id: string;
+	workOrderId: string;
+	title: string;
+	description?: string;
+	createdAt: string;
 };

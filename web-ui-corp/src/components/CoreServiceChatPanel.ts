@@ -321,6 +321,12 @@ export class CoreServiceChatPanel extends LitElement {
 	@property() declare userName: string | undefined;
 	@property() declare agentName: string;
 	@property() declare authToken: string | null;
+	@property() declare workOrderId: string | undefined;
+	@property() declare workItemId: string | undefined;
+	@property() declare activityId: string | undefined;
+	@property({ type: Array }) declare activities: any[] | undefined;
+	@property({ type: Object }) declare onActivityChange: ((id: string) => void) | undefined;
+	@property({ type: Object }) declare onActivityCreate: ((title: string) => void) | undefined;
 
 	@state() private declare messages: ChatMessage[];
 	@state() private declare streamingText: string;
@@ -680,7 +686,7 @@ export class CoreServiceChatPanel extends LitElement {
 
 		this.abortController = new AbortController();
 		try {
-			for await (const event of this.client.chat(this.channelId, text, this.userName, this.abortController.signal, attachmentPayloads, this.parseSelectedModel(), mentions, skills)) {
+			for await (const event of this.client.chat(this.channelId, text, this.userName, this.abortController.signal, attachmentPayloads, this.parseSelectedModel(), mentions, skills, this.workOrderId, this.workItemId, this.activityId)) {
 				this.handleSseEvent(event);
 			}
 		} catch (err: any) {
@@ -1038,6 +1044,70 @@ export class CoreServiceChatPanel extends LitElement {
 		this.client.stop(this.channelId);
 	}
 
+	private selectActivity(id: string) {
+		this.activityId = id;
+		if (this.onActivityChange) {
+			this.onActivityChange(id);
+		}
+		this.requestUpdate();
+	}
+
+	private handleCreateActivity() {
+		const title = prompt("Enter new Activity Type name (e.g. Deploy):");
+		if (title && title.trim()) {
+			if (this.onActivityCreate) {
+				this.onActivityCreate(title.trim());
+			}
+		}
+	}
+
+	private renderActivitiesTabs() {
+		const activities = this.activities ?? [];
+		if (activities.length === 0 && (this.activityId === "general" || !this.activityId)) {
+			if (!this.onActivityCreate) return "";
+		}
+
+		const allActivities = [
+			{ id: "general", label: "General" },
+			...activities,
+		];
+
+		return html`
+			<div class="flex items-center gap-1.5 overflow-x-auto select-none px-1 pt-1.5 pb-1 relative z-10 shrink-0">
+				${allActivities.map((act) => {
+					const isSelected = (this.activityId || "general") === act.id;
+					return html`
+						<button
+							type="button"
+							class="px-2.5 py-1 text-[11px] font-medium transition-all truncate max-w-[120px] rounded-md ${
+								isSelected
+									? "bg-accent text-foreground font-semibold shadow-sm"
+									: "text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+							}"
+							@click=${() => this.selectActivity(act.id)}
+							title=${act.label}
+						>
+							${act.label}
+						</button>
+					`;
+				})}
+
+				${this.onActivityCreate
+					? html`
+						<button
+							type="button"
+							class="p-1 rounded-md hover:bg-muted text-muted-foreground hover:text-foreground transition-all ml-1 shrink-0 flex items-center justify-center h-6 w-6"
+							title="Quick Create Activity Type"
+							@click=${() => this.handleCreateActivity()}
+						>
+							<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3 w-3"><path d="M5 12h14"/><path d="M12 5v14"/></svg>
+						</button>
+					`
+					: ""}
+			</div>
+		`;
+	}
+
 	override render() {
 		const isEmpty = this.messages.length === 0 && !this.isStreaming;
 
@@ -1051,6 +1121,7 @@ export class CoreServiceChatPanel extends LitElement {
 								<div class="absolute inset-0 flex items-center justify-center px-6">
 									<div class="w-full max-w-3xl -translate-y-12">
 										<div class="text-center text-2xl md:text-3xl font-medium mb-8">What's can I help?</div>
+										${this.renderActivitiesTabs()}
 										<message-editor
 											.isStreaming=${this.isStreaming}
 											.showAttachmentButton=${true}
@@ -1085,6 +1156,7 @@ export class CoreServiceChatPanel extends LitElement {
 								<!-- Input Area -->
 								<div class="mt-auto shrink-0">
 									<div class="max-w-3xl mx-auto px-2 pb-4">
+										${this.renderActivitiesTabs()}
 										<message-editor
 											.isStreaming=${this.isStreaming}
 											.showAttachmentButton=${true}

@@ -786,6 +786,32 @@ function createRunner(
 			const skills = loadSkills(channelDir, coreAgent.workspacePath);
 			const hostWorkspacePath = join(channelDir, "..", "..");
 			const workspaceInstructions = loadWorkspaceInstructions(hostWorkspacePath);
+
+			// Resolve activity types and active activity settings
+			let workspaceSettings: any = undefined;
+			const workspaceConfigPath = join(hostWorkspacePath, "workspace.json");
+			if (existsSync(workspaceConfigPath)) {
+				try {
+					const wsJson = JSON.parse(readFileSync(workspaceConfigPath, "utf-8")) as { settings?: any };
+					workspaceSettings = wsJson.settings;
+				} catch { /* ignore */ }
+			}
+
+			const activeActivity = ctx.activityId && workspaceSettings?.activities
+				? workspaceSettings.activities.find((act: any) => act.id === ctx.activityId)
+				: undefined;
+
+			let combinedInstructions = workspaceInstructions;
+			if (activeActivity && activeActivity.instruction) {
+				combinedInstructions = `${workspaceInstructions}\n\n## Active Activity Instruction: ${activeActivity.label}\n${activeActivity.instruction}`;
+			}
+
+			let filteredSkills = skills;
+			if (activeActivity && activeActivity.skills && activeActivity.skills.length > 0) {
+				const allowedSkillNames = new Set(activeActivity.skills);
+				filteredSkills = skills.filter((sk: any) => allowedSkillNames.has(sk.name));
+			}
+
 			// Extension tools (ACP) only exist once resources load, and the prompt has
 			// to list them, so load before asking the agent what it has.
 			await coreAgent.ensureResourcesLoaded();
@@ -796,8 +822,8 @@ function createRunner(
 				sandboxConfig,
 				ctx.channels,
 				ctx.users,
-				skills,
-				workspaceInstructions,
+				filteredSkills,
+				combinedInstructions,
 				remindersEnabled,
 				renderToolsPrompt(coreAgent.listTools()),
 			);

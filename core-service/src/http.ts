@@ -636,6 +636,9 @@ export class HttpServer {
 		app.post("/auth/agent-workers/:agent/login/:loginId/input", (req, res) => this.handleAgentWorkerLoginInput(req, res));
 		app.post("/auth/agent-workers/:agent/logout", (req, res) => this.handleAgentWorkerLogout(req, res));
 		app.get("/workspaces/:workspaceId/sessions", (req, res) => this.handleWorkspaceSessions(req, res));
+		app.get("/workspaces/:workspaceId/works", (req, res) => this.handleListWorks(req, res));
+		app.post("/workspaces/:workspaceId/work-orders", (req, res) => this.handleCreateWorkOrder(req, res));
+		app.post("/workspaces/:workspaceId/work-items", (req, res) => this.handleCreateWorkItem(req, res));
 		app.post("/workspaces/:workspaceId/sessions", (req, res) => this.handleCreateSession(req, res));
 		app.post("/workspaces/:workspaceId/skills", (req, res) => this.handleUploadSkill(req, res));
 		app.post("/sessions/:sessionId/messages", (req, res) => { void this.handleChat(req, res, req.params.sessionId); });
@@ -2809,6 +2812,48 @@ export class HttpServer {
 		}
 	}
 
+	private handleListWorks(req: express.Request, res: express.Response): void {
+		const userId = this.getUserId(req);
+		const workspaceId = String(req.params.workspaceId);
+		try {
+			res.json(this.workspaceStore.listWorks(userId, workspaceId));
+		} catch (err) {
+			res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
+		}
+	}
+
+	private handleCreateWorkOrder(req: express.Request, res: express.Response): void {
+		const userId = this.getUserId(req);
+		const workspaceId = String(req.params.workspaceId);
+		const { title, description } = req.body as { title?: string; description?: string };
+		if (!title) {
+			res.status(400).json({ error: "Missing title" });
+			return;
+		}
+		try {
+			const workOrder = this.workspaceStore.createWorkOrder({ workspaceId, userId, title, description });
+			res.status(201).json(workOrder);
+		} catch (err) {
+			res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
+		}
+	}
+
+	private handleCreateWorkItem(req: express.Request, res: express.Response): void {
+		const userId = this.getUserId(req);
+		const workspaceId = String(req.params.workspaceId);
+		const { workOrderId, title, description } = req.body as { workOrderId?: string; title?: string; description?: string };
+		if (!workOrderId || !title) {
+			res.status(400).json({ error: "Missing workOrderId or title" });
+			return;
+		}
+		try {
+			const workItem = this.workspaceStore.createWorkItem({ workspaceId, userId, workOrderId, title, description });
+			res.status(201).json(workItem);
+		} catch (err) {
+			res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
+		}
+	}
+
 	// Permanently delete a session: abort any active run, evict in-memory state,
 	// remove the session dir, and propagate the delete to the object-store mirror
 	// (a workspace-scoped snapshot alone would restore it on next boot).
@@ -2836,11 +2881,24 @@ export class HttpServer {
 	}
 
 	private handleCreateSession(req: express.Request, res: express.Response): void {
-		const { title, userName } = req.body as { title?: string; userName?: string };
+		const { title, userName, workOrderId, workItemId, workOrder, workItem } = req.body as {
+			title?: string;
+			userName?: string;
+			workOrderId?: string;
+			workItemId?: string;
+			workOrder?: string;
+			workItem?: string;
+		};
 		const userId = this.getUserId(req, userName);
 		const workspaceId = String(req.params.workspaceId);
 		try {
-			const session = this.workspaceStore.createSession({ workspaceId, userId, title });
+			const session = this.workspaceStore.createSession({
+				workspaceId,
+				userId,
+				title,
+				workOrderId: workOrderId ?? workOrder,
+				workItemId: workItemId ?? workItem,
+			});
 			res.status(201).json(session);
 		} catch (err) {
 			res.status(403).json({ error: err instanceof Error ? err.message : String(err) });
@@ -2849,13 +2907,19 @@ export class HttpServer {
 
 	private async handleChat(req: express.Request, res: express.Response, routeSessionId?: string): Promise<void> {
 		type AttachmentPayload = { fileName: string; mimeType: string; content: string };
-		const { channelId, sessionId: bodySessionId, workspaceId, text, userName = "user", attachments = [], mentions = [], skills = [], model: modelSel, structured = false } = req.body as {
+		const { channelId, sessionId: bodySessionId, workspaceId, text, userName = "user", attachments = [], mentions = [], skills = [], model: modelSel, structured = false, workOrderId, workItemId, workOrder, workItem, activityId, activity } = req.body as {
 			channelId?: string; sessionId?: string; workspaceId?: string; text?: string; userName?: string; attachments?: AttachmentPayload[];
 			mentions?: MentionPayload[];
 			/** Skill names the user invoked with `/name`. */
 			skills?: string[];
 			model?: { provider?: string; modelId?: string };
 			structured?: boolean;
+			workOrderId?: string;
+			workItemId?: string;
+			workOrder?: string;
+			workItem?: string;
+			activityId?: string;
+			activity?: string;
 		};
 		const sessionId = routeSessionId || bodySessionId || channelId;
 		const userId = this.getUserId(req, userName);
@@ -2946,7 +3010,13 @@ export class HttpServer {
 			return;
 		}
 
-		const session = this.workspaceStore.ensureSession({ sessionId, workspaceId, userId });
+		const session = this.workspaceStore.ensureSession({
+			sessionId,
+			workspaceId,
+			userId,
+			workOrderId: workOrderId ?? workOrder,
+			workItemId: workItemId ?? workItem,
+		});
 		try {
 			this.workspaceStore.assertWorkspaceAccess(userId, session.workspaceId);
 		} catch (err) {
@@ -3012,6 +3082,7 @@ export class HttpServer {
 			// the other while both are running.
 			sap: { userJwt: this.extractUserJwt(req), routerBase: this.resolveRouterBase(req) },
 		});
+		ctx.activityId = activityId ?? activity;
 
 		appendFileSync(
 			join(channelDir, "log.jsonl"),
