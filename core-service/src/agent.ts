@@ -23,6 +23,7 @@ import type { ChannelStore } from "./store.js";
 import { detectSkillFromToolCall } from "./agent-events.js";
 //IYH1HC capability tool add
 import { beginTurn, createAdtTool, endTurn } from "./capabilities/adt-tool.js";
+import { createSapGitTool } from "./capabilities/sapgit-tool.js";
 
 export interface PendingMessage {
 	userName: string;
@@ -547,6 +548,7 @@ export async function getOrCreateRunner(
 	const extraTools = [
 		...mcpTools,
 		createAdtTool({ channelId, channelDir }),
+		createSapGitTool({ channelId, channelDir }),
 	];
 
 	const agent = new CoreAgent(channelId, {

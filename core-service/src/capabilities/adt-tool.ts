@@ -134,6 +134,13 @@ export function registerAdtRunner(runner: AdtRunner): void {
 	adtRunner = runner;
 }
 
+export async function executeAdt(input: AdtRunInput): Promise<AdtRunOutcome> {
+	if (!adtRunner) {
+		throw new Error("The ADT capability is not wired up in this process.");
+	}
+	return adtRunner(input);
+}
+
 // ============================================================================
 // The tool
 // ============================================================================

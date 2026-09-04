@@ -1,0 +1,530 @@
+import { randomBytes } from "crypto";
+import { basename, resolve, join, relative } from "path";
+import * as fs from "fs";
+import { spawnSync } from "child_process";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import * as log from "../log.js";
+import { currentTurn, executeAdt } from "./adt-tool.js";
+import { readManifest, writeManifest, planChildren, sanitizeFolderName, applyPlan } from "../sapTree.js";
+
+const MAX_OUTPUT_CHARS = 60_000;
+
+const sapGitSchema = {
+	type: "object",
+	properties: {
+		command: {
+			type: "string",
+			enum: ["clone", "pull", "push", "activate", "status", "diff", "add", "commit", "log", "branch", "switch", "merge", "restore", "check"],
+			description: "The sapgit command to run."
+		},
+		connectionName: {
+			type: "string",
+			description: "The name of the SAP connection folder under artifacts/ (e.g. 'SYS')."
+		},
+		packageName: {
+			type: "string",
+			description: "The name of the SAP package (required only for 'clone', e.g. 'ZCUSTOM_PACKAGE')."
+		},
+		files: {
+			type: "array",
+			items: { type: "string" },
+			description: "Specific files to stage, diff, push, activate, or check. If omitted, applies to all changed files."
+		},
+		gitArgs: {
+			type: "array",
+			items: { type: "string" },
+			description: "Additional arguments passed directly to git for commands like commit, log, branch, switch, merge, or restore. Example: ['-m', 'feat: update user class']"
+		},
+		transport: {
+			type: "string",
+			description: "An optional target Transport Request for pushing code (e.g. 'DEVK900123')."
+		}
+	},
+	required: ["command", "connectionName"]
+} as unknown as AgentTool["parameters"];
+
+function runGit(connDir: string, args: string[]): { stdout: string; stderr: string; exitCode: number } {
+	const res = spawnSync("git", args, { cwd: connDir, encoding: "utf8" });
+	return {
+		stdout: res.stdout || "",
+		stderr: res.stderr || "",
+		exitCode: res.status ?? 0
+	};
+}
+
+function capOutput(text: string): { text: string; truncated: boolean } {
+	if (text.length <= MAX_OUTPUT_CHARS) return { text, truncated: false };
+	return {
+		text: `${text.slice(0, MAX_OUTPUT_CHARS)}\n\n[... ${text.length - MAX_OUTPUT_CHARS} more characters truncated]`,
+		truncated: true,
+	};
+}
+
+export interface SapGitToolClosure {
+	channelId: string;
+	channelDir: string;
+}
+
+export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
+	const instanceId = randomBytes(4).toString("hex");
+	const builtAt = new Date().toISOString();
+	const workspaceId = basename(resolve(closure.channelDir, "..", ".."));
+
+	return {
+		name: "sapgit",
+		label: "sapgit",
+		description: [
+			"Integrate local Git version control with an SAP package repo via ADT.",
+			"Usage guidelines:",
+			"1. clone: Hydrates all files of an SAP package and initializes local Git.",
+			"2. pull: Refreshes local files with the latest active version from SAP and commits them to Git.",
+			"3. push: Resolves the Transport Request and pushes local changes to SAP as inactive code.",
+			"4. activate: Activates changes on the SAP system.",
+			"5. check: Runs ATC check or abaplint quality checks.",
+			"6. status: Lists files changed locally since last commit.",
+			"7. diff: Inspects local file differences.",
+			"8. add: Stages files (equivalent to git add).",
+			"9. commit: Commits staged changes (equivalent to git commit, pass message via gitArgs).",
+			"10. log: Views Git branch history (equivalent to git log).",
+			"11. branch: Manages Git branches (equivalent to git branch).",
+			"12. switch: Switches Git branches (equivalent to git switch).",
+			"13. merge: Merges Git branches (equivalent to git merge).",
+			"14. restore: Discards local changes (equivalent to git restore).",
+		].join(" "),
+		parameters: sapGitSchema,
+		executionMode: "sequential",
+		execute: async (toolCallId: string, params: unknown) => {
+			const startedAt = Date.now();
+			const { command, connectionName, packageName, files, gitArgs, transport } = (params ?? {}) as {
+				command: "clone" | "pull" | "push" | "activate" | "status" | "diff" | "add" | "commit" | "log" | "branch" | "switch" | "merge" | "restore" | "check";
+				connectionName: string;
+				packageName?: string;
+				files?: string[];
+				gitArgs?: string[];
+				transport?: string;
+			};
+
+			const workspaceRoot = resolve(closure.channelDir, "..", "..");
+			const connDir = join(workspaceRoot, "artifacts", connectionName);
+
+			if (!fs.existsSync(connDir)) {
+				throw new Error(`Connection folder for '${connectionName}' not found under artifacts/.`);
+			}
+
+			const turn = currentTurn(closure.channelId);
+			if (!turn) {
+				throw new Error("No chat turn is in flight, so there is no user to run this command for.");
+			}
+
+			let resultText = "";
+
+			switch (command) {
+				case "clone": {
+					if (!packageName) {
+						throw new Error("packageName is required for 'clone' command.");
+					}
+
+					// Ensure package is added to the tree
+					const folder = sanitizeFolderName(packageName, packageName);
+					const manifest = readManifest(connDir);
+
+					resultText += `Listing package contents for ${packageName} from SAP...\n`;
+					const listResult = await executeAdt({
+						userId: turn.userId,
+						workspaceId,
+						argv: ["-q", "object", "list", "--parent-type", "DEVC/K", "--parent-name", packageName, "--json"],
+						userJwt: turn.userJwt,
+						routerBase: turn.routerBase,
+					});
+
+					if (listResult.exitCode !== 0) {
+						throw new Error(`Failed to list package ${packageName} on SAP system: ${listResult.stderr}`);
+					}
+
+					const contents = JSON.parse(listResult.stdout);
+					const plan = planChildren(contents);
+
+					manifest.entries[folder] = { kind: "package", adtParentType: "DEVC/K", adtParentName: packageName, loaded: true };
+					fs.mkdirSync(join(connDir, folder), { recursive: true });
+					applyPlan(connDir, folder, plan, manifest);
+					writeManifest(connDir, manifest);
+
+					// Filter objects to hydrate
+					const objectsToHydrate: Array<{ relPath: string; adtUri: string }> = [];
+					for (const [relPath, entry] of Object.entries(manifest.entries)) {
+						if (relPath.startsWith(`${folder}/`) && entry.kind === "object" && entry.adtUri) {
+							objectsToHydrate.push({ relPath, adtUri: entry.adtUri });
+						}
+					}
+
+					resultText += `Found ${objectsToHydrate.length} objects. Hydrating files from SAP (this may take a moment)...\n`;
+
+					const CONCURRENCY = 8;
+					for (let i = 0; i < objectsToHydrate.length; i += CONCURRENCY) {
+						const batch = objectsToHydrate.slice(i, i + CONCURRENCY);
+						await Promise.all(batch.map(async ({ relPath, adtUri }) => {
+							const absPath = join(connDir, relPath);
+							if (!fs.existsSync(absPath) || fs.statSync(absPath).size === 0) {
+								const res = await executeAdt({
+									userId: turn.userId,
+									workspaceId,
+									argv: ["-q", "object", "source", adtUri, "--output", absPath],
+									userJwt: turn.userJwt,
+									routerBase: turn.routerBase,
+								});
+								if (res.exitCode !== 0) {
+									await executeAdt({
+										userId: turn.userId,
+										workspaceId,
+										argv: ["-q", "--raw", "http", "request", "GET", adtUri, "--output", absPath],
+										userJwt: turn.userJwt,
+										routerBase: turn.routerBase,
+									});
+								}
+							}
+						}));
+					}
+
+					// Git repository initialization
+					if (!fs.existsSync(join(connDir, ".git"))) {
+						runGit(connDir, ["init"]);
+						fs.writeFileSync(join(connDir, ".gitignore"), ".adt/\n");
+						runGit(connDir, ["add", "."]);
+						runGit(connDir, ["commit", "-m", `Clone from SAP: ${packageName}`]);
+						resultText += `Git repository initialized under artifacts/${connectionName}.\n`;
+					} else {
+						runGit(connDir, ["add", "."]);
+						runGit(connDir, ["commit", "-m", `Update Clone: ${packageName}`]);
+						resultText += `Updated Git repository under artifacts/${connectionName}.\n`;
+					}
+					resultText += `Successfully cloned and hydrated ${packageName}!\n`;
+					break;
+				}
+
+				case "status": {
+					const gitRes = runGit(connDir, ["status"]);
+					resultText = gitRes.stdout || gitRes.stderr || "No local changes.";
+					break;
+				}
+
+				case "diff": {
+					const gitRes = runGit(connDir, ["diff"]);
+					resultText = gitRes.stdout || "No differences.";
+					break;
+				}
+
+				case "add": {
+					const args = files && files.length > 0 ? ["add", ...files] : ["add", "."];
+					const gitRes = runGit(connDir, args);
+					resultText = gitRes.stdout || gitRes.stderr || "Files staged successfully.";
+					break;
+				}
+
+				case "commit": {
+					if (!gitArgs || gitArgs.length === 0) {
+						throw new Error("gitArgs containing commit message is required (e.g. ['-m', 'feat: update class']).");
+					}
+					const gitRes = runGit(connDir, ["commit", ...gitArgs]);
+					resultText = gitRes.stdout || gitRes.stderr;
+					break;
+				}
+
+				case "log": {
+					const gitRes = runGit(connDir, ["log", ...(gitArgs || [])]);
+					resultText = gitRes.stdout || gitRes.stderr;
+					break;
+				}
+
+				case "branch": {
+					const gitRes = runGit(connDir, ["branch", ...(gitArgs || [])]);
+					resultText = gitRes.stdout || gitRes.stderr;
+					break;
+				}
+
+				case "switch": {
+					const gitRes = runGit(connDir, ["switch", ...(gitArgs || [])]);
+					resultText = gitRes.stdout || gitRes.stderr;
+					break;
+				}
+
+				case "merge": {
+					const gitRes = runGit(connDir, ["merge", ...(gitArgs || [])]);
+					resultText = gitRes.stdout || gitRes.stderr;
+					break;
+				}
+
+				case "restore": {
+					const args = files && files.length > 0 ? ["restore", ...files] : ["restore", "."];
+					const gitRes = runGit(connDir, args);
+					resultText = gitRes.stdout || gitRes.stderr || "Files restored successfully.";
+					break;
+				}
+
+				case "pull": {
+					const manifest = readManifest(connDir);
+					const objectsToPull: Array<{ relPath: string; adtUri: string }> = [];
+
+					for (const [relPath, entry] of Object.entries(manifest.entries)) {
+						if (entry.kind === "object" && entry.adtUri) {
+							objectsToPull.push({ relPath, adtUri: entry.adtUri });
+						}
+					}
+
+					resultText += `Refreshing ${objectsToPull.length} files from SAP...\n`;
+
+					const CONCURRENCY = 8;
+					for (let i = 0; i < objectsToPull.length; i += CONCURRENCY) {
+						const batch = objectsToPull.slice(i, i + CONCURRENCY);
+						await Promise.all(batch.map(async ({ relPath, adtUri }) => {
+							const absPath = join(connDir, relPath);
+							const res = await executeAdt({
+								userId: turn.userId,
+								workspaceId,
+								argv: ["-q", "object", "source", adtUri, "--output", absPath],
+								userJwt: turn.userJwt,
+								routerBase: turn.routerBase,
+							});
+							if (res.exitCode !== 0) {
+								await executeAdt({
+									userId: turn.userId,
+									workspaceId,
+									argv: ["-q", "--raw", "http", "request", "GET", adtUri, "--output", absPath],
+									userJwt: turn.userJwt,
+									routerBase: turn.routerBase,
+								});
+							}
+						}));
+					}
+
+					runGit(connDir, ["add", "."]);
+					runGit(connDir, ["commit", "-m", "Pull/Sync from SAP baseline"]);
+					resultText += `Successfully pulled latest SAP state and committed to local Git.`;
+					break;
+				}
+
+				case "push": {
+					let filesToPush = files;
+					if (!filesToPush || filesToPush.length === 0) {
+						const diffRes = runGit(connDir, ["diff", "--name-only"]);
+						const untrackedRes = runGit(connDir, ["status", "--porcelain"]);
+						const list = new Set<string>();
+						if (diffRes.exitCode === 0) {
+							diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
+						}
+						if (untrackedRes.exitCode === 0) {
+							untrackedRes.stdout.split("\n").forEach(line => {
+								const trimmed = line.trim();
+								if (trimmed.startsWith("??") || trimmed.startsWith("A")) {
+									list.add(trimmed.slice(2).trim());
+								}
+							});
+						}
+						filesToPush = Array.from(list);
+					}
+
+					if (filesToPush.length === 0) {
+						resultText = "No local changes found to push.";
+						break;
+					}
+
+					const manifest = readManifest(connDir);
+
+					for (const file of filesToPush) {
+						const relPath = relative(connDir, resolve(connDir, file)).replace(/\\/g, "/");
+						const entry = manifest.entries[relPath];
+						if (!entry || entry.kind !== "object" || !entry.adtUri) {
+							resultText += `Skipping ${file}: Not an ADT-backed object.\n`;
+							continue;
+						}
+
+						const parts = relPath.split("/");
+						const parentPkg = parts[0].toUpperCase();
+
+						let resolvedTr = transport;
+						if (!resolvedTr && parentPkg !== "$TMP") {
+							// Check locks and modifiable TRs
+							const xml = `<?xml version="1.0" encoding="UTF-8"?><asx:abap xmlns:asx="http://www.sap.com/abapxml" version="1.0"><asx:values><DATA><DEVCLASS>${parentPkg}</DEVCLASS><OPERATION>I</OPERATION><URI>${entry.adtUri}</URI></DATA></asx:values></asx:abap>`;
+							const transportRes = await executeAdt({
+								userId: turn.userId,
+								workspaceId,
+								argv: [
+									"-q", "http", "request", "POST", "/sap/bc/adt/cts/transportchecks",
+									"-H", "Accept: application/vnd.sap.as+xml;charset=UTF-8;dataname=com.sap.adt.transport.service.checkData",
+									"--content-type", "application/vnd.sap.as+xml; charset=UTF-8; dataname=com.sap.adt.transport.service.checkData",
+									"--data", xml
+								],
+								userJwt: turn.userJwt,
+								routerBase: turn.routerBase
+							});
+
+							const lockMatch = transportRes.stdout.match(/<LOCK_HOLDER>[\s\S]*?<TRKORR>([^<]+)<\/TRKORR>/);
+							if (lockMatch) {
+								resolvedTr = lockMatch[1].trim();
+							} else {
+								const trMatches = transportRes.stdout.match(/<CTS_REQUEST>[\s\S]*?<\/CTS_REQUEST>/g) || [];
+								const modifiableTrs: Array<{ tr: string; text: string }> = [];
+								for (const block of trMatches) {
+									const userMatch = block.match(/<AS4USER>([^<]+)<\/AS4USER>/);
+									const statusMatch = block.match(/<TRSTATUS>([^<]+)<\/TRSTATUS>/);
+									const trkorrMatch = block.match(/<TRKORR>([^<]+)<\/TRKORR>/);
+									const textMatch = block.match(/<AS4TEXT>([^<]+)<\/AS4TEXT>/);
+									if (trkorrMatch && userMatch && userMatch[1].trim().toUpperCase() === turn.userId.toUpperCase()) {
+										const status = statusMatch ? statusMatch[1].trim().toUpperCase() : "D";
+										if (status === "D" || status === "L") {
+											modifiableTrs.push({
+												tr: trkorrMatch[1].trim(),
+												text: textMatch ? textMatch[1].trim() : ""
+											});
+										}
+									}
+								}
+								if (modifiableTrs.length === 1) {
+									resolvedTr = modifiableTrs[0].tr;
+								} else if (modifiableTrs.length > 1) {
+									throw new Error(`Multiple modifiable transports found for package ${parentPkg}. Please specify one of: ${modifiableTrs.map(t => `${t.tr} (${t.text})`).join(", ")} using the transport parameter.`);
+								} else {
+									throw new Error(`No modifiable transport request found for package ${parentPkg} under user ${turn.userId}. Please create or select one first.`);
+								}
+							}
+						}
+
+						const argv = ["object", "set-source", entry.adtUri, "--file", resolve(connDir, relPath)];
+						if (resolvedTr) {
+							argv.push("--transport", resolvedTr);
+						}
+
+						resultText += `Pushing ${file} to SAP... `;
+						const pushRes = await executeAdt({
+							userId: turn.userId,
+							workspaceId,
+							argv,
+							userJwt: turn.userJwt,
+							routerBase: turn.routerBase
+						});
+
+						if (pushRes.exitCode === 0) {
+							resultText += "OK\n";
+						} else {
+							resultText += `FAILED:\n${pushRes.stderr}\n`;
+						}
+					}
+					break;
+				}
+
+				case "activate": {
+					let filesToActivate = files;
+					if (!filesToActivate || filesToActivate.length === 0) {
+						const diffRes = runGit(connDir, ["diff", "--name-only"]);
+						filesToActivate = diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean);
+					}
+
+					if (filesToActivate.length === 0) {
+						resultText = "No local changes found to activate.";
+						break;
+					}
+
+					const manifest = readManifest(connDir);
+
+					for (const file of filesToActivate) {
+						const relPath = relative(connDir, resolve(connDir, file)).replace(/\\/g, "/");
+						const entry = manifest.entries[relPath];
+						if (!entry || entry.kind !== "object" || !entry.adtUri) {
+							resultText += `Skipping ${file}: Not an ADT-backed object.\n`;
+							continue;
+						}
+
+						resultText += `Activating ${file} in SAP... `;
+						const actRes = await executeAdt({
+							userId: turn.userId,
+							workspaceId,
+							argv: ["object", "activate", entry.adtUri],
+							userJwt: turn.userJwt,
+							routerBase: turn.routerBase
+						});
+
+						if (actRes.exitCode === 0) {
+							resultText += "OK\n";
+						} else {
+							resultText += `FAILED:\n${actRes.stderr}\n`;
+						}
+					}
+					break;
+				}
+
+				case "check": {
+					let filesToCheck = files;
+					if (!filesToCheck || filesToCheck.length === 0) {
+						const diffRes = runGit(connDir, ["diff", "--name-only"]);
+						filesToCheck = diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean);
+					}
+
+					if (filesToCheck.length === 0) {
+						resultText = "No files specified or changed to check.";
+						break;
+					}
+
+					const manifest = readManifest(connDir);
+
+					for (const file of filesToCheck) {
+						const relPath = relative(connDir, resolve(connDir, file)).replace(/\\/g, "/");
+						const entry = manifest.entries[relPath];
+						if (!entry || entry.kind !== "object" || !entry.adtUri) {
+							resultText += `Skipping ${file}: Not an ADT-backed object.\n`;
+							continue;
+						}
+
+						resultText += `Running ATC checks on ${file}...\n`;
+						const checkRes = await executeAdt({
+							userId: turn.userId,
+							workspaceId,
+							argv: ["atc", "check", entry.adtUri, "--variant", "DEFAULT"],
+							userJwt: turn.userJwt,
+							routerBase: turn.routerBase
+						});
+
+						resultText += checkRes.stdout || checkRes.stderr || "No findings.";
+					}
+					break;
+				}
+			}
+
+			const durationMs = Date.now() - startedAt;
+
+			log.logInfo(
+				`[sapgit] ${JSON.stringify({
+					runId: turn.runId,
+					userId: turn.userId,
+					workspaceId,
+					channelId: closure.channelId,
+					command,
+					durationMs,
+				})}`,
+			);
+
+			const capped = capOutput(resultText);
+
+			return {
+				content: [{ type: "text" as const, text: capped.text }],
+				details: {
+					command,
+					connectionName,
+					packageName,
+					durationMs,
+					truncated: capped.truncated,
+					turn: {
+						runId: turn.runId,
+						userId: turn.userId,
+						ageMs: startedAt - turn.startedAt,
+					},
+					context: {
+						instanceId,
+						builtAt,
+						channelId: closure.channelId,
+						workspaceId,
+						toolCallId,
+					},
+				},
+			};
+		}
+	};
+}
