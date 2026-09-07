@@ -46,3 +46,29 @@ Octo can leverage the **SAP BTP Connectivity Service** and **Destination Service
 
 - **Destinations**: The agent can be granted access to specific SAP BTP Destinations, allowing it to call OData or REST services in S/4HANA or other systems securely via the Cloud Connector.
 - **Connectivity Extension**: A dedicated connector handles the proxying of requests through the BTP Connectivity infrastructure.
+
+## 5. SAP ADT Configuration Architecture (Three-Tier)
+
+To balance secure credential management, collaborative workspace definitions, and offline workspace consistency, Octo implements a structured **Three-Tier SAP ADT Configuration Architecture**. This separates configurations into three distinct layers based on ownership and scope:
+
+### Tier 1: Shared Workspace settings (`workspace.json`)
+* **Location**: `workspace/workspaces/<workspace_id>/workspace.json`
+* **Ownership**: Shared team configuration.
+* **Scope**: Defines which SAP connections are mounted and available for development inside the workspace.
+* **Metadata**: Contains connection IDs, base URLs, message servers, target clients, and languages.
+* **Security**: **NEVER** stores passwords, Kerberos credentials, or private access tickets on disk. It serves as a shared, credential-free team picklist.
+
+### Tier 2: Private User Profiles (`config.json`)
+* **Location**: `workspace/users/<user_id>/connectors/sap-adt/home/.adt-cli/config.json`
+* **Ownership**: Private individual developer.
+* **Scope**: Serves as the profile store for the underlying `adt-cli` application.
+* **Metadata**: Maps connection names to standard basic authentication details (usernames and encrypted/base64 passwords), Kerberos SPNs, or bearer JWT tokens.
+* **Isolation**: Guarantees multi-user isolation. Two developers working in the same workspace edit the same files under `artifacts/` but authenticate using their own respective SAP logons, keeping audit logs correct and preventing credential pollution.
+
+### Tier 3: Local Folder Sidecars (`connection.json`)
+* **Location**: `workspace/workspaces/<workspace_id>/artifacts/<connection_name>/.adt/connection.json`
+* **Ownership**: Local workspace caching.
+* **Scope**: Ties the physical folder hierarchy under `artifacts/<connection_name>/` with its backing SAP system metadata.
+* **Metadata**: Caches connection non-sensitive properties (such as client, language, URL, and auth type) so the client tools do not have to perform slow database roundtrips.
+* **Usage**: Checked automatically by workspace scanners and the `sapgit` tool to recognize valid connection directories, map relative file paths back to their correct SAP ADT URIs, and load matching static configurations (e.g. `pull-config.json` and `abaplint.json`).
+

@@ -2647,16 +2647,34 @@ export class HttpServer {
 	 */
 	private handleToolCatalog(_req: express.Request, res: express.Response): void {
 		const webSearchConfigured = resolveWebSearchConfig() !== undefined;
+		const baseTools = TOOL_CATALOG.map(({ promptGuidance: _promptGuidance, ...entry }) => ({
+			...entry,
+			available: entry.name === "web_search" ? webSearchConfigured : true,
+			unavailableReason:
+				entry.name === "web_search" && !webSearchConfigured
+					? "Set WEB_SEARCH_PROVIDER and WEB_SEARCH_API_KEY to enable web search."
+					: undefined,
+		}));
+
+		const sapTools = [
+			{
+				name: "sapgit",
+				label: "SAP Git Synchronization",
+				group: "SAP ABAP",
+				description: "Integrate local Git version control with an SAP package repository via ADT.",
+				available: true,
+			},
+			{
+				name: "adt",
+				label: "SAP ADT Execution",
+				group: "SAP ABAP",
+				description: "Run raw SAP ADT client commands against the connected system.",
+				available: true,
+			}
+		];
+
 		res.json({
-			// `promptGuidance` is prose for the model, not the UI; drop it.
-			tools: TOOL_CATALOG.map(({ promptGuidance: _promptGuidance, ...entry }) => ({
-				...entry,
-				available: entry.name === "web_search" ? webSearchConfigured : true,
-				unavailableReason:
-					entry.name === "web_search" && !webSearchConfigured
-						? "Set WEB_SEARCH_PROVIDER and WEB_SEARCH_API_KEY to enable web search."
-						: undefined,
-			})),
+			tools: [...baseTools, ...sapTools],
 		});
 	}
 
@@ -3359,7 +3377,7 @@ export class HttpServer {
 			res.attachment(basename(resolved));
 		}
 
-		res.sendFile(resolved);
+		res.sendFile(resolved, { dotfiles: "allow" });
 	}
 
 	// Send a folder to the client as a .zip archive. Artifact folders are small,

@@ -1695,6 +1695,8 @@ async function saveWorkspaceSettings(event: Event) {
 			}
 			: workspaceSettings.connectors,
 		mcp: workspaceSettingsTab === "connection" ? { servers: normalizeMcpServers(workspaceMcpServersDraft) } : workspaceSettings.mcp,
+		activities: workspaceSettings.activities,
+		sapConnections: workspaceSettings.sapConnections,
 	};
 	const saved = await client.updateWorkspaceSettings(workspaceId, next);
 	workspaceSettingsBusy = false;
