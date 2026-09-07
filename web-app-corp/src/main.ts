@@ -691,7 +691,7 @@ async function loadWorkspace() {
 	]);
 	workspaceTree = tree ?? { artifacts: [], skills: [] };
 	workspaceSettings = settings ?? {};
-	workspaceTree = (await client.getWorkspace(channelId!)) ?? { artifacts: [], skills: [] };
+	//workspaceTree = (await client.getWorkspace(channelId!)) ?? { artifacts: [], skills: [] };
 	// The composer's `@` picker and Skills menu read the same tree. Pushing it here -
 	// rather than letting the panel fetch its own - is what keeps `@` in step with the
 	// Artifacts explorer after every mutation, for the price of no extra request.
