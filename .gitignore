@@ -46,4 +46,4 @@ approuter/resources/
 core-service/deploy/
 
 CLAUDE*.md
-adt-cli.md
+docs_core/

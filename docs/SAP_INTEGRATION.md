@@ -72,3 +72,13 @@ To balance secure credential management, collaborative workspace definitions, an
 * **Metadata**: Caches connection non-sensitive properties (such as client, language, URL, and auth type) so the client tools do not have to perform slow database roundtrips.
 * **Usage**: Checked automatically by workspace scanners and the `sapgit` tool to recognize valid connection directories, map relative file paths back to their correct SAP ADT URIs, and load matching static configurations (e.g. `pull-config.json` and `abaplint.json`).
 
+## 6. Agent Capability Tools for SAP
+
+Two native tools are handed to the agent whenever a workspace is allowed to use the `sap-adt`
+connector (`core-service/src/agent.ts`):
+
+* **`adt`** — raw `adt-cli` execution. Design and threat model: [agent-capability-tool.vi.md](agent-capability-tool.vi.md).
+* **`sapgit`** — local Git in `artifacts/<connection_name>/` combined with remote ADT sync
+  (clone / pull / push / activate / check / create). Mechanics, known defects and the live test
+  script: [sapgit-tool.vi.md](sapgit-tool.vi.md).
+
