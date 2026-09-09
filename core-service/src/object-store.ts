@@ -62,11 +62,29 @@ const SKIP_FILE_PATTERNS = [/\.wal$/, /\.shm$/, /\.lock$/, /(^|[\\/])last_prompt
 // already in the bucket are intentionally left untouched (deleteSync also skips them).
 const TEMPLATES_PREFIX = "templates/";
 
+//IYH1HC sapgit init
+// Git internals are never mirrored. `sapgit clone` makes every SAP connection folder
+// a git repository, and a repo is thousands of tiny files: the cost here is one HTTPS
+// round-trip per file, not the bytes (see RESTORE_CONCURRENCY below — a ~3k-file tree
+// was already enough to fail the CF startup check).
+//
+// The deciding argument is correctness, not cost. Restore is neither ordered nor
+// atomic, so a half-downloaded .git (refs present, packfile still pending under lazy
+// restore) is a *corrupt* repository, which is strictly worse than no repository at
+// all. The history is therefore container-local and does not survive a restart —
+// acceptable because a connection folder is a re-fetchable projection of the SAP
+// system, which is the same reason disconnect deletes it outright (http.ts,
+// handleSapDeleteConnection). Do not "fix" this by mirroring .git.
+const SKIP_DIR_SEGMENTS = new Set([".git"]);
+
 // A relative path (e.g. "workspaces/ws_1/sessions/s_1/log.jsonl") that must not be
-// mirrored — either a transient file or the tester's reserved subtree.
+// mirrored — a transient file, git internals, or the tester's reserved subtree.
 function shouldSkip(relPath: string): boolean {
 	if (relPath.startsWith(TESTER_PREFIX)) return true;
 	if (relPath.startsWith(TEMPLATES_PREFIX)) return true;
+	// Segment-wise, so a file merely *named* ".git"-something is not caught, and the
+	// check holds at any depth (artifacts/<conn>/.git/**).
+	if (relPath.split("/").some((segment) => SKIP_DIR_SEGMENTS.has(segment))) return true;
 	return SKIP_FILE_PATTERNS.some((re) => re.test(relPath));
 }
 
@@ -606,6 +624,10 @@ export class ObjectStoreGateway {
 		for (const ent of dirents) {
 			const full = join(dir, ent.name);
 			if (ent.isDirectory()) {
+				// shouldSkip() would drop these files anyway; not descending saves a
+				// full recursive scan of every connection folder's git object store on
+				// every snapshot. //IYH1HC sapgit init
+				if (SKIP_DIR_SEGMENTS.has(ent.name)) continue;
 				out.push(...(await this.walk(full)));
 			} else if (ent.isFile()) {
 				out.push(full);

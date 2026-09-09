@@ -1,4 +1,4 @@
-import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, DEFAULT_APP_TITLE, fileToBase64, translations, type AcpJob, type AuthUser, type ConnectorStatus, type CoreServiceFeatures, type CustomModelConfig, type LlmConfig, type SapDestination, type SapLocalSystem, type SapTreeManifestEntry, type SessionInfo, type SkillUploadFile, type SsoConfig, type ToolCatalogEntry, type WorkspaceInfo, type WorkspaceNode, type WorkspaceSandboxStatus, type WorkspaceScheduledEvent, type WorkspaceSettings, type WorkspaceTableSummary, type WorkspaceTemplate, type WorkspaceTree, type WorkOrder, type WorkItem } from "@octo/web-ui-corp";
+import { configureFioriTheme, CoreServiceChatPanel, CoreServiceClient, DEFAULT_APP_TITLE, fileToBase64, translations, type AcpJob, type AuthUser, type ConnectorStatus, type CoreServiceFeatures, type CustomModelConfig, type LlmConfig, type SapDestination, type SapLocalSystem, type SapGitFileStatus, type SapGitStatus, type SapTreeManifestEntry, type SessionInfo, type SkillUploadFile, type SsoConfig, type ToolCatalogEntry, type WorkspaceInfo, type WorkspaceNode, type WorkspaceSandboxStatus, type WorkspaceScheduledEvent, type WorkspaceSettings, type WorkspaceTableSummary, type WorkspaceTemplate, type WorkspaceTree, type WorkOrder, type WorkItem } from "@octo/web-ui-corp";
 import { setTranslations } from "@mariozechner/mini-lit";
 import { html, render } from "lit";
 import { icon } from "@mariozechner/mini-lit";
@@ -142,6 +142,11 @@ let sapLocalClient = SAP_DEFAULT_CLIENT;
 let sapAddPackageFor = ""; // connection name whose form is open, "" when closed
 let sapAddPackageName = "";
 const sapTreeManifests = new Map<string, Record<string, SapTreeManifestEntry>>();
+//IYH1HC sapgit init — Git decorations for the Artifacts tree, keyed by connection.
+// `sapGitDecorations` is derived from them at load time, keyed by the tree node's own
+// full path, so rendering a row is one Map lookup rather than a scan per row.
+const sapGitStatuses = new Map<string, SapGitStatus>();
+const sapGitDecorations = new Map<string, SapGitFileStatus>();
 
 const connectorLoginModes = new Map<string, string>();
 const LOGIN_INPUT_PROMPT_LIMIT = 3;
@@ -698,6 +703,9 @@ async function loadWorkspace() {
 	chatPanel.setWorkspaceTree(workspaceTree);
 	sapDefaultProfile = workspaceTree.sapDefaultProfile ?? "";
 	await loadSapManifests();
+	//IYH1HC sapgit init — rides the same refresh path as the manifests, which is what
+	// makes the decorations follow every tool call and the Reload button for free.
+	await loadSapGitStatuses();
 	await refreshAcpJobs(false);
 	renderApp();
 }
@@ -1310,6 +1318,55 @@ async function loadSapManifests() {
 	for (const [name, manifest] of loaded) sapTreeManifests.set(name, manifest);
 }
 
+//IYH1HC sapgit init
+// Which status wins when several apply to the same folder. Rolled up from a folder's
+// descendants, so a package shows the most alarming thing inside it.
+const GIT_STATUS_RANK: Record<SapGitFileStatus, number> = {
+	conflicted: 4,
+	deleted: 3,
+	modified: 2,
+	renamed: 2,
+	added: 1,
+	untracked: 1,
+	// Never rolled up: `.adt/` is git-ignored but deliberately still listed, and
+	// letting it propagate would dim the whole connection folder above it.
+	ignored: 0,
+};
+
+async function loadSapGitStatuses() {
+	if (!workspaceId) return;
+	// Read the connection roots off the tree rather than from `sapConnectionNames()`,
+	// because each one's own `path` is the prefix the porcelain keys hang off — and it
+	// carries the workspace id, which this function would otherwise have to rebuild.
+	const roots = (workspaceTree.artifacts ?? []).filter((n) => n.type === "directory" && n.sapConnection);
+	const loaded = await Promise.all(
+		roots.map(async (root) => [root, await client.getSapGitStatus(workspaceId!, root.name)] as const),
+	);
+
+	// Rebuild rather than merge, so a disconnected connection leaves no stale entry.
+	sapGitStatuses.clear();
+	sapGitDecorations.clear();
+	for (const [root, status] of loaded) {
+		sapGitStatuses.set(root.name, status);
+		if (!status.repo) continue;
+		for (const [relKey, fileStatus] of Object.entries(status.entries)) {
+			sapGitDecorations.set(`${root.path}/${relKey}`, fileStatus);
+			if (GIT_STATUS_RANK[fileStatus] === 0) continue;
+			// Walk the ancestors so a change deep in a package is visible without
+			// expanding every folder down to it — the whole point of the decoration.
+			const parts = relKey.split("/");
+			let prefix = root.path;
+			for (let i = 0; i < parts.length - 1; i++) {
+				prefix = `${prefix}/${parts[i]}`;
+				const current = sapGitDecorations.get(prefix);
+				if (!current || GIT_STATUS_RANK[fileStatus] > GIT_STATUS_RANK[current]) {
+					sapGitDecorations.set(prefix, fileStatus);
+				}
+			}
+		}
+	}
+}
+
 function sapTreeLookup(path: string): { conn: string; relKey: string; info: SapTreeManifestEntry } | null {
 	const marker = "/artifacts/";
 	const idx = path.indexOf(marker);
@@ -1561,16 +1618,24 @@ async function loadToolCatalog(): Promise<ToolCatalogEntry[]> {
 	return toolCatalog;
 }
 
+/** The list every template seeded before the Tools tab existed. */
+const LEGACY_TOOLS_SEED = ["shell", "code", "tests"];
+
 /**
- * Mirrors resolveEnabledTools in core-agent: an unset list, or one holding a
- * name the catalog does not know, means the workspace predates the Tools tab
- * and falls back to the defaults. An empty list is honored as "all off".
+ * Mirrors resolveEnabledTools in core-agent: an unset list, or exactly the legacy
+ * seed, means the workspace predates the Tools tab and falls back to the
+ * defaults. Everything else is honored as written, unknown names included — the
+ * catalog served here also carries capability tools, and treating one of those as
+ * "unconfigured" used to throw away the user's whole selection.
+ *
+ * An empty list is honored as "ask about everything".
  */
 function resolveEnabledTools(configured: string[] | undefined, catalog: ToolCatalogEntry[]): Set<string> {
 	const defaults = () => new Set(catalog.filter((tool) => tool.defaultEnabled).map((tool) => tool.name));
 	if (!configured || catalog.length === 0) return defaults();
-	const known = new Set(catalog.map((tool) => tool.name));
-	if (configured.some((name) => !known.has(name))) return defaults();
+	const isLegacySeed =
+		configured.length === LEGACY_TOOLS_SEED.length && LEGACY_TOOLS_SEED.every((name) => configured.includes(name));
+	if (isLegacySeed) return defaults();
 	return new Set(configured);
 }
 
@@ -2304,14 +2369,16 @@ function openDatabaseTable(databasePath: string, tableName: string) {
 	(chatPanel as any).openTablePreview?.(databasePath, tableName, tableName);
 }
 
-function renderDatabaseFile(node: WorkspaceNode, depth: number) {
+function renderDatabaseFile(node: WorkspaceNode, depth: number, gitIgnored = false) {
 	const open = expandedFolders.has(node.path);
 	const tables = databaseTables.get(node.path);
+	//IYH1HC sapgit init
+	const git = gitDecoration(node.path, gitIgnored);
 	return html`<div>
-		<button class="w-full text-left px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px" @click=${() => void toggleDatabase(node.path)}>
+		<button class="w-full text-left px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px" title=${git.title} @click=${() => void toggleDatabase(node.path)}>
 			<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(open ? ChevronDown : ChevronRight, "xs")}</span>
 			<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(open ? FolderOpen : Folder, "xs")}</span>
-			<span class="truncate">${node.name}</span>
+			<span class="truncate ${git.cls}">${node.name}</span>
 		</button>
 		${open
 			? html`<div>
@@ -2891,6 +2958,36 @@ function filterTree(nodes: WorkspaceNode[], q: string): WorkspaceNode[] {
 	return out;
 }
 
+//IYH1HC sapgit init
+// VSCode-style Git decoration for one tree row: the label takes the status colour and
+// the row carries a tooltip. Colour alone is not an answer for anyone who cannot see
+// it, so the title is not optional dressing — it is the accessible half of this.
+//
+// Deleted files have no row of their own (they are gone from disk, so the server never
+// lists them); a deletion shows up as the red on its parent folder.
+const GIT_DECORATION: Record<SapGitFileStatus, { cls: string; title: string }> = {
+	modified: { cls: "text-[var(--git-modified)]", title: "Modified — not committed yet" },
+	renamed: { cls: "text-[var(--git-modified)]", title: "Renamed" },
+	added: { cls: "text-[var(--git-added)]", title: "Added — staged, not committed yet" },
+	untracked: { cls: "text-[var(--git-added)]", title: "Untracked — new, not tracked by Git yet" },
+	deleted: { cls: "text-[var(--git-deleted)]", title: "Deleted" },
+	conflicted: { cls: "text-[var(--git-deleted)] font-semibold", title: "Conflict — resolve before pushing" },
+	ignored: { cls: "text-muted-foreground opacity-60", title: "Ignored by .gitignore" },
+};
+
+// `inheritedIgnored` carries "an ancestor is git-ignored" down the tree. Git reports an
+// ignored *directory* and stops — it never lists what is inside `.adt/` — so without
+// this the folder would dim while its children stayed at full contrast.
+function gitDecoration(path: string, inheritedIgnored = false): { cls: string; title: string } {
+	if (inheritedIgnored) return GIT_DECORATION.ignored;
+	const status = sapGitDecorations.get(path);
+	return status ? GIT_DECORATION[status] : { cls: "", title: "" };
+}
+
+function isGitIgnored(path: string): boolean {
+	return sapGitDecorations.get(path) === "ignored";
+}
+
 //IYH1HC SSO add — marks a folder as a SAP connection, and calls out the one that is
 // currently the adt-cli default profile: that is the system the agent's bare `adt`
 // commands hit, so the user needs to see which one it is at a glance.
@@ -2906,6 +3003,10 @@ function renderSapConnBadge(conn: string) {
 }
 
 // Inline form under a SAP connection root for adding an ABAP package to the tree.
+// RETIRED — no longer rendered; see the note on renderTree below. Kept, with
+// `addSapPackage` and the `POST tree/package` route behind it, because it is still
+// the only way to materialize a package without going through the agent, which is
+// useful for diagnosing whether a problem is in ADT or in the agent. //IYH1HC sapgit init
 function renderSapAddPackageRow(conn: string, depth: number) {
 	const busy = sapBusy === `package:${conn}`;
 	return html`
@@ -2927,9 +3028,15 @@ function renderSapAddPackageRow(conn: string, depth: number) {
 
 // `sapConn` carries the enclosing SAP connection down the recursion. It comes from
 // the tree's own `sapConnection` tag rather than from the loaded manifests, so the
-// connection root keeps its Add-package / Refresh actions even before (or without)
-// the manifests being fetched.
-function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false, forceOpen = false, sapConn = "") {
+// connection root keeps its Refresh action even before (or without) the manifests
+// being fetched.
+//
+// The Add-package button that used to sit next to Refresh is gone: it was a test
+// affordance, and materializing a package from the panel is not the real flow. The
+// user asks the agent to pull a package and the agent runs `sapgit clone`, which
+// hydrates the objects *and* commits them to the folder's Git repository. Adding a
+// package here bypassed that and left an untracked tree. //IYH1HC sapgit init
+function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false, forceOpen = false, sapConn = "", gitIgnored = false) {
 	return nodes.map((node) => {
 		if (node.type === "directory") {
 			const open = forceOpen || expandedFolders.has(node.path);
@@ -2941,43 +3048,48 @@ function renderTree(nodes: WorkspaceNode[], depth = 0, withActions = false, forc
 			const expanding = sapBusy === `expand:${node.path}`;
 			const refreshing = sapBusy === `refresh:${connRoot}`;
 			const count = isSapFolder ? countSapObjects(node) : -1;
+			//IYH1HC sapgit init — folder colour is the roll-up of its descendants; the
+			// branch label only appears on a connection root that actually has a repo.
+			const git = gitDecoration(node.path, gitIgnored);
+			const childrenIgnored = gitIgnored || isGitIgnored(node.path);
+			const branch = connRoot ? (sapGitStatuses.get(connRoot)?.repo ? sapGitStatuses.get(connRoot)!.branch : "") : "";
 			return html`<div>
-				<div class="group w-full px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px">
+				<div class="group w-full px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px" title=${git.title}>
 					<button class="flex-1 min-w-0 text-left flex items-center gap-1" @click=${() => void toggleFolder(node.path)}>
 						<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${expanding ? icon(LoaderCircle, "xs", "animate-spin") : icon(open ? ChevronDown : ChevronRight, "xs")}</span>
 						<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(open ? FolderOpen : Folder, "xs")}</span>
-						<span class="truncate">${node.name}</span>
+						<span class="truncate ${git.cls}">${node.name}</span>
 						${connRoot ? renderSapConnBadge(connRoot) : ""}
+						${branch ? html`<span class="shrink-0 text-[11px] text-muted-foreground" title="Current Git branch">${branch}</span>` : ""}
 						${count >= 0 ? html`<span class="shrink-0 text-[11px] text-muted-foreground">(${count})</span>` : ""}
 					</button>
 					${connRoot ? html`
-						<button class="shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-secondary text-muted-foreground transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title="Add ABAP package"
-							@click=${(e: Event) => { e.stopPropagation(); sapAddPackageFor = connRoot; expandedFolders.add(node.path); renderApp(); }}>${icon(Plus, "xs")}</button>
 						<button class="shrink-0 ${refreshing ? "opacity-100" : "opacity-0 group-hover:opacity-100"} p-0.5 rounded hover:bg-secondary text-muted-foreground transition-opacity [&>svg]:h-3.5 [&>svg]:w-3.5" title="Ping the SAP system and refresh the connection" ?disabled=${sapBusy !== ""}
 							@click=${(e: Event) => { e.stopPropagation(); void refreshSapConnection(connRoot); }}>${icon(RefreshCw, "xs", refreshing ? "animate-spin" : "")}</button>` : ""}
 					${withActions && !isSapFolder && !connRoot ? renderNodeActions(node.path, true) : ""}
 				</div>
-				${connRoot && sapAddPackageFor === connRoot ? renderSapAddPackageRow(connRoot, depth + 1) : ""}
-				${open && node.children ? html`<div>${renderTree(node.children, depth + 1, withActions, forceOpen, sapConn || connRoot)}</div>` : ""}
+				${open && node.children ? html`<div>${renderTree(node.children, depth + 1, withActions, forceOpen, sapConn || connRoot, childrenIgnored)}</div>` : ""}
 			</div>`;
 		}
 		if (isDuckDbFile(node.path)) {
-			return renderDatabaseFile(node, depth);
+			return renderDatabaseFile(node, depth, gitIgnored);
 		}
+		//IYH1HC sapgit init
+		const fileGit = gitDecoration(node.path, gitIgnored);
 		const sap = sapTreeLookup(node.path);
 		if (sap?.info.hasUri) {
 			const hydrating = sapBusy === `hydrate:${node.path}`;
 			const leafIcon = (sap.info.typeId && SAP_TYPE_ICON[sap.info.typeId]) || File;
-			return html`<button class="w-full text-left px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px" @click=${() => void openWorkspaceFile(node.path)}>
+			return html`<button class="w-full text-left px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px" title=${fileGit.title} @click=${() => void openWorkspaceFile(node.path)}>
 				<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${hydrating ? icon(LoaderCircle, "xs", "animate-spin") : icon(leafIcon, "xs")}</span>
-				<span class="truncate">${sapDisplayName(node, sap.info)}</span>
+				<span class="truncate ${fileGit.cls}">${sapDisplayName(node, sap.info)}</span>
 				${sap.info.description ? html`<span class="truncate text-[11px] italic text-muted-foreground">${sap.info.description}</span>` : ""}
 			</button>`;
 		}
-		return html`<div class="group w-full px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px">
+		return html`<div class="group w-full px-2 py-1 hover:bg-accent rounded flex items-center gap-1 text-xs" style="padding-left: ${depth * 12 + 2}px" title=${fileGit.title}>
 			<button class="flex-1 min-w-0 text-left flex items-center gap-1" @click=${() => void openWorkspaceFile(node.path)}>
 				<span class="inline-flex h-4 w-4 shrink-0 items-center justify-center [&>svg]:h-4 [&>svg]:w-4">${icon(fileIconFor(node.name), "xs")}</span>
-				<span class="truncate">${node.name}</span>
+				<span class="truncate ${fileGit.cls}">${node.name}</span>
 			</button>
 			${withActions ? renderNodeActions(node.path, false) : ""}
 		</div>`;
@@ -3794,16 +3906,17 @@ function renderToolSettings() {
 			<div>
 				<div class="text-sm font-medium">Tools</div>
 				<div class="text-xs text-muted-foreground">
-					The agent only sees, and may only call, the tools enabled here. Applies to this workspace and its subagents.
+					The agent can see and call every tool. A tool switched on here runs straight away; one switched off
+					pauses and asks you to allow the call first. Applies to this workspace and its subagents.
 				</div>
 			</div>
 			<div class="rounded-lg border border-border bg-card">
 				<div class="flex items-center gap-2 px-3 py-2">
 					<span class="text-sm font-semibold">Available tools</span>
-					<span class="text-xs text-muted-foreground">${enabledCount} of ${toolCatalog.length} enabled</span>
+					<span class="text-xs text-muted-foreground">${enabledCount} of ${toolCatalog.length} run without asking</span>
 					<span class="ml-auto"></span>
-					${Ui5Button({ children: "Select all", onClick: () => setFilteredToolsEnabled(true) })}
-					${Ui5Button({ children: "Deselect all", onClick: () => setFilteredToolsEnabled(false) })}
+					${Ui5Button({ children: "Allow all", onClick: () => setFilteredToolsEnabled(true) })}
+					${Ui5Button({ children: "Ask for all", onClick: () => setFilteredToolsEnabled(false) })}
 				</div>
 				<div class="px-3 pb-2">
 					<ui5-input
@@ -3826,6 +3939,9 @@ function renderToolSettings() {
 											<div class="flex items-center gap-2">
 												<span class="corp-mono truncate text-sm">${tool.name}</span>
 												<span class="shrink-0 text-xs text-muted-foreground">${tool.group}</span>
+												${workspaceToolsDraft.has(tool.name)
+													? ""
+													: html`<span class="shrink-0 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">Asks first</span>`}
 											</div>
 											<div class="truncate text-xs text-muted-foreground" title=${tool.description}>
 												${tool.available ? tool.description : tool.unavailableReason ?? tool.description}

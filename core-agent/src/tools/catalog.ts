@@ -1,18 +1,25 @@
 /**
  * Catalog of the primitive tools, and the rules for resolving which of them a
- * workspace has enabled.
+ * workspace auto-approves.
  *
- * This is the single source of truth shared by four consumers: the tool
- * factory (which filters what the model sees), the agent's `beforeToolCall`
- * hook (which blocks what the model may call), the `GET /tools` route that
- * feeds the Tools tab in workspace settings, and `renderToolsPrompt` (which
- * turns the registered tools into the `## Tools` section of the system
- * prompt). `name` must stay in sync with the `name` field of the corresponding
- * tool in this directory.
+ * The list is a permission setting, not a visibility one: the model is
+ * registered for and told about every tool here regardless of the workspace's
+ * choices. A tool the workspace left off still appears in the prompt and can
+ * still be called — the agent's `beforeToolCall` hook stops that call and asks
+ * the user first.
+ *
+ * This is the single source of truth shared by three consumers: the agent's
+ * `beforeToolCall` hook (which decides what needs approval), the `GET /tools`
+ * route that feeds the Tools tab in workspace settings, and `renderToolsPrompt`
+ * (which turns the registered tools into the `## Tools` section of the system
+ * prompt, marking the ones that will ask). `name` must stay in sync with the
+ * `name` field of the corresponding tool in this directory.
  *
  * MCP tools are deliberately absent: they arrive through
  * `CoreAgentOptions.extraTools` and are gated per server by their own
- * `enabled` / `allowedTools` / `blockedTools` settings.
+ * `enabled` / `allowedTools` / `blockedTools` settings. Tools outside the
+ * catalog that the host does want covered are named in
+ * `CoreAgentOptions.approvalScope`.
  */
 
 export interface ToolCatalogEntry {
@@ -24,7 +31,11 @@ export interface ToolCatalogEntry {
 	group: string;
 	/** One-line explanation shown under the tool name. */
 	description: string;
-	/** Whether a workspace that has never been configured gets this tool. */
+	/**
+	 * Whether a workspace that has never been configured auto-approves this tool.
+	 * The field name predates the approval model and is kept because it already
+	 * travels through `GET /tools` and `workspace.json`.
+	 */
 	defaultEnabled: boolean;
 	/**
 	 * Prose the model reads in the system prompt. It is longer and more
@@ -178,7 +189,7 @@ export const TOOL_PROMPT_GROUPS: readonly { group: string; heading: string; prea
 
 const CATALOG_NAMES: ReadonlySet<string> = new Set(TOOL_CATALOG.map((entry) => entry.name));
 
-/** Tool names a workspace gets when it has never been configured. */
+/** Tool names a workspace auto-approves when it has never been configured. */
 export const DEFAULT_ENABLED_TOOLS: readonly string[] = TOOL_CATALOG.filter((entry) => entry.defaultEnabled).map(
 	(entry) => entry.name,
 );
@@ -189,17 +200,31 @@ export function isCatalogTool(name: string): boolean {
 }
 
 /**
- * Turns the stored `settings.tools.enabled` list into the effective tool set.
+ * The one list every template seeded before the Tools tab existed: placeholder
+ * values that never matched a tool name.
+ */
+const LEGACY_SEED: readonly string[] = ["shell", "code", "tests"];
+
+function isLegacySeed(configured: readonly string[]): boolean {
+	return configured.length === LEGACY_SEED.length && LEGACY_SEED.every((name) => configured.includes(name));
+}
+
+/**
+ * Turns the stored `settings.tools.enabled` list into the set of tools that run
+ * without asking. Everything else in scope goes through an approval prompt.
  *
- * Also absorbs the legacy seed: workspaces created before this feature carry
- * `["shell", "code", "tests"]`, placeholder values that never matched a tool
- * name. Any unknown name means the list predates the Tools tab, because the UI
- * only ever writes catalog names — so it is treated as unconfigured rather than
- * as "almost everything is off". An empty list is honored as written: it means
- * the user deliberately turned everything off.
+ * Only the exact legacy seed counts as "never configured". The rule this
+ * replaces — any unrecognized name falls back to the defaults — was written when
+ * the catalog was the whole world, and became a trap once the settings UI began
+ * serving capability tools that are not in it (`adt`, `sapgit`, and anything
+ * else the host names in `approvalScope`): toggling one silently discarded every
+ * other choice the user had made. Matching the seed itself is both narrower and
+ * safer, since the fallback is the more permissive answer of the two.
+ *
+ * An empty list is honored as written: the user chose to be asked about
+ * everything.
  */
 export function resolveEnabledTools(configured?: readonly string[]): ReadonlySet<string> {
-	if (!configured) return new Set(DEFAULT_ENABLED_TOOLS);
-	if (configured.some((name) => !CATALOG_NAMES.has(name))) return new Set(DEFAULT_ENABLED_TOOLS);
+	if (!configured || isLegacySeed(configured)) return new Set(DEFAULT_ENABLED_TOOLS);
 	return new Set(configured);
 }

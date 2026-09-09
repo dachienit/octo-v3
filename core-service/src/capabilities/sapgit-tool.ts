@@ -1,11 +1,12 @@
 import { randomBytes } from "crypto";
 import { basename, resolve, join, relative, isAbsolute, dirname } from "path";
 import * as fs from "fs";
-import { spawnSync } from "child_process";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import * as log from "../log.js";
 import { currentTurn, executeAdt } from "./adt-tool.js";
-import { readManifest, writeManifest, planChildren, sanitizeFolderName, applyPlan } from "../sapTree.js";
+//IYH1HC sapgit init
+import { ensureGitRepo, runGit } from "../gitRepo.js";
+import { CONNECTION_GITIGNORE, readManifest, writeManifest, planChildren, sanitizeFolderName, applyPlan } from "../sapTree.js";
 
 const MAX_OUTPUT_CHARS = 60_000;
 
@@ -58,15 +59,6 @@ const sapGitSchema = {
 	},
 	required: ["command", "connectionName"]
 } as unknown as AgentTool["parameters"];
-
-function runGit(connDir: string, args: string[]): { stdout: string; stderr: string; exitCode: number } {
-	const res = spawnSync("git", args, { cwd: connDir, encoding: "utf8" });
-	return {
-		stdout: res.stdout || "",
-		stderr: res.stderr || "",
-		exitCode: res.status ?? 0
-	};
-}
 
 function capOutput(text: string): { text: string; truncated: boolean } {
 	if (text.length <= MAX_OUTPUT_CHARS) return { text, truncated: false };
@@ -163,6 +155,47 @@ function parseSapDiagnostics(output: string): string {
 		return `\n### SAP Syntax/Check Findings:\n${matches.map(m => `* ${m}`).join("\n")}\n`;
 	}
 	return "";
+}
+
+//IYH1HC sapgit init
+/**
+ * The set of files `push`, `activate` and `check` operate on when the caller names
+ * none: everything that differs from the last commit, plus everything the feature
+ * branch has added on top of the default branch.
+ *
+ * That second half is why this is not just `git diff`. Work already committed to a
+ * feature branch is not "changed" to git, but it is exactly what has not reached SAP
+ * yet — dropping it would make a push after a commit silently do nothing.
+ */
+function collectChangedFiles(connDir: string): string[] {
+	const list = new Set<string>();
+
+	const diffRes = runGit(connDir, ["diff", "--name-only"]);
+	const untrackedRes = runGit(connDir, ["status", "--porcelain"]);
+	if (diffRes.exitCode === 0) {
+		diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
+	}
+	if (untrackedRes.exitCode === 0) {
+		untrackedRes.stdout.split("\n").forEach(line => {
+			const trimmed = line.trim();
+			if (trimmed.startsWith("??") || trimmed.startsWith("A")) {
+				list.add(trimmed.slice(2).trim());
+			}
+		});
+	}
+
+	const currentBranchRes = runGit(connDir, ["branch", "--show-current"]);
+	const currentBranch = currentBranchRes.exitCode === 0 ? currentBranchRes.stdout.trim() : "";
+	const defaultBranch = runGit(connDir, ["show-ref", "--verify", "--quiet", "refs/heads/main"]).exitCode === 0 ? "main" : "master";
+
+	if (currentBranch && currentBranch !== defaultBranch) {
+		const branchDiffRes = runGit(connDir, ["diff", "--name-only", `${defaultBranch}...HEAD`]);
+		if (branchDiffRes.exitCode === 0) {
+			branchDiffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
+		}
+	}
+
+	return Array.from(list);
 }
 
 export interface SapGitToolClosure {
@@ -293,17 +326,20 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 						}));
 					}
 
-					if (!fs.existsSync(join(connDir, ".git"))) {
-						runGit(connDir, ["init"]);
-						fs.writeFileSync(join(connDir, ".gitignore"), ".adt/\n");
-						runGit(connDir, ["add", "."]);
-						runGit(connDir, ["commit", "-m", `Clone from SAP: ${packageName}`]);
-						resultText += `Git repository initialized under artifacts/${connectionName}.\n`;
-					} else {
-						runGit(connDir, ["add", "."]);
-						runGit(connDir, ["commit", "-m", `Update Clone: ${packageName}`]);
-						resultText += `Updated Git repository under artifacts/${connectionName}.\n`;
-					}
+					//IYH1HC sapgit init
+					// Creating the connection now initializes the repository, so this
+					// normally finds one already there and no-ops. The call stays for
+					// folders that predate that change, or that an agent shell command
+					// created — a clone into an untracked folder must still self-heal.
+					const repo = ensureGitRepo(connDir, {
+						ignore: CONNECTION_GITIGNORE,
+						initialCommitMessage: `Initialize SAP connection ${connectionName}`,
+					});
+					runGit(connDir, ["add", "."]);
+					runGit(connDir, ["commit", "-m", `Clone from SAP: ${packageName}`]);
+					resultText += repo.initialized
+						? `Git repository initialized under artifacts/${connectionName}.\n`
+						: `Committed clone to the Git repository under artifacts/${connectionName}.\n`;
 					resultText += `Successfully cloned and hydrated ${packageName}!\n`;
 					break;
 				}
@@ -412,34 +448,7 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 				case "push": {
 					let filesToPush = files;
 					if (!filesToPush || filesToPush.length === 0) {
-						const list = new Set<string>();
-
-						const diffRes = runGit(connDir, ["diff", "--name-only"]);
-						const untrackedRes = runGit(connDir, ["status", "--porcelain"]);
-						if (diffRes.exitCode === 0) {
-							diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
-						}
-						if (untrackedRes.exitCode === 0) {
-							untrackedRes.stdout.split("\n").forEach(line => {
-								const trimmed = line.trim();
-								if (trimmed.startsWith("??") || trimmed.startsWith("A")) {
-									list.add(trimmed.slice(2).trim());
-								}
-							});
-						}
-
-						const currentBranchRes = runGit(connDir, ["branch", "--show-current"]);
-						const currentBranch = currentBranchRes.exitCode === 0 ? currentBranchRes.stdout.trim() : "";
-						const defaultBranch = runGit(connDir, ["show-ref", "--verify", "--quiet", "refs/heads/main"]).exitCode === 0 ? "main" : "master";
-
-						if (currentBranch && currentBranch !== defaultBranch) {
-							const branchDiffRes = runGit(connDir, ["diff", "--name-only", `${defaultBranch}...HEAD`]);
-							if (branchDiffRes.exitCode === 0) {
-								branchDiffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
-							}
-						}
-
-						filesToPush = Array.from(list);
+						filesToPush = collectChangedFiles(connDir);
 					}
 
 					if (filesToPush.length === 0) {
@@ -550,34 +559,7 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 				case "activate": {
 					let filesToActivate = files;
 					if (!filesToActivate || filesToActivate.length === 0) {
-						const list = new Set<string>();
-
-						const diffRes = runGit(connDir, ["diff", "--name-only"]);
-						const untrackedRes = runGit(connDir, ["status", "--porcelain"]);
-						if (diffRes.exitCode === 0) {
-							diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
-						}
-						if (untrackedRes.exitCode === 0) {
-							untrackedRes.stdout.split("\n").forEach(line => {
-								const trimmed = line.trim();
-								if (trimmed.startsWith("??") || trimmed.startsWith("A")) {
-									list.add(trimmed.slice(2).trim());
-								}
-							});
-						}
-
-						const currentBranchRes = runGit(connDir, ["branch", "--show-current"]);
-						const currentBranch = currentBranchRes.exitCode === 0 ? currentBranchRes.stdout.trim() : "";
-						const defaultBranch = runGit(connDir, ["show-ref", "--verify", "--quiet", "refs/heads/main"]).exitCode === 0 ? "main" : "master";
-
-						if (currentBranch && currentBranch !== defaultBranch) {
-							const branchDiffRes = runGit(connDir, ["diff", "--name-only", `${defaultBranch}...HEAD`]);
-							if (branchDiffRes.exitCode === 0) {
-								branchDiffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
-							}
-						}
-
-						filesToActivate = Array.from(list);
+						filesToActivate = collectChangedFiles(connDir);
 					}
 
 					if (filesToActivate.length === 0) {
@@ -616,34 +598,7 @@ export function createSapGitTool(closure: SapGitToolClosure): AgentTool {
 				case "check": {
 					let filesToCheck = files;
 					if (!filesToCheck || filesToCheck.length === 0) {
-						const list = new Set<string>();
-
-						const diffRes = runGit(connDir, ["diff", "--name-only"]);
-						const untrackedRes = runGit(connDir, ["status", "--porcelain"]);
-						if (diffRes.exitCode === 0) {
-							diffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
-						}
-						if (untrackedRes.exitCode === 0) {
-							untrackedRes.stdout.split("\n").forEach(line => {
-								const trimmed = line.trim();
-								if (trimmed.startsWith("??") || trimmed.startsWith("A")) {
-									list.add(trimmed.slice(2).trim());
-								}
-							});
-						}
-
-						const currentBranchRes = runGit(connDir, ["branch", "--show-current"]);
-						const currentBranch = currentBranchRes.exitCode === 0 ? currentBranchRes.stdout.trim() : "";
-						const defaultBranch = runGit(connDir, ["show-ref", "--verify", "--quiet", "refs/heads/main"]).exitCode === 0 ? "main" : "master";
-
-						if (currentBranch && currentBranch !== defaultBranch) {
-							const branchDiffRes = runGit(connDir, ["diff", "--name-only", `${defaultBranch}...HEAD`]);
-							if (branchDiffRes.exitCode === 0) {
-								branchDiffRes.stdout.split("\n").map(f => f.trim()).filter(Boolean).forEach(f => list.add(f));
-							}
-						}
-
-						filesToCheck = Array.from(list);
+						filesToCheck = collectChangedFiles(connDir);
 					}
 
 					if (filesToCheck.length === 0) {

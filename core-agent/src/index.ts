@@ -45,6 +45,9 @@ export {
 export type { ToolCatalogEntry } from "./tools/catalog.js";
 export { renderToolsPrompt } from "./tools/prompt.js";
 export type { ToolPromptEntry } from "./tools/prompt.js";
+//IYH1HC tool approval add
+export { approvalBlockReason, resolveApprovalTimeoutMs } from "./tool-approval.js";
+export type { ToolApprovalDecision, ToolApprovalRequest, ToolApprovalVerdict } from "./tool-approval.js";
 export { loadSubagentDefinitions } from "./subagent/definitions.js";
 export type { SubagentDefinition } from "./subagent/definitions.js";
 export type { SubagentRuntime } from "./subagent/runner.js";

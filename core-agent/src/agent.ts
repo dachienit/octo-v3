@@ -25,6 +25,12 @@ import { checkPlanMode } from "./plan-mode.js";
 import { createExecutor, type Executor } from "./sandbox.js";
 import { type AgentMode, forgetSessionState, SessionStateStore, type TodoItem } from "./session-state.js";
 import { AgentSettingsManager } from "./settings.js";
+import {
+	approvalBlockReason,
+	ToolApprovalRegistry,
+	type ToolApprovalDecision,
+	type ToolApprovalVerdict,
+} from "./tool-approval.js";
 import { isCatalogTool, resolveEnabledTools } from "./tools/catalog.js";
 import { createPrimitiveTools } from "./tools/index.js";
 import type { CoreAgentEventHandlers, CoreAgentOptions, CoreAgentRunInput, CoreAgentRunResult } from "./types.js";
@@ -274,8 +280,15 @@ export class CoreAgent {
 	private authFilePath: string;
 	/** Task list and permission mode for this session. */
 	private readonly sessionState: SessionStateStore;
-	/** Primitive tools this workspace allows; see `resolveEnabledTools`. */
+	/** Tools this workspace runs without asking; see `resolveEnabledTools`. */
 	private readonly enabledTools: ReadonlySet<string>;
+	//IYH1HC tool approval add
+	/** Non-catalog tool names the host put under the same approval rule. */
+	private readonly approvalScope: ReadonlySet<string>;
+	/** Tools the user allowed for the rest of this session ("Allow for session"). */
+	private readonly sessionAllowed = new Set<string>();
+	/** Tool calls parked waiting for a human answer. */
+	private readonly approvals: ToolApprovalRegistry;
 	/** Every tool registered for this session, primitives plus MCP; see `listTools`. */
 	private readonly tools: AgentTool<any>[];
 
@@ -355,11 +368,22 @@ export class CoreAgent {
 		const getApiKey = async () =>
 			this.runApiKey ?? getLlmApiKey(this.authStorage, this.authFilePath, this.runProvider ?? llmProvider);
 
+		//IYH1HC tool approval add
+		// A workspace's tool settings decide what runs unattended, not what exists:
+		// every tool below is registered whatever the settings say, and
+		// `guardToolCall` asks the user about the ones outside this set.
 		this.enabledTools = resolveEnabledTools(options.enabledTools);
+		this.approvalScope = new Set(options.approvalScope ?? []);
+		this.approvals = new ToolApprovalRegistry({
+			// Read `currentEvents` at call time, not at construction: the agent is
+			// cached per channel and outlives any one run's handlers.
+			request: (request) => this.currentEvents?.onToolApprovalRequest?.(request),
+			resolved: (toolCallId, toolName, verdict) =>
+				this.currentEvents?.onToolApprovalResolved?.(toolCallId, toolName, verdict),
+		});
 
 		const primitiveTools = createPrimitiveTools({
 			executor: this.executor,
-			enabledTools: this.enabledTools,
 			getUploadFn: () => this.currentUploadFn,
 			attachCwd: hostArtifactsDir,
 			sessionId: channelId,
@@ -384,6 +408,13 @@ export class CoreAgent {
 									},
 									convertToLlm,
 									getApiKey,
+									//IYH1HC tool approval add
+									// The nested agent gets the same guard as its parent. It used to
+									// need none, because a disabled tool was filtered out of
+									// `subagentTools`; now that a subagent sees everything, leaving
+									// this off would hand it unapproved access to exactly the tools
+									// the workspace asked to be consulted about.
+									beforeToolCall: this.guardToolCall,
 								}),
 						},
 		});
@@ -398,20 +429,6 @@ export class CoreAgent {
 			initialState: { systemPrompt: "", model, thinkingLevel: "off", tools },
 			convertToLlm,
 			getApiKey,
-			// Plan mode and per-workspace tool gating are enforced here rather than
-			// inside each tool, so a tool cannot forget the check and new tools are
-			// denied by default.
-			beforeToolCall: async ({ toolCall, args }) => {
-				// Defence in depth: the disabled tool is already absent from the tool
-				// array, but `baseToolsOverride` and the resource loader can put tools
-				// back. Only catalog tools are gated — MCP and ACP tools are not.
-				if (isCatalogTool(toolCall.name) && !this.enabledTools.has(toolCall.name)) {
-					return { block: true, reason: `The ${toolCall.name} tool is disabled for this workspace.` };
-				}
-				if (this.sessionState.getMode() !== "plan") return undefined;
-				const decision = checkPlanMode(toolCall.name, args);
-				return decision.blocked ? { block: true, reason: decision.reason } : undefined;
-			},
 		});
 
 		const loadedSession = this.sessionManager.buildSessionContext();
@@ -450,6 +467,21 @@ export class CoreAgent {
 			resourceLoader,
 			baseToolsOverride,
 		});
+
+		//IYH1HC tool approval add
+		// Install the gate *after* AgentSession, not through the Agent constructor.
+		// AgentSession's constructor assigns `agent.beforeToolCall` unconditionally to
+		// dispatch extension `tool_call` handlers, so anything passed to `new Agent`
+		// is overwritten before a single tool ever runs — which is why the plan-mode
+		// and tool checks that used to live there never fired. Chain its hook rather
+		// than replacing it, and run ours first so a call the workspace has not
+		// permitted never reaches an extension.
+		const extensionBeforeToolCall = this.agentInstance.beforeToolCall;
+		this.agentInstance.beforeToolCall = async (context, signal) => {
+			const decision = await this.guardToolCall(context as any, signal);
+			if (decision?.block) return decision;
+			return extensionBeforeToolCall?.(context, signal);
+		};
 
 		// Subscribe to session events once; route to per-run callbacks
 		this.session.subscribe(async (event) => {
@@ -554,6 +586,69 @@ export class CoreAgent {
 				events.onRetry?.(e.attempt, e.maxAttempts, e.errorMessage);
 			}
 		});
+	}
+
+	//IYH1HC tool approval add
+	/**
+	 * The one gate every tool call passes, for this agent and for any subagent it
+	 * spawns. An arrow property so it can be handed to both `Agent` constructors
+	 * without losing `this`.
+	 *
+	 * Plan mode is checked first and blocks outright: a tool plan mode forbids is
+	 * not something to ask permission for, and prompting would invite the user to
+	 * grant something the mode exists to withhold.
+	 *
+	 * The approval branch parks the whole agent loop on an awaited promise. That
+	 * is safe because pi-agent-core awaits this hook and re-checks the abort
+	 * signal right after (see `tool-approval.ts` for why the wait always ends).
+	 */
+	private guardToolCall = async (
+		{ toolCall, args }: { toolCall: { id: string; name: string }; args: unknown },
+		signal?: AbortSignal,
+	): Promise<{ block: boolean; reason?: string } | undefined> => {
+		if (this.sessionState.getMode() === "plan") {
+			const decision = checkPlanMode(toolCall.name, args);
+			if (decision.blocked) return { block: true, reason: decision.reason };
+		}
+
+		if (!this.isApprovalRequired(toolCall.name)) return undefined;
+
+		const argsRecord = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
+		const label = typeof argsRecord.label === "string" ? argsRecord.label : undefined;
+		const verdict = await this.approvals.request(
+			{ toolCallId: toolCall.id, toolName: toolCall.name, label, args: argsRecord },
+			signal,
+		);
+
+		if (verdict === "session") this.sessionAllowed.add(toolCall.name);
+		if (verdict === "once" || verdict === "session") return undefined;
+		return { block: true, reason: approvalBlockReason(toolCall.name, verdict) };
+	};
+
+	//IYH1HC tool approval add
+	/**
+	 * Tools outside the catalog and outside `approvalScope` — MCP and ACP tools —
+	 * are not asked about here; they carry their own per-server gating.
+	 */
+	private isApprovalRequired(name: string): boolean {
+		if (!isCatalogTool(name) && !this.approvalScope.has(name)) return false;
+		return !this.enabledTools.has(name) && !this.sessionAllowed.has(name);
+	}
+
+	//IYH1HC tool approval add
+	/**
+	 * Answer a parked tool call. False means nothing is waiting under that id —
+	 * already answered, timed out, or never asked — which the host reports rather
+	 * than swallowing, so a double-click cannot read as two approvals.
+	 */
+	resolveToolApproval(toolCallId: string, decision: ToolApprovalDecision): boolean {
+		return this.approvals.resolve(toolCallId, decision);
+	}
+
+	//IYH1HC tool approval add
+	/** Abandon every parked call — the run was stopped, or the client went away. */
+	cancelPendingApprovals(verdict: Extract<ToolApprovalVerdict, "aborted" | "denied"> = "aborted"): void {
+		this.approvals.cancelAll(verdict);
 	}
 
 	private createAuthStorage(path: string): AuthStorage {
@@ -676,6 +771,17 @@ export class CoreAgent {
 		const live = (this.agentInstance.state as any).tools as AgentTool<any>[] | undefined;
 		const source = live && live.length > 0 ? live : this.tools;
 		return source.map((tool) => ({ name: tool.name, description: tool.description ?? "" }));
+	}
+
+	//IYH1HC tool approval add
+	/**
+	 * Which of the registered tools will stop and ask before running. Feeds the
+	 * `## Tools` section so the model can prefer an unattended tool and can explain
+	 * why a call was interrupted. Recomputed on read: "Allow for session" shrinks it
+	 * mid-session.
+	 */
+	toolsNeedingApproval(): ReadonlySet<string> {
+		return new Set(this.listTools().map((tool) => tool.name).filter((name) => this.isApprovalRequired(name)));
 	}
 
 	/**
@@ -839,6 +945,11 @@ export class CoreAgent {
 	}
 
 	abort(): void {
+		//IYH1HC tool approval add
+		// A parked approval also listens to the run's abort signal, but the loop can
+		// only observe that once the awaited hook returns — release the waits here so
+		// the run winds down on Stop instead of sitting on an unanswered card.
+		this.approvals.cancelAll("aborted");
 		this.session.abort();
 	}
 
@@ -857,6 +968,9 @@ export class CoreAgent {
 
 	/** Releases session-scoped resources. Call when a session is deleted. */
 	async dispose(): Promise<void> {
+		//IYH1HC tool approval add
+		this.approvals.cancelAll("aborted");
+		this.sessionAllowed.clear();
 		await killSessionShells(this.channelId);
 		forgetSessionState(this.channelId);
 	}

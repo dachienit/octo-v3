@@ -51,6 +51,20 @@ export type SseEvent =
 	| { type: "tool"; seq: number; phase: "call"; toolCallId: string; toolName: string; args: Record<string, unknown>; ts: number }
 	| { type: "tool"; seq: number; phase: "start"; toolCallId: string; toolName: string; label?: string; args: Record<string, unknown>; ts: number }
 	| { type: "tool"; seq: number; phase: "update"; toolCallId: string; toolName: string; partialResult: string }
+	//IYH1HC tool approval add
+	// Arrives after this call's "start" phase — the agent loop announces execution
+	// before it consults the approval gate — so treat it as a downgrade of the
+	// block already on screen. Exactly one "approval-resolved" always follows.
+	| { type: "tool"; seq: number; phase: "approval"; toolCallId: string; toolName: string; label?: string; args: Record<string, unknown>; ts: number }
+	| {
+		type: "tool";
+		seq: number;
+		phase: "approval-resolved";
+		toolCallId: string;
+		toolName: string;
+		decision: "once" | "session" | "denied" | "timeout" | "aborted";
+		ts: number;
+	}
 	| {
 		type: "tool";
 		seq: number;
@@ -329,6 +343,32 @@ export type SapTreeManifestEntry = {
 	typeId?: string; // ADT object type (for per-type icon)
 	label?: string; // Eclipse-style display name (uppercase, no extension)
 	description?: string; // short description (shown italic, like Eclipse)
+};
+
+//IYH1HC sapgit init
+export type SapGitFileStatus =
+	| "conflicted"
+	| "deleted"
+	| "modified"
+	| "renamed"
+	| "added"
+	| "untracked"
+	| "ignored";
+
+/**
+ * Working-tree status of one SAP connection's Git repository.
+ *
+ * `available` and `repo` are both ordinary states, not errors: a Cloud Foundry host
+ * has no `git` binary, and a connection has no repository until the agent has run
+ * `sapgit clone`. Either way the tree renders undecorated.
+ */
+export type SapGitStatus = {
+	available: boolean;
+	repo: boolean;
+	branch: string;
+	/** Keyed by path relative to the connection folder, forward slashes. */
+	entries: Record<string, SapGitFileStatus>;
+	truncated: boolean;
 };
 
 export type WorkspaceActivity = {
@@ -752,6 +792,34 @@ export class CoreServiceClient {
 			headers: { "Content-Type": "application/json" },
 			body: JSON.stringify({ channelId }),
 		});
+	}
+
+	//IYH1HC tool approval add
+	/**
+	 * Answer a tool call the agent parked on the approval gate.
+	 *
+	 * Sent on its own connection while `chat()` is still streaming — that stream is
+	 * one-way, and the run it belongs to is what is waiting on this call.
+	 *
+	 * A 409 means the wait already ended (answered elsewhere, timed out, or the run
+	 * stopped); it is reported rather than thrown, since the stream will say so too.
+	 */
+	async resolveToolApproval(
+		channelId: string,
+		toolCallId: string,
+		decision: "once" | "session" | "denied",
+	): Promise<{ ok: boolean; stale: boolean }> {
+		const response = await this.fetch(
+			`/sessions/${encodeURIComponent(channelId)}/tool-approvals/${encodeURIComponent(toolCallId)}`,
+			{
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({ decision }),
+			},
+		);
+		if (response.status === 409) return { ok: false, stale: true };
+		if (!response.ok) throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+		return { ok: true, stale: false };
 	}
 
 	async isRunning(channelId: string): Promise<boolean> {
@@ -1285,6 +1353,30 @@ export class CoreServiceClient {
 			return data.manifest ?? {};
 		} catch {
 			return {};
+		}
+	}
+
+	//IYH1HC sapgit init
+	// Never throws and never surfaces an error: the caller decorates a file tree with
+	// the answer, so "could not tell" and "nothing to report" have to look the same. A
+	// server without the route (404) therefore degrades to an undecorated tree.
+	async getSapGitStatus(workspaceId: string, name: string): Promise<SapGitStatus> {
+		const unknown: SapGitStatus = { available: false, repo: false, branch: "", entries: {}, truncated: false };
+		try {
+			const response = await this.fetch(
+				`/workspaces/${encodeURIComponent(workspaceId)}/sap-adt/connections/${encodeURIComponent(name)}/git/status`,
+			);
+			if (!response.ok) return unknown;
+			const data = await response.json() as Partial<SapGitStatus>;
+			return {
+				available: !!data.available,
+				repo: !!data.repo,
+				branch: data.branch ?? "",
+				entries: data.entries ?? {},
+				truncated: !!data.truncated,
+			};
+		} catch {
+			return unknown;
 		}
 	}
 

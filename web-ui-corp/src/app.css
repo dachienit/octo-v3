@@ -34,6 +34,13 @@ body {
 	--accent-foreground: var(--sapLinkColor, #0064d9);
 	--destructive: var(--sapNegativeColor, #aa0808);
 	--destructive-foreground: var(--sapContent_ContrastTextColor, #ffffff);
+	/* IYH1HC sapgit init — Git decoration colors for the Artifacts tree. Mapped onto
+	   Fiori semantic params so each theme recolors them on its own; the literals are
+	   only the fallback for when UI5's params are not loaded. "ignored" needs no token
+	   of its own — it reuses muted-foreground. */
+	--git-modified: var(--sapCriticalColor, #e76500);
+	--git-added: var(--sapPositiveColor, #256f3a);
+	--git-deleted: var(--sapNegativeColor, #aa0808);
 	--border: var(--sapList_BorderColor, #d9d9d9);
 	--input: var(--sapField_BorderColor, #89919a);
 	--ring: var(--sapContent_FocusColor, #0064d9);
@@ -66,6 +73,10 @@ body {
 	--accent-foreground: var(--sapLinkColor, #8cc9ff);
 	--destructive: var(--sapNegativeColor, #ff8888);
 	--destructive-foreground: var(--sapContent_ContrastTextColor, #ffffff);
+	/* IYH1HC sapgit init — lighter fallbacks, same reasoning as --destructive above. */
+	--git-modified: var(--sapCriticalColor, #ffa25a);
+	--git-added: var(--sapPositiveColor, #5cbf7f);
+	--git-deleted: var(--sapNegativeColor, #ff8888);
 	--border: var(--sapList_BorderColor, #3a4552);
 	--input: var(--sapField_BorderColor, #798797);
 	--ring: var(--sapContent_FocusColor, #8cc9ff);
@@ -123,6 +134,11 @@ html.joule {
 	--accent-foreground: #9b3fd6;
 	--destructive: #aa0808;
 	--destructive-foreground: #ffffff;
+	/* IYH1HC sapgit init — literals, like every other token in the Joule blocks:
+	   these themes set the SAP params themselves, so there is nothing to defer to. */
+	--git-modified: #b35300;
+	--git-added: #1f7a4d;
+	--git-deleted: #aa0808;
 	--border: #e3d6ff;
 	--input: #b9a6e6;
 	--ring: #7a5af8;
@@ -176,6 +192,10 @@ html.joule.dark {
 	--accent-foreground: #e3b0ff;
 	--destructive: #ff8888;
 	--destructive-foreground: #ffffff;
+	/* IYH1HC sapgit init */
+	--git-modified: #ffb266;
+	--git-added: #6fe0a8;
+	--git-deleted: #ff8888;
 	--border: #342a5e;
 	--input: #4a3d7a;
 	--ring: #8b6dff;

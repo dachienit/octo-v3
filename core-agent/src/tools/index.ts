@@ -3,6 +3,7 @@ import type { WebSearchConfig } from "../net/search-providers.js";
 import type { Executor } from "../sandbox.js";
 import type { SessionStateStore } from "../session-state.js";
 import type { SubagentRuntime } from "../subagent/runner.js";
+import { isCatalogTool } from "./catalog.js";
 import { createAttachTool } from "./attach.js";
 import { createBashOutputTool } from "./bash-output.js";
 import { createBashTool } from "./bash.js";
@@ -32,11 +33,6 @@ export interface PrimitiveToolsOptions {
 	webSearch?: WebSearchConfig;
 	/** Present only when subagents are enabled. */
 	subagent?: SubagentRuntime;
-	/**
-	 * Tool names the workspace has enabled. Omit to register everything.
-	 * Resolve it with `resolveEnabledTools` so the legacy seed is handled.
-	 */
-	enabledTools?: ReadonlySet<string>;
 }
 
 /**
@@ -44,11 +40,13 @@ export interface PrimitiveToolsOptions {
  * the caller via `CoreAgentOptions.extraTools`.
  *
  * Tools whose backing capability is not configured are omitted rather than
- * registered-and-failing, so the model never sees a tool it cannot use.
+ * registered-and-failing, so the model never sees a tool it cannot use. What a
+ * workspace turned off in its settings is *not* such a case: that is a
+ * permission, enforced in `CoreAgent`'s `beforeToolCall` by asking the user, and
+ * the tool stays registered so the model knows it exists and can ask for it.
  */
 export function createPrimitiveTools(options: PrimitiveToolsOptions): AgentTool<any>[] {
-	const { executor, enabledTools } = options;
-	const isEnabled = (name: string) => !enabledTools || enabledTools.has(name);
+	const { executor } = options;
 
 	const tools: AgentTool<any>[] = [
 		createReadTool(executor),
@@ -65,18 +63,22 @@ export function createPrimitiveTools(options: PrimitiveToolsOptions): AgentTool<
 		createWebFetchTool(),
 	];
 
-	// Drop what the workspace turned off before `task` is built, so a subagent
-	// inherits the same restrictions as its parent.
-	const enabled = tools.filter((tool) => isEnabled(tool.name));
-
-	if (options.webSearch && isEnabled("web_search")) {
-		enabled.push(createWebSearchTool(options.webSearch));
+	// A primitive the catalog does not list cannot be shown in the Tools screen,
+	// cannot be marked in the prompt, and is outside the approval gate — so
+	// registering it would hand the model an ungovernable capability. `web_search`
+	// is in exactly that state today (its catalog entry is commented out), and
+	// this keeps it unreachable until that is resolved deliberately rather than as
+	// a side effect. See G-6 in docs_core/21-roadmap-and-known-gaps.md.
+	if (options.webSearch && isCatalogTool("web_search")) {
+		tools.push(createWebSearchTool(options.webSearch));
 	}
 
-	// `task` is created last so the subagent can be given the tools above it.
-	if (options.subagent && isEnabled("task")) {
-		enabled.push(createTaskTool({ runtime: options.subagent, availableTools: [...enabled] }));
+	// `task` is created last so the subagent can be given the tools above it. A
+	// subagent therefore sees the same full set as its parent and is held to the
+	// same approvals — `CoreAgent` passes its guard into the nested agent too.
+	if (options.subagent) {
+		tools.push(createTaskTool({ runtime: options.subagent, availableTools: [...tools] }));
 	}
 
-	return enabled;
+	return tools;
 }

@@ -57,6 +57,18 @@ export const ADT_CONNECTION_FILE = "connection.json";
 export const ADT_PULL_CONFIG_FILE = "pull-config.json";
 export const ADT_ABAPLINT_FILE = "abaplint.json";
 
+//IYH1HC sapgit init
+// The `.gitignore` a connection folder is initialized with. Scratch space and local
+// sidecars only: everything else under the folder is a projection of the SAP system
+// and is meant to be tracked, because tracking it is what `sapgit push` diffs against.
+//
+// Kept here, next to the folder layout it describes, so the live `sapgit clone` call
+// and the retired connect-time one in `http.ts` cannot drift apart.
+//
+// Note this only takes effect for a folder that has no `.gitignore` yet —
+// `ensureGitRepo` never overwrites an existing one, since by then it is the user's.
+export const CONNECTION_GITIGNORE = [`${ADT_DIR}/`, ".artifacts/", ".scratchpad/"];
+
 // --- one node as returned by `adt object list --json` -----------------------
 export interface AdtNode {
 	typeId: string;

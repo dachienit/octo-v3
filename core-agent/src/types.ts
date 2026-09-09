@@ -1,5 +1,6 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import type { SandboxConfig } from "./sandbox.js";
+import type { ToolApprovalRequest, ToolApprovalVerdict } from "./tool-approval.js";
 
 export interface CoreAgentOptions {
 	sandboxConfig: SandboxConfig;
@@ -18,11 +19,21 @@ export interface CoreAgentOptions {
 	/** Additional tools beyond the primitive set */
 	extraTools?: AgentTool<any>[];
 	/**
-	 * Primitive tool names the workspace has enabled (`settings.tools.enabled`).
+	 * Tool names the workspace auto-approves (`settings.tools.enabled`).
 	 * Omitted means "never configured" and falls back to the catalog defaults.
-	 * Does not apply to `extraTools`, which MCP gates on its own.
+	 *
+	 * This never changes which tools are registered — the model sees all of them.
+	 * A tool outside this list still runs, but only after the user approves the
+	 * call. Only catalog tools and the names in `approvalScope` are asked about.
 	 */
 	enabledTools?: string[];
+	/**
+	 * Tool names outside the catalog that the host wants covered by the same
+	 * approval rule — the capability tools it registered through `extraTools`.
+	 * Keeps host-specific tool names out of the core's catalog. MCP tools are
+	 * deliberately not listed: they carry their own per-server gating.
+	 */
+	approvalScope?: string[];
 }
 
 export interface CoreAgentRunInput {
@@ -100,6 +111,15 @@ export interface CoreAgentEventHandlers {
 	onBlockEnd?: (blockId: string, kind: "text" | "thinking", content: string) => void;
 	/** Model finished composing a tool call (args complete, execution not started yet). */
 	onToolCall?: (toolCallId: string, toolName: string, args: Record<string, unknown>) => void;
+	//IYH1HC tool approval add
+	/**
+	 * A tool the workspace does not auto-approve was called and the agent loop is
+	 * parked until the host answers with `CoreAgent.resolveToolApproval`.
+	 * Fires before `onToolApprovalResolved`, never without it.
+	 */
+	onToolApprovalRequest?: (request: ToolApprovalRequest) => void;
+	/** The parked call was answered, timed out, or the run was aborted. */
+	onToolApprovalResolved?: (toolCallId: string, toolName: string, verdict: ToolApprovalVerdict) => void;
 	/** Authoritative usage after each assistant message (one per LLM call). */
 	onUsage?: (usage: CoreAgentRunResult["usage"], stopReason?: string, model?: { provider: string; id: string }) => void;
 }

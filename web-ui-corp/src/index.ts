@@ -39,6 +39,8 @@ export {
 	type SapLocalSystem, // IYH1HC SSO add
 	type SapNode, // IYH1HC add
 	type SapTreeManifestEntry, // IYH1HC add
+	type SapGitFileStatus, //IYH1HC sapgit init
+	type SapGitStatus, //IYH1HC sapgit init
 } from "./adapters/core-service.js";
 export { CoreServiceChatPanel } from "./components/CoreServiceChatPanel.js";
 

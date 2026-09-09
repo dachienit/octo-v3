@@ -57,9 +57,16 @@ import {
 	type SapCatalogSystem,
 } from "./sapSystems.js";
 import * as log from "./log.js";
+//IYH1HC sapgit init — `ensureGitRepo` is retired here along with the init block in
+// writeConnectionSidecars; `readGitStatus` is the read-only half, used to decorate
+// the Artifacts tree.
+// import { ensureGitRepo } from "./gitRepo.js";
+import { readGitStatus } from "./gitRepo.js";
 import { getWorkspaceSandboxStatus } from "./sandbox-manager.js";
 import type { BotContext, BotHandler } from "./types.js";
-import { truncateToolResult, type AgentTrailEvent, type AgentUsage } from "./agent-events.js"; 
+import { truncateToolResult, type AgentTrailEvent, type AgentUsage } from "./agent-events.js";
+//IYH1HC tool approval add
+import { cancelChannelToolApprovals, resolveChannelToolApproval } from "./agent.js";
 import { TrailStore, readTrail } from "./trail-store.js";
 import { WorkspaceDatabase } from "./workspace-database.js";
 import { WorkspaceStore } from "./workspaces.js";
@@ -81,6 +88,14 @@ interface SapRemoteDest {
 	Authentication?: string;
 	ProxyType?: string;
 	Description?: string;
+}
+
+//IYH1HC sapgit init
+// Who a commit in a connection folder is attributed to. Repo-local only — this is
+// never written to the host's global git config.
+interface SapConnectionAuthor {
+	name: string;
+	email: string;
 }
 
 //IYH1HC SSO add
@@ -206,6 +221,13 @@ const MAX_SKILL_UPLOAD_BYTES = 25 * 1024 * 1024;
 // Junk that folder pickers hand over but a skill never needs.
 const SKILL_UPLOAD_SKIP_NAMES = new Set([".DS_Store", "Thumbs.db"]);
 const SKILL_UPLOAD_SKIP_DIRS = new Set([".git", "node_modules"]);
+
+//IYH1HC sapgit init
+// Directories under artifacts/ that the Artifacts panel neither lists nor packages.
+// `sapgit clone` makes every SAP connection folder a git repository, and `.git/` is
+// machine state rather than an artifact: listing it would bury the object tree under
+// git internals and zipping it would blow up an in-memory archive.
+const HIDDEN_ARTIFACT_DIRS = new Set([".git"]);
 
 export function createHttpContext(opts: {
 	channelId: string;
@@ -603,6 +625,8 @@ export class HttpServer {
 		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/tree/package", (req, res) => { void this.handleSapAddPackage(req, res); });
 		app.post("/workspaces/:workspaceId/sap-adt/connections/:name/tree/hydrate", (req, res) => { void this.handleSapHydrateFile(req, res); });
 		app.get("/workspaces/:workspaceId/sap-adt/connections/:name/tree/manifest", (req, res) => { void this.handleSapTreeManifest(req, res); });
+		//IYH1HC sapgit init
+		app.get("/workspaces/:workspaceId/sap-adt/connections/:name/git/status", (req, res) => { void this.handleSapGitStatus(req, res); });
 		app.get("/workspaces/:workspaceId/sandbox", (req, res) => { void this.handleWorkspaceSandbox(req, res); });
 		app.get("/workspaces/:workspaceId/events", (req, res) => this.handleWorkspaceEvents(req, res));
 		app.delete("/workspaces/:workspaceId/events/:filename", (req, res) => this.handleDeleteWorkspaceEvent(req, res));
@@ -644,6 +668,9 @@ export class HttpServer {
 		app.post("/sessions/:sessionId/messages", (req, res) => { void this.handleChat(req, res, req.params.sessionId); });
 		app.post("/chat",           (req, res) => { void this.handleChat(req, res); });
 		app.post("/stop",           (req, res) => { void this.handleStop(req, res); });
+		//IYH1HC tool approval add
+		app.post("/sessions/:id/tool-approvals/:toolCallId", (req, res) =>
+			this.handleToolApproval(req, decodeURIComponent(req.params.id), decodeURIComponent(req.params.toolCallId), res));
 		app.get("/status/:id",      (req, res) => this.handleStatus(req, req.params.id, res));
 		app.get("/sessions/:id/mode", (req, res) => this.handleSessionMode(req, decodeURIComponent(req.params.id), res));
 		app.patch("/sessions/:id/mode", (req, res) => this.handleSetSessionMode(req, decodeURIComponent(req.params.id), res));
@@ -1784,12 +1811,45 @@ export class HttpServer {
 	//   global <ADT_CLI_HOME>/         → applies to everything this user runs
 	// adt-cli resolves them by location (local outranks global), so seeding the
 	// files is the whole wiring — nothing else has to point at them.
-	private writeConnectionSidecars(userId: string, workspaceId: string, connection: SapConnection): string {
+	private writeConnectionSidecars(userId: string, workspaceId: string, connection: SapConnection, author?: SapConnectionAuthor): string {
 		const folder = join(this.workspaceStore.getWorkspaceRoot(workspaceId), "artifacts", connection.name);
 		this.writeConnectionDescriptor(folder, connection);
 		if (!existsSync(manifestPath(folder))) writeManifest(folder, initialManifest());
 		this.seedAdtConfigs(userId, folder);
+		//IYH1HC sapgit init
+		// RETIRED — connecting no longer initializes the Git repository.
+		//
+		// It was moved here on the assumption that a user materializes the object tree
+		// from the Artifacts panel, which never passes through `sapgit clone`. That is
+		// not the real flow: the user asks the agent to pull a package, the agent calls
+		// `sapgit clone`, and `clone` initializes the repository itself. So a connection
+		// folder holds nothing but `.adt/` until that happens, and a repo created here
+		// would only ever have an empty root commit.
+		//
+		// Kept, not deleted, because the argument for it still stands if the panel ever
+		// becomes a first-class way to build the tree: `sapgit push`/`activate`/`check`
+		// derive *what to send to SAP* from `git diff --name-only` plus a
+		// `<default>...HEAD` diff, and both are degenerate without a repo and a root
+		// commit. `ensureGitRepo` is idempotent, so re-enabling is this block alone —
+		// `clone` will find the repo already there and no-op.
+		//
+		// ensureGitRepo(folder, {
+		// 	authorName: author?.name || userId,
+		// 	authorEmail: author?.email || `${userId}@octo.local`,
+		// 	ignore: CONNECTION_GITIGNORE,
+		// 	initialCommitMessage: `Initialize SAP connection ${connection.name}`,
+		// });
+		void author;
 		return folder;
+	}
+
+	//IYH1HC sapgit init
+	// The git identity a connection folder's commits would be stamped with. Unused
+	// while the init above is retired; kept alongside it so re-enabling is one edit.
+	// Resolved from the request because `writeConnectionSidecars` only knows the user
+	// id, which is not a name a reviewer of the history would recognize.
+	private connectionAuthor(req: express.Request): SapConnectionAuthor {
+		return { name: this.getUserName(req), email: req.user?.email || "" };
 	}
 
 	//IYH1HC adt-config tiers
@@ -1918,7 +1978,7 @@ export class HttpServer {
 			createdAt: new Date().toISOString(),
 		};
 		await this.setDefaultProfile(ctx.userId, name);
-		this.writeConnectionSidecars(ctx.userId, ctx.workspaceId, connection);
+		this.writeConnectionSidecars(ctx.userId, ctx.workspaceId, connection, this.connectionAuthor(req));
 
 		const next = this.workspaceStore.getSapConnections(ctx.userId, ctx.workspaceId).filter((c) => c.name !== name);
 		next.push(connection);
@@ -1976,7 +2036,7 @@ export class HttpServer {
 		// flow would have been the one connection type that never got the config
 		// seeds. Same split as before: descriptor always, tree + seeds on success.
 		if (connected) {
-			this.writeConnectionSidecars(ctx.userId, ctx.workspaceId, connection);
+			this.writeConnectionSidecars(ctx.userId, ctx.workspaceId, connection, this.connectionAuthor(req));
 			await this.setDefaultProfile(ctx.userId, name);
 		} else {
 			this.writeConnectionDescriptor(folder, connection);
@@ -2010,6 +2070,12 @@ export class HttpServer {
 		// connection folder is a projection of the SAP system and is re-fetchable,
 		// so leaving it behind would only strand a folder no longer backed by a profile.
 		// `name` is sanitized above, so this can only ever target artifacts/<name>.
+		//
+		// That now includes the folder's git repository and its history. Considered and
+		// kept: the history tracks a re-fetchable projection, it is already
+		// container-local (never mirrored — see object-store.ts SKIP_DIR_SEGMENTS), and
+		// work meant to outlive a connection belongs on the SAP system via `sapgit push`.
+		// //IYH1HC sapgit init
 		rmSync(this.sapConnDir(ctx.workspaceId, name), { recursive: true, force: true });
 		// adt-cli nulls defaultProfile when the deleted profile was the default, so this
 		// reports "" rather than a dangling name.
@@ -2053,7 +2119,7 @@ export class HttpServer {
 		const ok = result.exitCode === 0;
 		if (ok) await this.setDefaultProfile(ctx.userId, name);
 		const connection: SapConnection = { ...existing, status: ok ? "connected" : "error" };
-		this.writeConnectionSidecars(ctx.userId, ctx.workspaceId, connection);
+		this.writeConnectionSidecars(ctx.userId, ctx.workspaceId, connection, this.connectionAuthor(req));
 		this.workspaceStore.setSapConnections(
 			ctx.userId,
 			ctx.workspaceId,
@@ -2356,6 +2422,21 @@ export class HttpServer {
 		res.json({ manifest: manifestView(readManifest(connDir)) });
 	}
 
+	//IYH1HC sapgit init
+	// GET /workspaces/:id/sap-adt/connections/:name/git/status
+	//
+	// Deliberately its own route rather than a field on the workspace tree. The tree
+	// response is on the hot path of every reload and already carries an object-store
+	// snapshot; folding N synchronous `git status` spawns into it would make the whole
+	// sidebar wait on git. Split out, a slow or broken repository costs the decorations
+	// and nothing else.
+	private handleSapGitStatus(req: express.Request, res: express.Response): void {
+		const ctx = this.assertWorkspaceRole(req, res, false);
+		if (!ctx) return;
+		const name = this.sanitizeConnectionName(req.params.name);
+		res.json(readGitStatus(this.sapConnDir(ctx.workspaceId, name)));
+	}
+
 	private handleAgentWorkers(req: express.Request, res: express.Response): void {
 		if (!this.features.agentWorkers) {
 			res.json({ agents: [] });
@@ -2640,10 +2721,13 @@ export class HttpServer {
 	}
 
 	/**
-	 * The primitive tool catalog for the workspace settings Tools tab. Global,
-	 * not workspace-scoped — a workspace stores only which of these it enables.
+	 * The tool catalog for the workspace settings Tools tab. Global, not
+	 * workspace-scoped — a workspace stores only which of these it auto-approves.
+	 * The agent is told about every tool either way; the stored list decides which
+	 * calls run straight through and which stop to ask the user.
+	 *
 	 * `available` is false for a tool whose backing capability is not configured,
-	 * so the UI can stop the user enabling something that will never register.
+	 * so the UI can stop the user auto-approving something that will never register.
 	 */
 	private handleToolCatalog(_req: express.Request, res: express.Response): void {
 		const webSearchConfigured = resolveWebSearchConfig() !== undefined;
@@ -2656,12 +2740,19 @@ export class HttpServer {
 					: undefined,
 		}));
 
+		//IYH1HC tool approval add
+		// These two are capability tools, not catalog entries, but they are ours and
+		// so belong under the same setting — `getOrCreateRunner` names them in the
+		// agent's `approvalScope`. `defaultEnabled` is not optional here: the UI seeds
+		// an unconfigured workspace from exactly this field, so omitting it renders
+		// them permanently switched off.
 		const sapTools = [
 			{
 				name: "sapgit",
 				label: "SAP Git Synchronization",
 				group: "SAP ABAP",
 				description: "Integrate local Git version control with an SAP package repository via ADT.",
+				defaultEnabled: true,
 				available: true,
 			},
 			{
@@ -2669,6 +2760,7 @@ export class HttpServer {
 				label: "SAP ADT Execution",
 				group: "SAP ABAP",
 				description: "Run raw SAP ADT client commands against the connected system.",
+				defaultEnabled: true,
 				available: true,
 			}
 		];
@@ -3056,6 +3148,16 @@ export class HttpServer {
 			if (!res.writableEnded) res.write(`data: ${JSON.stringify(event)}\n\n`);
 		};
 
+		//IYH1HC tool approval add
+		// An approval card can only be answered over this response, so a client that
+		// walks away leaves the run parked on it — holding this socket and the
+		// channel's queue slot until the approval timeout. Release the waits as soon
+		// as the connection drops. The `writableEnded` guard keeps the normal end of
+		// stream, which fires the same event, out of it.
+		res.on("close", () => {
+			if (!res.writableEnded) cancelChannelToolApprovals(sessionId);
+		});
+
 		const ts = (Date.now() / 1000).toFixed(6);
 		const channelDir = join(workspaceRoot, "sessions", sessionId);
 		if (!existsSync(channelDir)) mkdirSync(channelDir, { recursive: true });
@@ -3172,6 +3274,39 @@ export class HttpServer {
 		} else {
 			res.json({ ok: false, message: "Nothing running" });
 		}
+	}
+
+	//IYH1HC tool approval add
+	/**
+	 * Answer a tool call parked on the approval gate.
+	 *
+	 * This is a second request arriving while the turn's own POST is still
+	 * streaming — deliberately so. It does not go through the per-channel run queue
+	 * (main.ts), which the parked run is holding; routing it there would deadlock
+	 * the very thing it exists to release.
+	 */
+	private handleToolApproval(
+		req: express.Request,
+		channelId: string,
+		toolCallId: string,
+		res: express.Response,
+	): void {
+		if (!this.getAuthorizedSession(req, channelId, res)) return;
+
+		const { decision } = req.body as { decision?: string };
+		if (decision !== "once" && decision !== "session" && decision !== "denied") {
+			res.status(400).json({ error: 'decision must be one of "once", "session", "denied"' });
+			return;
+		}
+
+		// Nothing waiting means the call already ran, was denied, timed out, or the
+		// run ended. Report it rather than returning ok, so a double-click cannot
+		// read back as two separate approvals.
+		if (!resolveChannelToolApproval(channelId, toolCallId, decision)) {
+			res.status(409).json({ error: "No tool call is waiting for approval under this id" });
+			return;
+		}
+		res.json({ ok: true, decision });
 	}
 
 	private handleStatus(req: express.Request, channelId: string, res: express.Response): void {
@@ -3294,6 +3429,13 @@ export class HttpServer {
 			if (!existsSync(rootPath)) return [];
 			const walk = (absDir: string, relDir: string): WorkspaceNode[] => {
 				const entries = readdirSync(absDir, { withFileTypes: true })
+					//IYH1HC sapgit init
+					// A cloned SAP connection folder is a git repository, so without this
+					// the sidebar would render hundreds of git internals per connection —
+					// into the JSON of a response sent on every workspace load. `.adt/` is
+					// deliberately still listed (see above); `.git/` is not meant to be
+					// opened or edited from the Artifacts panel.
+					.filter((entry: Dirent) => !(entry.isDirectory() && HIDDEN_ARTIFACT_DIRS.has(entry.name)))
 					.sort((a: Dirent, b: Dirent) => {
 						if (a.isDirectory() !== b.isDirectory()) return a.isDirectory() ? -1 : 1;
 						return a.name.localeCompare(b.name);
@@ -3390,6 +3532,10 @@ export class HttpServer {
 					const abs = join(absDir, entry.name);
 					const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
 					if (entry.isDirectory()) {
+						// The archive is built in memory on the assumption that artifact
+						// folders are small — which a connection's git repository is not.
+						// //IYH1HC sapgit init
+						if (HIDDEN_ARTIFACT_DIRS.has(entry.name)) continue;
 						addDir(abs, rel);
 					} else if (entry.isFile()) {
 						zip.file(rel, readFileSync(abs));

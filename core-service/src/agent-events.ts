@@ -33,6 +33,27 @@ export type AgentTrailEvent =
 	| { type: "tool"; seq: number; phase: "call"; toolCallId: string; toolName: string; args: Record<string, unknown>; ts: number }
 	| { type: "tool"; seq: number; phase: "start"; toolCallId: string; toolName: string; label?: string; args: Record<string, unknown>; ts: number }
 	| { type: "tool"; seq: number; phase: "update"; toolCallId: string; toolName: string; partialResult: string }
+	//IYH1HC tool approval add
+	/**
+	 * The tool is not pre-authorized for this workspace and the run is parked until
+	 * the user answers via POST /sessions/:id/tool-approvals/:toolCallId.
+	 *
+	 * It arrives *after* this tool call's `start` phase — pi-agent-core emits
+	 * `tool_execution_start` before it consults the gate — so a client downgrades
+	 * the block it already has rather than creating a new one. Always followed by
+	 * exactly one `approval-resolved`, which is what lets a replayed trail settle.
+	 */
+	| { type: "tool"; seq: number; phase: "approval"; toolCallId: string; toolName: string; label?: string; args: Record<string, unknown>; ts: number }
+	| {
+		type: "tool";
+		seq: number;
+		phase: "approval-resolved";
+		toolCallId: string;
+		toolName: string;
+		/** "once"/"session" ran the tool; the rest turned into an error tool result. */
+		decision: "once" | "session" | "denied" | "timeout" | "aborted";
+		ts: number;
+	}
 	| {
 		type: "tool";
 		seq: number;

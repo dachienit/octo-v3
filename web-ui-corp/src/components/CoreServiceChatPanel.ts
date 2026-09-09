@@ -39,7 +39,12 @@ const BINARY_PREVIEW_UNSUPPORTED_EXTENSIONS = new Set([
 
 // Agent tools that can create/modify/delete workspace files — their completion
 // triggers a "workspace-changed" event so hosts can refresh the artifacts tree.
-const WORKSPACE_MUTATING_TOOLS = new Set(["write", "edit", "bash", "attach", "task"]);
+//
+//IYH1HC sapgit init — `sapgit` and `adt` belong here for the same reason `write` does:
+// both write files into a connection folder (clone/pull hydrate whole packages) and
+// both move the Git state the tree is decorated with. Without them the sidebar only
+// caught up at the end-of-turn refresh, so a clone mid-turn looked like it did nothing.
+const WORKSPACE_MUTATING_TOOLS = new Set(["write", "edit", "bash", "attach", "task", "sapgit", "adt"]);
 
 // ============================================================================
 // File viewer sub-component
@@ -239,8 +244,11 @@ type StreamBlock =
 		resultTruncated?: boolean;
 		isError?: boolean;
 		durationMs?: number;
-		status: "calling" | "running" | "done" | "error" | "aborted";
+		status: "calling" | "running" | "done" | "error" | "aborted" | "awaiting-approval";
 		skill?: { name: string; path: string };
+		//IYH1HC tool approval add
+		/** Set while the run is parked on this call; `sent` disables the buttons after a click. */
+		approval?: { sent?: "once" | "session" | "denied" };
 	}
 	| { kind: "event"; id: string; variant: "compaction" | "retry"; text: string }
 	| { kind: "usage"; id: string; scope: "message" | "run"; usage: AgentUsage; model?: { provider: string; id: string }; contextTokens?: number; contextWindow?: number };
@@ -956,6 +964,20 @@ export class CoreServiceChatPanel extends LitElement {
 					block.args = event.args;
 				} else if (event.phase === "update") {
 					block.partialResult = event.partialResult;
+				//IYH1HC tool approval add
+				// The loop announced execution before it checked the gate, so this
+				// block is already showing "running" — walk it back rather than
+				// leaving a spinner on a call that has not started.
+				} else if (event.phase === "approval") {
+					block.status = "awaiting-approval";
+					block.label = event.label ?? block.label;
+					block.args = event.args;
+					block.approval = {};
+				} else if (event.phase === "approval-resolved") {
+					block.approval = undefined;
+					// Allowed calls go on to execute; the rest come back as an error
+					// result through the "end" phase, which sets the final status.
+					if (block.status === "awaiting-approval") block.status = "running";
 				} else {
 					block.status = event.isError ? "error" : "done";
 					block.label = event.label ?? block.label;
@@ -1548,12 +1570,88 @@ export class CoreServiceChatPanel extends LitElement {
 				return html`<span class="inline-flex text-destructive">${icon(X, "sm")}</span>`;
 			case "aborted":
 				return html`<span class="inline-flex text-muted-foreground">⊘</span>`;
+			//IYH1HC tool approval add
+			case "awaiting-approval":
+				return html`<span class="inline-flex text-amber-600">⏸</span>`;
 		}
 	}
 
+	//IYH1HC tool approval add
+	/**
+	 * Answer a parked tool call. The button state is set optimistically so a second
+	 * click cannot land; the authoritative reset comes from the `approval-resolved`
+	 * event, which arrives for every outcome including a timeout the user did not
+	 * cause. A 409 means the wait ended without us — leave the block alone and let
+	 * that event settle it.
+	 */
+	private async resolveToolApproval(
+		block: Extract<StreamBlock, { kind: "tool" }>,
+		decision: "once" | "session" | "denied",
+	) {
+		if (!block.approval || block.approval.sent) return;
+		block.approval = { sent: decision };
+		this.scheduleCommit();
+		try {
+			await this.client.resolveToolApproval(this.channelId, block.id, decision);
+		} catch (err) {
+			block.approval = {};
+			this.messages = [
+				...this.messages,
+				{ role: "error", text: `Could not answer the approval request: ${err instanceof Error ? err.message : String(err)}` },
+			];
+			this.scheduleCommit();
+		}
+	}
+
+	//IYH1HC tool approval add
+	/**
+	 * The approval card. Rendered open rather than inside the collapsed `<details>`
+	 * every other tool block uses: the run is stopped until this is answered, so the
+	 * arguments have to be readable without a click.
+	 */
+	private renderToolApproval(block: Extract<StreamBlock, { kind: "tool" }>) {
+		const sent = block.approval?.sent;
+		const argsJson = block.args && Object.keys(block.args).length > 0 ? JSON.stringify(block.args, null, 2) : "";
+		const button = (label: string, decision: "once" | "session" | "denied", accent: string) => html`
+			<button
+				type="button"
+				class="rounded px-2 py-1 text-xs font-medium ${accent} disabled:opacity-50 disabled:cursor-not-allowed"
+				?disabled=${sent !== undefined}
+				@click=${() => void this.resolveToolApproval(block, decision)}
+			>${label}</button>
+		`;
+
+		return html`
+			<div class="my-1 rounded border-l-2 border-amber-500 bg-amber-500/5 pl-3 pr-3 py-2 text-sm">
+				<div class="flex items-center gap-1.5">
+					${this.renderToolStatusIcon(block.status)}
+					<span class="font-medium">${block.toolName}</span>
+					${block.label ? html`<span class="truncate text-muted-foreground">: ${block.label}</span>` : ""}
+				</div>
+				<div class="mt-1 text-xs text-muted-foreground">
+					This tool is not auto-approved for this workspace. The agent is waiting for your answer.
+				</div>
+				${argsJson
+					? html`<pre class="mt-1.5 text-xs bg-muted/40 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">${argsJson}</pre>`
+					: ""}
+				<div class="mt-2 flex flex-wrap items-center gap-2">
+					${button("Allow once", "once", "bg-primary text-primary-foreground hover:opacity-90")}
+					${button("Allow for session", "session", "border border-border hover:bg-muted")}
+					${button("Deny", "denied", "border border-destructive text-destructive hover:bg-destructive/10")}
+					${sent ? html`<span class="text-xs italic text-muted-foreground">Sending…</span>` : ""}
+				</div>
+			</div>
+		`;
+	}
+
 	private renderToolBlock(block: Extract<StreamBlock, { kind: "tool" }>) {
+		//IYH1HC tool approval add
+		// `approval` is cleared by the resolved event, so a block replayed from
+		// history never renders live buttons — it shows whatever it settled as.
+		if (block.status === "awaiting-approval" && block.approval) return this.renderToolApproval(block);
+
 		const duration = block.durationMs !== undefined ? ` (${(block.durationMs / 1000).toFixed(1)}s)` : "";
-		const statusText = block.status === "calling" ? " — preparing" : block.status === "running" ? " — running" : block.status === "aborted" ? " — aborted" : "";
+		const statusText = block.status === "calling" ? " — preparing" : block.status === "running" ? " — running" : block.status === "aborted" ? " — aborted" : block.status === "awaiting-approval" ? " — waiting for approval" : "";
 		const argsJson = block.args && Object.keys(block.args).length > 0 ? JSON.stringify(block.args, null, 2) : "";
 		const bodyResult = block.result ?? block.partialResult ?? "";
 		const hasBody = argsJson || bodyResult;

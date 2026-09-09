@@ -12,6 +12,7 @@ import {
 	type CoreAgentEventHandlers,
 	type McpServerConfig,
 	type SandboxConfig,
+	type ToolApprovalDecision,
 } from "@octo/core-agent";
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
@@ -507,6 +508,26 @@ export function getToolsKey(enabledTools: string[] | undefined): string {
 	return JSON.stringify(enabledTools ?? null);
 }
 
+//IYH1HC tool approval add
+/**
+ * Answer a tool call parked on the approval gate. Returns false when nothing is
+ * waiting under that id — no live agent, or the wait already ended — which the
+ * HTTP route turns into a 409 rather than a silent success.
+ */
+export function resolveChannelToolApproval(
+	channelId: string,
+	toolCallId: string,
+	decision: ToolApprovalDecision,
+): boolean {
+	return channelAgents.get(channelId)?.agent.resolveToolApproval(toolCallId, decision) ?? false;
+}
+
+//IYH1HC tool approval add
+/** Release every parked approval on a channel — the client went away mid-turn. */
+export function cancelChannelToolApprovals(channelId: string): void {
+	channelAgents.get(channelId)?.agent.cancelPendingApprovals("denied");
+}
+
 /** Evict the cached CoreAgent for a channel and close its MCP tools (permanent session delete). */
 export function disposeChannelAgent(channelId: string): void {
 	const entry = channelAgents.get(channelId);
@@ -553,9 +574,16 @@ export async function getOrCreateRunner(
 	const extraTools = [
 		...mcpTools,
 	];
+	//IYH1HC tool approval add
+	// The capability tools are ours, so they belong under the workspace's Tools
+	// settings like the primitives — the core cannot know that on its own, since
+	// its catalog deliberately holds no SAP names. MCP tools stay out: they carry
+	// their own per-server allow/block lists.
+	const approvalScope: string[] = [];
 	if (hasSapAdt) {
 		extraTools.push(createAdtTool({ channelId, channelDir }));
 		extraTools.push(createSapGitTool({ channelId, channelDir }));
+		approvalScope.push("adt", "sapgit");
 	}
 
 	const agent = new CoreAgent(channelId, {
@@ -567,6 +595,7 @@ export async function getOrCreateRunner(
 		agentWorkersEnabled: options.agentWorkersEnabled,
 		extraTools,
 		enabledTools: options.enabledTools,
+		approvalScope,
 	});
 	channelAgents.set(channelId, { agent, authFilePath: options.authFilePath, agentWorkersEnabled: options.agentWorkersEnabled, remindersEnabled: options.remindersEnabled, mcpKey, toolsKey, mcpTools });
 	return withTurnTracking(createRunner(agent, sandboxConfig, channelId, channelDir, options.remindersEnabled !== false), channelId);
@@ -784,6 +813,36 @@ function createRunner(
 				onToolCall(toolCallId, toolName, args) {
 					emit?.({ type: "tool", seq: 0, phase: "call", toolCallId, toolName, args, ts: Date.now() });
 				},
+
+				//IYH1HC tool approval add
+				// Slack has no way to answer an approval card, so on that transport the
+				// request is only announced; the wait then ends on its timeout. Only the
+				// web UI can resolve one.
+				onToolApprovalRequest(request) {
+					log.logInfo(`[${channelId}] ${request.toolName} is waiting for user approval`);
+					if (emit) {
+						emit({
+							type: "tool",
+							seq: 0,
+							phase: "approval",
+							toolCallId: request.toolCallId,
+							toolName: request.toolName,
+							label: request.label,
+							args: request.args,
+							ts: Date.now(),
+						});
+						return;
+					}
+					enqueue(
+						() => ctx.respond(`_${request.toolName} needs approval and cannot be granted here._`, false),
+						"tool approval request",
+					);
+				},
+
+				onToolApprovalResolved(toolCallId, toolName, verdict) {
+					log.logInfo(`[${channelId}] ${toolName} approval resolved: ${verdict}`);
+					emit?.({ type: "tool", seq: 0, phase: "approval-resolved", toolCallId, toolName, decision: verdict, ts: Date.now() });
+				},
 				onUsage(usage, _stopReason, model) {
 					if (model?.id) lastModel = model;
 					emit?.({ type: "usage", seq: 0, scope: "message", usage, model });
@@ -834,7 +893,10 @@ function createRunner(
 				filteredSkills,
 				combinedInstructions,
 				remindersEnabled,
-				renderToolsPrompt(coreAgent.listTools()),
+				//IYH1HC tool approval add
+				// Resolved per run, not per agent: "Allow for session" shrinks the set
+				// mid-session and the prompt has to follow.
+				renderToolsPrompt(coreAgent.listTools(), { needsApproval: coreAgent.toolsNeedingApproval() }),
 			);
 
 			log.logInfo(`Context sizes - system: ${systemPrompt.length} chars, memory: ${memory.length} chars`);
