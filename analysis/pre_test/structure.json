@@ -1,0 +1,1523 @@
+{
+  "schemaVersion": 1,
+  "package": "ZABAP_GENERATOR",
+  "classCount": 13,
+  "interfaceCount": 0,
+  "programCount": 1,
+  "functionGroupCount": 1,
+  "classes": [
+    {
+      "name": "ZCL_ABAP_GENERATOR",
+      "superClass": null,
+      "interfaces": [],
+      "isFinal": true,
+      "isAbstract": false,
+      "isForTesting": false,
+      "createVisibility": "Public",
+      "methodCount": 25,
+      "methods": [
+        {
+          "name": "get_settings",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "set_initial_settings",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "clear_technical_data",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_name",
+              "kind": "importing",
+              "type": "ABAP_COMPNAME",
+              "optional": false
+            },
+            {
+              "name": "ir_field",
+              "kind": "importing",
+              "type": "REF TO data",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "init_technical_data",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "constructor",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "set_main_attributes",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_name",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "iv_namespace",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "iv_local",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "iv_pdevclass",
+              "kind": "importing",
+              "type": "DEVLAYER",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_main_att"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "run_initialization",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_packagedesc",
+              "kind": "importing",
+              "type": "AS4TEXT",
+              "optional": false
+            },
+            {
+              "name": "iv_dlvunit",
+              "kind": "importing",
+              "type": "DLVUNIT",
+              "optional": false
+            },
+            {
+              "name": "iv_parentcl",
+              "kind": "importing",
+              "type": "PACKPARENT",
+              "optional": true
+            },
+            {
+              "name": "iv_template",
+              "kind": "importing",
+              "type": "DEVCLASS",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_package",
+            "zcx_abap_gen_report_create",
+            "zcx_abap_gen_class_read",
+            "zcx_abap_gen_class_create"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "update_selection",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_modelsufix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "iv_dict_rangetab",
+              "kind": "importing",
+              "type": "c LENGTH 1",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_report_read",
+            "zcx_abap_gen_class_update",
+            "zcx_abap_gen_report_update",
+            "zcx_abap_gen_class_read"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "replace_template_string",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "ir_string",
+              "kind": "importing",
+              "type": "REF TO data",
+              "optional": false
+            },
+            {
+              "name": "iv_lower",
+              "kind": "importing",
+              "type": "c LENGTH 1",
+              "optional": true,
+              "default": "abap_false"
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "replace_template_structure",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "ir_structure",
+              "kind": "importing",
+              "type": "REF TO data",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "replace_template_table",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "ir_table",
+              "kind": "importing",
+              "type": "REF TO data",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_template_packagename",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_packagename",
+              "kind": "returning",
+              "type": "DEVCLASS",
+              "optional": false
+            },
+            {
+              "name": "iv_template",
+              "kind": "importing",
+              "type": "DEVCLASS",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_package_rangetypes",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_package",
+              "kind": "returning",
+              "type": "DEVCLASS",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_selection_methodname",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_methodname",
+              "kind": "returning",
+              "type": "SEOCMPNAME",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_report_sel_start",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_result",
+              "kind": "returning",
+              "type": "string",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_report_sel_end",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_result",
+              "kind": "returning",
+              "type": "string",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_report_set_start",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_result",
+              "kind": "returning",
+              "type": "string",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_report_set_end",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_result",
+              "kind": "returning",
+              "type": "string",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_default_namespace",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_result",
+              "kind": "returning",
+              "type": "string",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_default_dlvunit",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_result",
+              "kind": "returning",
+              "type": "string",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_default_model_suffix",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_result",
+              "kind": "returning",
+              "type": "string",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_default_dict_rt_type",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_result",
+              "kind": "returning",
+              "type": "c LENGTH 1",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_default_pdevclass",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_result",
+              "kind": "returning",
+              "type": "DEVLAYER",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_default_prefix",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rs_prefix",
+              "kind": "returning",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "show_results",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [],
+          "raising": [],
+          "exceptions": []
+        }
+      ],
+      "attributes": [
+        {
+          "name": "mo_classes_generator",
+          "visibility": "Private",
+          "type": "REF TO zcl_abap_generator_class"
+        },
+        {
+          "name": "mo_report_generator",
+          "visibility": "Private",
+          "type": "REF TO zcl_abap_generator_report"
+        },
+        {
+          "name": "mo_package_generator",
+          "visibility": "Private",
+          "type": "REF TO zcl_abap_generator_package"
+        },
+        {
+          "name": "mv_name",
+          "visibility": "Private",
+          "type": null
+        },
+        {
+          "name": "mv_template",
+          "visibility": "Private",
+          "type": "DEVCLASS"
+        },
+        {
+          "name": "mt_settings",
+          "visibility": "Private",
+          "type": null
+        },
+        {
+          "name": "mt_technical_data",
+          "visibility": "Private",
+          "type": "STANDARD TABLE OF ABAP_COMPNAME WITH DEFAULT KEY"
+        }
+      ],
+      "staticAttributes": [],
+      "constants": [
+        {
+          "name": "c_codetype_selops",
+          "visibility": "Public",
+          "type": "string",
+          "value": "'SELECT-OPTIONS'"
+        },
+        {
+          "name": "c_codetype_parameters",
+          "visibility": "Public",
+          "type": "string",
+          "value": "'PARAMETERS'"
+        }
+      ],
+      "events": [],
+      "types": []
+    },
+    {
+      "name": "ZCL_ABAP_GENERATOR_CLASS",
+      "superClass": null,
+      "interfaces": [],
+      "isFinal": true,
+      "isAbstract": false,
+      "isForTesting": false,
+      "createVisibility": "Public",
+      "methodCount": 16,
+      "methods": [
+        {
+          "name": "read_classes",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rt_clskeys",
+              "kind": "returning",
+              "type": "SEO_CLSKEYS",
+              "optional": false
+            },
+            {
+              "name": "iv_package",
+              "kind": "importing",
+              "type": "DEVCLASS",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_class_source_old",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rt_source",
+              "kind": "returning",
+              "type": "STRING_TABLE",
+              "optional": false
+            },
+            {
+              "name": "is_clskey",
+              "kind": "importing",
+              "type": "SEOCLSKEY",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "get_class_source_new",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rt_source",
+              "kind": "returning",
+              "type": "STRING_TABLE",
+              "optional": false
+            },
+            {
+              "name": "is_clskey",
+              "kind": "importing",
+              "type": "SEOCLSKEY",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "cx_sy_dyn_call_error"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "create_class_rangetypes",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_class",
+              "kind": "importing",
+              "type": "SEOCLSKEY",
+              "optional": false
+            },
+            {
+              "name": "it_selection",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_update"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "create_dict_rangetypes",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "it_selection",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_update"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "read_existing_rangetypes",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rt_ttyname",
+              "kind": "returning",
+              "type": "STRING_TABLE",
+              "optional": false
+            },
+            {
+              "name": "iv_packagename",
+              "kind": "importing",
+              "type": "DEVCLASS",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "create_seldata_setmethod",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_class",
+              "kind": "importing",
+              "type": "SEOCLSNAME",
+              "optional": false
+            },
+            {
+              "name": "it_selection",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_update"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "create_parameters",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_class",
+              "kind": "importing",
+              "type": "SEOCLSNAME",
+              "optional": false
+            },
+            {
+              "name": "iv_method",
+              "kind": "importing",
+              "type": "SEOCMPNAME",
+              "optional": false
+            },
+            {
+              "name": "it_selection",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_update"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "create_attributes",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_class",
+              "kind": "importing",
+              "type": "SEOCLSNAME",
+              "optional": false
+            },
+            {
+              "name": "it_selection",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_update"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "generate_class",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_class",
+              "kind": "importing",
+              "type": "SEOCLSKEY",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_update"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "read_upd_class",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_classname",
+              "kind": "importing",
+              "type": "SEOCLSNAME",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_read"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "delete_attributes",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_update"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "delete_parameters",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_method",
+              "kind": "importing",
+              "type": "VSEOMETHOD",
+              "optional": false
+            },
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_update"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "constructor",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "io_main_generator",
+              "kind": "importing",
+              "type": "REF TO zcl_abap_generator",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "create_classes",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_package",
+              "kind": "importing",
+              "type": "DEVCLASS",
+              "optional": false
+            },
+            {
+              "name": "iv_template",
+              "kind": "importing",
+              "type": "DEVCLASS",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_read",
+            "zcx_abap_gen_class_create"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "update_selection",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_model_classname",
+              "kind": "returning",
+              "type": "SEOCLSNAME",
+              "optional": false
+            },
+            {
+              "name": "iv_packagename",
+              "kind": "importing",
+              "type": "PACKNAME",
+              "optional": false
+            },
+            {
+              "name": "iv_modelsufix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "it_selection",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "iv_dict_rangetab",
+              "kind": "importing",
+              "type": "c LENGTH 1",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_class_update",
+            "zcx_abap_gen_class_read"
+          ],
+          "exceptions": []
+        }
+      ],
+      "attributes": [
+        {
+          "name": "mo_generator",
+          "visibility": "Private",
+          "type": "REF TO zcl_abap_generator"
+        },
+        {
+          "name": "mt_upd_attributes",
+          "visibility": "Private",
+          "type": "SEOO_ATTRIBUTES_R"
+        },
+        {
+          "name": "mt_upd_parameters",
+          "visibility": "Private",
+          "type": "SEOS_PARAMETERS_R"
+        },
+        {
+          "name": "mt_upd_types",
+          "visibility": "Private",
+          "type": "SEOO_TYPES_R"
+        }
+      ],
+      "staticAttributes": [],
+      "constants": [],
+      "events": [],
+      "types": []
+    },
+    {
+      "name": "ZCL_ABAP_GENERATOR_PACKAGE",
+      "superClass": null,
+      "interfaces": [],
+      "isFinal": true,
+      "isAbstract": false,
+      "isForTesting": false,
+      "createVisibility": "Public",
+      "methodCount": 4,
+      "methods": [
+        {
+          "name": "build_new_packagename",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_packagename",
+              "kind": "returning",
+              "type": "PACKNAME",
+              "optional": false
+            },
+            {
+              "name": "iv_namespace",
+              "kind": "importing",
+              "type": "/RB4C/CA_AGEN_NAMESPACE",
+              "optional": false
+            },
+            {
+              "name": "iv_name",
+              "kind": "importing",
+              "type": "/RB4C/CA_AGEN_NAME",
+              "optional": false
+            },
+            {
+              "name": "iv_local",
+              "kind": "importing",
+              "type": "/RB4C/CA_AGEN_LOCAL",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "constructor",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_name",
+              "kind": "importing",
+              "type": "/RB4C/CA_AGEN_NAME",
+              "optional": false
+            },
+            {
+              "name": "iv_namespace",
+              "kind": "importing",
+              "type": "/RB4C/CA_AGEN_NAMESPACE",
+              "optional": false
+            },
+            {
+              "name": "iv_local",
+              "kind": "importing",
+              "type": "/RB4C/CA_AGEN_LOCAL",
+              "optional": false
+            },
+            {
+              "name": "iv_pdevclass",
+              "kind": "importing",
+              "type": "DEVLAYER",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "create_package",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_packagedesc",
+              "kind": "importing",
+              "type": "AS4TEXT",
+              "optional": false
+            },
+            {
+              "name": "iv_dlvunit",
+              "kind": "importing",
+              "type": "DLVUNIT",
+              "optional": false
+            },
+            {
+              "name": "iv_parentcl",
+              "kind": "importing",
+              "type": "PACKPARENT",
+              "optional": true
+            }
+          ],
+          "raising": [
+            "/rb4c/cx_ca_abap_gen_package"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "get_new_packagename",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "r_result",
+              "kind": "returning",
+              "type": "PACKNAME",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        }
+      ],
+      "attributes": [
+        {
+          "name": "mv_new_packagename",
+          "visibility": "Private",
+          "type": "PACKNAME"
+        },
+        {
+          "name": "mv_pdevclass",
+          "visibility": "Private",
+          "type": "DEVLAYER"
+        }
+      ],
+      "staticAttributes": [],
+      "constants": [],
+      "events": [],
+      "types": []
+    },
+    {
+      "name": "ZCL_ABAP_GENERATOR_REPORT",
+      "superClass": null,
+      "interfaces": [],
+      "isFinal": true,
+      "isAbstract": false,
+      "isForTesting": false,
+      "createVisibility": "Public",
+      "methodCount": 8,
+      "methods": [
+        {
+          "name": "build_new_reportname",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rv_reportname",
+              "kind": "returning",
+              "type": "PROGRAMM",
+              "optional": false
+            },
+            {
+              "name": "iv_namespace",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "iv_name",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "read_selop_data",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rt_range_types",
+              "kind": "returning",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "it_report",
+              "kind": "importing",
+              "type": "STRING_TABLE",
+              "optional": false
+            },
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "read_template_report",
+          "visibility": "Private",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rt_template_source",
+              "kind": "returning",
+              "type": "STRING_TABLE",
+              "optional": false
+            },
+            {
+              "name": "iv_template",
+              "kind": "importing",
+              "type": "DEVCLASS",
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "constructor",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "io_main_generator",
+              "kind": "importing",
+              "type": "REF TO zcl_abap_generator",
+              "optional": false
+            },
+            {
+              "name": "iv_name",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "iv_namespace",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "create_report",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "iv_package",
+              "kind": "importing",
+              "type": "DEVCLASS",
+              "optional": false
+            },
+            {
+              "name": "iv_template",
+              "kind": "importing",
+              "type": "DEVCLASS",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_report_create"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "read_selection",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "rt_selection",
+              "kind": "returning",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_report_read"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "update_report",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [
+            {
+              "name": "is_prefix",
+              "kind": "importing",
+              "type": null,
+              "optional": false
+            },
+            {
+              "name": "iv_class",
+              "kind": "importing",
+              "type": "SEOCLSKEY",
+              "optional": false
+            }
+          ],
+          "raising": [
+            "zcx_abap_gen_report_update",
+            "zcx_abap_gen_report_read"
+          ],
+          "exceptions": []
+        },
+        {
+          "name": "show_report",
+          "visibility": "Public",
+          "isStatic": false,
+          "isAbstract": false,
+          "isRedefinition": false,
+          "isEventHandler": false,
+          "parameters": [],
+          "raising": [],
+          "exceptions": []
+        }
+      ],
+      "attributes": [
+        {
+          "name": "mo_generator",
+          "visibility": "Private",
+          "type": "REF TO zcl_abap_generator"
+        },
+        {
+          "name": "mt_report_code",
+          "visibility": "Private",
+          "type": "STRING_TABLE"
+        },
+        {
+          "name": "mt_selection",
+          "visibility": "Private",
+          "type": null
+        },
+        {
+          "name": "mv_new_reportname",
+          "visibility": "Private",
+          "type": "PROGRAMM"
+        }
+      ],
+      "staticAttributes": [],
+      "constants": [],
+      "events": [],
+      "types": []
+    },
+    {
+      "name": "ZCX_ABAP_GEN",
+      "error": "no class definition parsed"
+    },
+    {
+      "name": "ZCX_ABAP_GEN_CLASS_CREATE",
+      "error": "no class definition parsed"
+    },
+    {
+      "name": "ZCX_ABAP_GEN_CLASS_READ",
+      "error": "no class definition parsed"
+    },
+    {
+      "name": "ZCX_ABAP_GEN_CLASS_UPDATE",
+      "error": "no class definition parsed"
+    },
+    {
+      "name": "ZCX_ABAP_GEN_MAIN_ATT",
+      "error": "no class definition parsed"
+    },
+    {
+      "name": "ZCX_ABAP_GEN_PACKAGE",
+      "error": "no class definition parsed"
+    },
+    {
+      "name": "ZCX_ABAP_GEN_REPORT_CREATE",
+      "error": "no class definition parsed"
+    },
+    {
+      "name": "ZCX_ABAP_GEN_REPORT_READ",
+      "error": "no class definition parsed"
+    },
+    {
+      "name": "ZCX_ABAP_GEN_REPORT_UPDATE",
+      "error": "no class definition parsed"
+    }
+  ],
+  "interfaces": [],
+  "programs": [
+    {
+      "name": "ZABAP_GENERATOR"
+    }
+  ],
+  "functionGroups": [
+    {
+      "name": "ZFG_ABAP_GEN",
+      "description": null,
+      "functionModules": [
+        {
+          "name": "ZFM_MFBF",
+          "description": "Confirm batch material",
+          "parameters": [],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "ZFM_RFC_BTP_TEST",
+          "description": "Test RFC connect to SVX (BTP)",
+          "parameters": [],
+          "raising": [],
+          "exceptions": []
+        },
+        {
+          "name": "ZQM_FM_RFC_MATERIAL",
+          "description": "RFC FM to connect to SVX (BTP)",
+          "parameters": [],
+          "raising": [],
+          "exceptions": []
+        }
+      ],
+      "includes": [
+        {
+          "name": "ZURUECKHOLEN",
+          "description": null
+        },
+        {
+          "name": "ZWEISTUFIG",
+          "description": null
+        },
+        {
+          "name": "ZZT_ABAP_GEN",
+          "description": "ABAP Generator Settings"
+        },
+        {
+          "name": "ZURUECKHOLEN",
+          "description": null
+        }
+      ]
+    }
+  ]
+}

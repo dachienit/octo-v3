@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZABAP_GENERATOR — Technical Design Document</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --color-bg:          #ffffff;
+      --color-surface:     #f8fafc;
+      --color-surface-2:   #f1f5f9;
+      --color-border:      #e2e8f0;
+      --color-border-soft: #f1f5f9;
+      --color-text:        #0f172a;
+      --color-text-soft:   #475569;
+      --color-text-muted:  #94a3b8;
+      --color-accent:      #2563eb;
+      --color-accent-soft: #dbeafe;
+      --color-success:     #15803d;
+      --color-warning:     #b45309;
+      --color-danger:      #b91c1c;
+      --color-code-bg:     #f8fafc;
+      --color-code-text:   #0f172a;
+      --radius-sm:         4px;
+      --radius-md:         8px;
+      --radius-lg:         12px;
+      --shadow-sm:         0 1px 2px rgba(15, 23, 42, 0.04);
+      --shadow-md:         0 4px 12px rgba(15, 23, 42, 0.06);
+      --font-sans:         "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono:         "JetBrains Mono", "Cascadia Code", "SF Mono", Consolas, monospace;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-sans);
+      font-size: 16px;
+      line-height: 1.7;
+      color: var(--color-text);
+      background: var(--color-bg);
+      margin: 0;
+      padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+
+    .doc-header {
+      background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+      color: #f8fafc;
+      padding: 2.5rem 2rem 2rem;
+      margin-bottom: 2.5rem;
+      border-bottom: 4px solid var(--color-accent);
+    }
+
+    .doc-header-inner {
+      max-width: 980px;
+      margin: 0 auto;
+    }
+
+    .doc-eyebrow {
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #93c5fd;
+      margin: 0 0 0.5rem;
+    }
+
+    .doc-title {
+      font-size: 2.25rem;
+      font-weight: 700;
+      margin: 0 0 0.75rem;
+      letter-spacing: -0.02em;
+      line-height: 1.2;
+      color: #f8fafc;
+      border: none;
+      padding: 0;
+    }
+
+    .doc-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 1.25rem;
+      font-size: 0.85rem;
+      color: #cbd5e1;
+      margin-top: 0.5rem;
+    }
+
+    .doc-meta span { display: inline-flex; align-items: center; gap: 0.4rem; }
+
+    .doc-content {
+      max-width: 980px;
+      margin: 0 auto;
+      padding: 0 2rem 4rem;
+    }
+
+    /* Hide the first H1 from markdown — the header above replaces it */
+    .doc-content > h1:first-child { display: none; }
+
+    h1, h2, h3, h4 {
+      font-weight: 700;
+      color: var(--color-text);
+      line-height: 1.3;
+      scroll-margin-top: 1rem;
+    }
+
+    h2 {
+      font-size: 1.6rem;
+      margin: 3rem 0 1.25rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 2px solid var(--color-border);
+      letter-spacing: -0.01em;
+    }
+
+    h3 {
+      font-size: 1.2rem;
+      margin: 2rem 0 0.75rem;
+      color: var(--color-text);
+      letter-spacing: -0.005em;
+    }
+
+    h3::before {
+      content: "";
+      display: inline-block;
+      width: 4px;
+      height: 1em;
+      background: var(--color-accent);
+      border-radius: 2px;
+      margin-right: 0.6rem;
+      vertical-align: -0.1em;
+    }
+
+    h4 {
+      font-size: 1rem;
+      margin: 1.5rem 0 0.5rem;
+      color: var(--color-text-soft);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    p { margin: 0.75rem 0 1rem; }
+
+    p, li { color: var(--color-text); }
+
+    strong { font-weight: 600; color: var(--color-text); }
+    em { font-style: italic; color: var(--color-text-soft); }
+
+    a {
+      color: var(--color-accent);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 0.15s ease;
+    }
+    a:hover { border-bottom-color: var(--color-accent); }
+
+    ul, ol { padding-left: 1.5rem; margin: 0.75rem 0 1.25rem; }
+    li { margin: 0.3rem 0; }
+    li > ul, li > ol { margin: 0.3rem 0; }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 0.875em;
+      background: var(--color-surface);
+      color: var(--color-text);
+      padding: 0.15em 0.45em;
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--color-border-soft);
+    }
+
+    pre {
+      background: var(--color-code-bg);
+      color: var(--color-code-text);
+      padding: 1.25rem;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--color-border);
+      overflow-x: auto;
+      font-size: 0.875rem;
+      line-height: 1.6;
+      margin: 1.25rem 0;
+      box-shadow: var(--shadow-sm);
+    }
+    pre code {
+      background: none;
+      padding: 0;
+      border: none;
+      font-size: inherit;
+      color: inherit;
+    }
+
+    pre.mermaid {
+      background: #ffffff;
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      padding: 2rem 1rem;
+      text-align: center;
+      box-shadow: var(--shadow-md);
+      overflow-x: auto;
+    }
+
+    table {
+      border-collapse: separate;
+      border-spacing: 0;
+      width: 100%;
+      margin: 1.25rem 0;
+      font-size: 0.92rem;
+      background: var(--color-bg);
+      border: 1px solid var(--color-border);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+      box-shadow: var(--shadow-sm);
+    }
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      vertical-align: top;
+      border-bottom: 1px solid var(--color-border-soft);
+    }
+    th {
+      background: var(--color-surface);
+      font-weight: 600;
+      color: var(--color-text-soft);
+      text-transform: uppercase;
+      font-size: 0.78rem;
+      letter-spacing: 0.05em;
+      border-bottom: 2px solid var(--color-border);
+    }
+    tbody tr:nth-child(even) { background: var(--color-surface); }
+    tbody tr:hover { background: var(--color-accent-soft); }
+    tbody tr:last-child td { border-bottom: none; }
+    td code { white-space: nowrap; }
+
+    blockquote {
+      margin: 1.25rem 0;
+      padding: 0.75rem 1.25rem;
+      border-left: 4px solid var(--color-accent);
+      background: var(--color-accent-soft);
+      color: var(--color-text);
+      border-radius: 0 var(--radius-md) var(--radius-md) 0;
+    }
+    blockquote p { margin: 0.25rem 0; }
+
+    hr {
+      border: none;
+      height: 1px;
+      background: var(--color-border);
+      margin: 2.5rem 0;
+    }
+
+    /* Callouts for "Not derivable" / "Not applicable" patterns — soften them */
+    p:has(em:only-child) {
+      color: var(--color-text-muted);
+      font-style: italic;
+      background: var(--color-surface);
+      padding: 0.75rem 1rem;
+      border-radius: var(--radius-sm);
+      border-left: 3px solid var(--color-text-muted);
+    }
+
+    @media (max-width: 720px) {
+      .doc-header { padding: 1.75rem 1rem 1.25rem; }
+      .doc-title { font-size: 1.6rem; }
+      .doc-content { padding: 0 1rem 3rem; }
+      h2 { font-size: 1.35rem; margin-top: 2rem; }
+      h3 { font-size: 1.05rem; }
+      table { font-size: 0.85rem; }
+      th, td { padding: 0.5rem 0.65rem; }
+    }
+
+    @media print {
+      .doc-header { background: none; color: #000; border-bottom: 2px solid #000; }
+      .doc-title { color: #000; }
+      .doc-eyebrow, .doc-meta { color: #555; }
+      pre, table { box-shadow: none; page-break-inside: avoid; }
+      h2, h3 { page-break-after: avoid; }
+      a { color: #000; border-bottom: none; }
+    }
+  </style>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({
+      startOnLoad: true,
+      theme: 'default',
+      securityLevel: 'loose',
+      flowchart: { curve: 'basis', padding: 16, useMaxWidth: true },
+      sequence:  { actorMargin: 50, mirrorActors: false, useMaxWidth: true },
+      themeVariables: {
+        fontFamily: 'Inter, -apple-system, sans-serif',
+        primaryColor: '#dbeafe',
+        primaryBorderColor: '#2563eb',
+        primaryTextColor: '#0f172a',
+        lineColor: '#64748b'
+      }
+    });
+  </script>
+</head>
+<body>
+  <header class="doc-header">
+    <div class="doc-header-inner">
+      <p class="doc-eyebrow">SAP ABAP Package · Technical Design Document</p>
+      <h1 class="doc-title">ZABAP_GENERATOR</h1>
+      <div class="doc-meta">
+        <span>Generated: 2026-06-01 08:44:15 UTC</span>
+        <span>Tokens: 27,963 in · 13,081 out</span>
+      </div>
+    </div>
+  </header>
+  <main class="doc-content">
+<h1>ZABAP_GENERATOR — Technical Design Document</h1>
+<h2>1. Motivation and Key Figures</h2>
+<h3>1.1. Short description and summary of functions</h3>
+<p>ZABAP_GENERATOR provides a cohesive framework to create and manage ABAP generator artifacts such as generator classes, reports, and packaging logic. It coordinates a central orchestration program with dedicated generator classes and supporting structures to produce consistent generator components from templates. The architecture is extended by a sub-package setup intended for generator ranges and templates, enabling standardized customization and reuse.</p>
+<h3>1.2. Business problems solved, benefits</h3>
+<p>The package automates the creation and configuration of ABAP generator artifacts, reducing manual coding effort and ensuring naming consistency across generated elements. By structuring generation tasks across dedicated classes (orchestrator, class handling, and packaging) and by exposing template-driven workflows, it accelerates delivery of generator components, improves maintainability, and supports scalable expansion via its sub-packages for ranges and templates.</p>
+<h2>2. Functional Description</h2>
+<ul>
+<li>Entry point: a central generator program initiates the generation process and wires together the orchestration components.</li>
+<li>Orchestrator: ZCL_ABAP_GENERATOR coordinates the overall flow, initializes technical data, sets main attributes, and triggers generator sub-tasks.</li>
+<li>Packaging: ZCL_ABAP_GENERATOR_PACKAGE builds new packagenames, creates packages, and returns packagename results to the orchestrator.</li>
+<li>Class generation: ZCL_ABAP_GENERATOR_CLASS reads existing generator classes, creates new class rangetypes, parameters, attributes, and generates class structures and related artifacts.</li>
+<li>Report generation: ZCL_ABAP_GENERATOR_REPORT handles creation and updates of generator reports, including reading and applying selection data and templates.</li>
+<li>Data bindings: Interaction with the underlying DDIC structures (tables, structures, data elements and domains) to persist generator configuration, type information, and mappings.</li>
+<li>Runtime utilities: A function group (ZFG_ABAP_GEN) provides supporting functionality (e.g., helper routines and include wiring) that the generator workflow relies on during execution.</li>
+</ul>
+<p>The functional flow centers on instantiation of the generator program, creation and packaging of new generator components, and generation of ABAP generator artifacts (classes, packages, reports) that are persisted into the dictionary and tied to the deployed templates.</p>
+<h2>3. Technical Description (High-Level Architecture)</h2>
+<h3>3.1. Frontend components</h3>
+<p>No frontend components were identified.</p>
+<h3>3.2. Package structure and dependencies</h3>
+<pre class="mermaid">
+flowchart TD
+  subgraph sg_PROG
+    ZABAP_GENERATOR
+  end
+  subgraph sg_CLAS
+    ZCL_ABAP_GENERATOR
+  end
+  subgraph sg_CLAS2
+    ZCL_ABAP_GENERATOR_PACKAGE
+    ZCL_ABAP_GENERATOR_CLASS
+    ZCL_ABAP_GENERATOR_REPORT
+  end
+  subgraph sg_FUGR
+    ZFG_ABAP_GEN
+  end
+  subgraph sg_TABL
+    ZZT_ABAP_GEN
+  end
+  subgraph sg_INC
+    LSVIMTDT
+  end
+
+  ZABAP_GENERATOR --> ZCL_ABAP_GENERATOR
+  ZFG_ABAP_GEN --> LSVIMTDT
+  ZABAP_GENERATOR --> ZCL_ABAP_GENERATOR_PACKAGE
+  ZABAP_GENERATOR --> ZCL_ABAP_GENERATOR_CLASS
+  ZABAP_GENERATOR --> ZCL_ABAP_GENERATOR_REPORT
+  ZCL_ABAP_GENERATOR --> ZZT_ABAP_GEN
+</pre>
+<p>The dependency profile indicates a dense interaction between the entry program and the central orchestrator, with packaging and class/report generators forming the core flow. The count of edge kinds is dominated by function calls, followed by reads of tables, and a smaller portion representing packaging or include references.</p>
+<ul>
+<li>Edge counts by kind:<ul>
+<li>callFunction: 21</li>
+<li>readsTable: 3</li>
+<li>includes: 1</li>
+<li>instantiates: 1</li>
+</ul>
+</li>
+</ul>
+<h3>3.3. APIs and other external interfaces</h3>
+<ul>
+<li>Interfaces and internal APIs (target types)<ul>
+<li>CLAS (ABAP Classes)<ul>
+<li>ZCL_ABAP_GENERATOR (orchestrator)</li>
+<li>ZCL_ABAP_GENERATOR_CLASS (class generator)</li>
+<li>ZCL_ABAP_GENERATOR_PACKAGE (packaging logic)</li>
+<li>ZCL_ABAP_GENERATOR_REPORT (report generator)</li>
+<li>ZCX_ABAP_GEN and related ZCX_ enhancement classes (extension points)</li>
+</ul>
+</li>
+<li>TABL (Tables)<ul>
+<li>ZZT_ABAP_GEN (ABAP Generator Settings) – external table</li>
+<li>REPOSRC, DD03L (external DDIC tables referenced by the package)</li>
+</ul>
+</li>
+<li>INCL (Includes)<ul>
+<li>LSVIMTDT (external include used by the generator runtime)</li>
+</ul>
+</li>
+<li>TRAN/TOBJ/SUSH/MSAG (other SAP objects present in the bundle’s landscape)<ul>
+<li>Function group usage is embedded in the runtime (e.g., ZFG_ABAP_GEN) and in the broader ABAP ecosystem (external function modules)</li>
+</ul>
+</li>
+<li>PROG<ul>
+<li>ZABAP_GENERATOR (entry program)</li>
+</ul>
+</li>
+</ul>
+</li>
+<li>Exposed API surface<ul>
+<li>The package exposes class-based APIs for generation orchestration (ZCL_ABAP_GENERATOR and its helpers), packaging APIs (ZCL_ABAP_GENERATOR_PACKAGE), and report generation APIs (ZCL_ABAP_GENERATOR_REPORT). Enhancements (ZCX_ABAP_GEN_*) provide extension points for custom behavior. External function modules and DDIC interfaces (DD03L, REPOSRC, DDIF tab handling) are consumed as part of the generation and persistence workflow.</li>
+</ul>
+</li>
+</ul>
+<p>Note: HTTP extension points or other modern external interfaces are not identified within this package; integration is done via ABAP objects and DDIC interfaces.</p>
+<h3>3.4. Most important classes</h3>
+<ul>
+<li>ZCL_ABAP_GENERATOR<ul>
+<li>Role: orchestrator for the overall generation workflow. Manages settings, technical data, and the main run sequence.</li>
+<li>Key methods: set_main_attributes, run_initialization, update_selection, replace_template_string, replace_template_structure, replace_template_table, get_template_packagename, get_package_rangetypes, get_selection_methodname, show_results.</li>
+</ul>
+</li>
+<li>ZCL_ABAP_GENERATOR_PACKAGE<ul>
+<li>Role: packaging layer that creates new packagenames and DEVCLASS packaging objects.</li>
+<li>Key methods: build_new_packagename, create_package, get_new_packagename.</li>
+</ul>
+</li>
+<li>ZCL_ABAP_GENERATOR_CLASS<ul>
+<li>Role: handles reading, creating, and updating generator classes; manages class-related rangetypes, attributes, and parameters.</li>
+<li>Key methods: read_classes, create_classes, update_selection, read_existing_rangetypes, create_seldata_setmethod, create_parameters, create_attributes, generate_class, read_upd_class, delete_attributes, delete_parameters.</li>
+</ul>
+</li>
+<li>ZCL_ABAP_GENERATOR_REPORT<ul>
+<li>Role: manages generator reports (read, create, update, and show logic) including template handling and selection logic.</li>
+<li>Key methods: build_new_reportname, create_report, update_report, read_selection, read_template_report, show_report.</li>
+</ul>
+</li>
+<li>ZCX_ABAP_GEN*, ZCX_ABAP_GEN_CLASS_*, ZCX_ABAP_GEN_PACKAGE*, ZCX_ABAP_GEN_REPORT_*<ul>
+<li>Role: Enhancement points for runtime validation, extension of generation steps, and error signaling.</li>
+</ul>
+</li>
+<li>Mermaid sequence diagram (primary flows)</li>
+</ul>
+<pre class="mermaid">
+sequenceDiagram
+  participant P as ZABAP_GENERATOR
+  participant G as ZCL_ABAP_GENERATOR
+  participant PKG as ZCL_ABAP_GENERATOR_PACKAGE
+  participant CLS as ZCL_ABAP_GENERATOR_CLASS
+  participant RPT as ZCL_ABAP_GENERATOR_REPORT
+  participant TBL as ZZT_ABAP_GEN
+  P->>G: constructor(iv_name, iv_namespace, iv_local, iv_pdevclass)
+  G->>PKG: build_new_packagename
+  PKG->>G: packagename
+  G->>CLS: create_classes(iv_package, iv_template)
+  CLS->>G: result
+  G->>TBL: read_table ZZt_abap_gen
+  TBL->>G: data
+</pre>
+
+<h3>3.5. Data model</h3>
+<ul>
+<li>Tables<ul>
+<li>ZZT_ABAP_GEN: ABAP Generator Settings; 3 fields (CLIENT, OBJECT, VALUE)</li>
+</ul>
+</li>
+<li>Structures<ul>
+<li>ZZS_ABAP_GEN_PREFIX: ABAP Generator Prefix Mapping; 8 fields</li>
+<li>ZZS_ABAP_GEN_RANGE_TYPES: Select-Options Range Types; 3 fields</li>
+<li>ZZS_ABAP_GEN_SELECTION: Selection Data; 4 fields</li>
+</ul>
+</li>
+<li>Data elements<ul>
+<li>ZZDE_ABAP_ATTRIBUTE_PREFIX, ZZDE_ABAP_CLASS_PARAPREFIX, ZZDE_ABAP_CLASS_SELOPPREFIX, ZZDE_ABAP_LOCAL, ZZDE_ABAP_MODELSUFFIX, ZZDE_ABAP_NAME, ZZDE_ABAP_NAMESPACE, ZZDE_ABAP_OBJECT, ZZDE_ABAP_PREFIX, ZZDE_ABAP_REPORT_PARAPREFIX, ZZDE_ABAP_REPORT_SELOPPREFIX, ZZDE_ABAP_TYPERANGETAB_PREFIX, ZZDE_ABAP_VALUE</li>
+</ul>
+</li>
+<li>Domains<ul>
+<li>ZZDO_ABAP_MODELSUFFIX, ZZDO_ABAP_NAME, ZZDO_ABAP_NAMESPACE, ZZDO_ABAP_OBJECT, ZZDO_ABAP_PREFIX, ZZDO_ABAP_VALUE</li>
+</ul>
+</li>
+<li>Other data types<ul>
+<li>DDIC-related: REPOSRC, DD03L (external), plus internal data structure types for packaging and generation</li>
+</ul>
+</li>
+<li>Notes and risks<ul>
+<li>The data model relies on standard DDIC objects. No unsupported field types were reported, but some TTYP data types are flagged as unsupported in the bundle (with a risk to migration). The main operational data is stored in ZZT_ABAP_GEN and related structures/elements.</li>
+</ul>
+</li>
+</ul>
+<h3>3.6. Used SAP enhancements</h3>
+<ul>
+<li>Enhancement points exist via a set of enhancement classes:<ul>
+<li>ZCX_ABAP_GEN</li>
+<li>ZCX_ABAP_GEN_CLASS_CREATE</li>
+<li>ZCX_ABAP_GEN_CLASS_READ</li>
+<li>ZCX_ABAP_GEN_CLASS_UPDATE</li>
+<li>ZCX_ABAP_GEN_MAIN_ATT</li>
+<li>ZCX_ABAP_GEN_PACKAGE</li>
+<li>ZCX_ABAP_GEN_REPORT_CREATE</li>
+<li>ZCX_ABAP_GEN_REPORT_READ</li>
+<li>ZCX_ABAP_GEN_REPORT_UPDATE</li>
+</ul>
+</li>
+<li>Role: provide extension hooks for error signaling, validation, and custom behavior in generator workflows. They are optional extension points and can be leveraged by customers to tailor generation steps without modifying core logic.</li>
+<li>No SAP enhancements were identified outside of these extension points.</li>
+</ul>
+<h3>3.7. Business Roles &amp; Authorizations</h3>
+<ul>
+<li>No explicit authorization artefacts (roles, objects, or mappings) are embedded inside the package.</li>
+<li>Local role maintenance is handled externally via PFCG in the target system.</li>
+</ul>
+<h3>3.8. Output Management</h3>
+<ul>
+<li>No standard output-management artefacts (SmartForms, SAPscript, Adobe Forms, BRF+/MSAG, etc.) were identified as part of this package.</li>
+<li>Note: an MSAG object exists in the bundle (ZMC_ABAP_GENERATOR) but the primary generator functionality does not rely on a built-in output-management form; adoption of output-management artifacts would be handled outside the core generator package if required.</li>
+</ul>
+<h3>3.9. Open Source Software (OSS)</h3>
+<ul>
+<li>Not applicable — pure ABAP package, no open source dependencies.</li>
+</ul>
+<h3>3.10. Technical Debt Tracking</h3>
+<ul>
+<li>Cyclomatic complexity information (from the metrics) indicates hotspots:<ul>
+<li>ZCL_ABAP_GENERATOR_CLASS: max complexity 13 (e.g., method create_classes)</li>
+<li>ZCL_ABAP_GENERATOR_REPORT: max complexity 13 (e.g., method read_selection)</li>
+<li>Other significant methods exist but generally stay below 5</li>
+</ul>
+</li>
+<li>There are no god classes (no single class with excessive responsibility across all methods).</li>
+<li>Refactoring candidates: the hotspots in the two high-complexity classes suggest potential consolidation of responsibilities or extraction of smaller helper methods to reduce per-method complexity and improve readability.</li>
+<li>If there are any surfaces with zero measured classes despite the package containing classes, a measurement gap should be flagged and investigated; in this bundle, 13 classes were measured, so the gap does not apply.</li>
+</ul>
+<h2>4. Deployment</h2>
+<h3>4.1. Technical Prerequisites &amp; Dependencies</h3>
+<ul>
+<li>The target SAP system must provide the external DDIC objects referenced by this package:<ul>
+<li>Table ZZt_ABAP_GEN and related structures/structures definitions</li>
+<li>Tables REPOSRC and DD03L (external DDIC interfaces)</li>
+<li>Include LSVIMTDT and the function group ZFG_ABAP_GEN (and its function modules)</li>
+<li>The program ZABAP_GENERATOR and supporting classes (ZCL_ABAP_GENERATOR, ZCL_ABAP_GENERATOR_CLASS, ZCL_ABAP_GENERATOR_PACKAGE, ZCL_ABAP_GENERATOR_REPORT) must be available</li>
+<li>The enhancement framework classes ZCX_ABAP_GEN* (for optional extensions) Should be present to enable extension points if used</li>
+</ul>
+</li>
+<li>The environment must support ABAP language level with standard Development Class and DEVCLASS handling for packaging</li>
+</ul>
+<h3>4.2. Transport Considerations</h3>
+<ul>
+<li>Transport routing is handled through standard SAP change/transport management (SE09/SE10). The document does not include transport IDs.</li>
+<li>The deployment approach should ensure the entire generator suite (program, classes, reports, and related DDIC objects) is transported in a consistent unit to avoid dictionary or runtime mismatches.</li>
+</ul>
+<h3>4.3. Local Adaptation</h3>
+<ul>
+<li>Local adaptations may be performed by:<ul>
+<li>Adjusting development class or DEVCLASS packaging choices (via ZCL_ABAP_GENERATOR_PACKAGE and related code)</li>
+<li>Modifying template-driven behavior through the template mechanism (ZABAP_GENERATOR_TEMPLATES sub-package)</li>
+<li>Extending via enhancement points (ZCX_ABAP_GEN_*) if required by the customer</li>
+</ul>
+</li>
+<li>Any customization that changes generator behavior should follow standard SAP customization practices to avoid impacting out-of-band updates.</li>
+</ul>
+<h3>4.4. Local Role maintenance</h3>
+<ul>
+<li>Local roles are maintained externally via PFCG; the package does not embed specific role definitions.</li>
+</ul>
+<h3>4.5. Deletion and Phase-out</h3>
+<ul>
+<li>Inbound where-used could not be confirmed; verify dependencies before phase-out.</li>
+<li>Phase-out should consider the dependency graph and ensure the ZABAP_GENERATOR program and its generator classes are not used by other development activities.</li>
+</ul>
+<h2>5. Release Notes</h2>
+<ul>
+<li>Generated at: 2026-06-01T08:41:22.750Z</li>
+<li>Most recently changed objects (with changedAt dates):<ul>
+<li>ZABAP_GENERATOR — 2023-11-16T18:23:24Z</li>
+<li>ZFG_ABAP_GEN — 2023-11-16T18:16:48Z</li>
+<li>ZZT_ABAP_GEN — 2023-11-15T12:11:24Z</li>
+</ul>
+</li>
+</ul>
+
+  </main>
+</body>
+</html>

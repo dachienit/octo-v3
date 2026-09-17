@@ -1,0 +1,435 @@
+{
+  "schemaVersion": 1,
+  "package": "ZABAP_GENERATOR",
+  "classCount": 13,
+  "godClassCount": 0,
+  "classes": [
+    {
+      "name": "ZCL_ABAP_GENERATOR_CLASS",
+      "methodCount": 16,
+      "maxComplexity": 13,
+      "maxMethodLength": 89,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "create_classes",
+          "complexity": 13,
+          "length": 89
+        },
+        {
+          "name": "create_dict_rangetypes",
+          "complexity": 8,
+          "length": 49
+        },
+        {
+          "name": "create_attributes",
+          "complexity": 5,
+          "length": 33
+        },
+        {
+          "name": "read_classes",
+          "complexity": 4,
+          "length": 13
+        },
+        {
+          "name": "update_selection",
+          "complexity": 4,
+          "length": 20
+        },
+        {
+          "name": "create_class_rangetypes",
+          "complexity": 4,
+          "length": 26
+        },
+        {
+          "name": "create_seldata_setmethod",
+          "complexity": 4,
+          "length": 37
+        },
+        {
+          "name": "create_parameters",
+          "complexity": 4,
+          "length": 32
+        },
+        {
+          "name": "read_existing_rangetypes",
+          "complexity": 4,
+          "length": 13
+        },
+        {
+          "name": "delete_attributes",
+          "complexity": 4,
+          "length": 16
+        },
+        {
+          "name": "delete_parameters",
+          "complexity": 4,
+          "length": 16
+        },
+        {
+          "name": "get_class_source_old",
+          "complexity": 1,
+          "length": 7
+        },
+        {
+          "name": "generate_class",
+          "complexity": 1,
+          "length": 6
+        },
+        {
+          "name": "read_upd_class",
+          "complexity": 1,
+          "length": 6
+        },
+        {
+          "name": "constructor",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_class_source_new",
+          "complexity": 0,
+          "length": 5
+        }
+      ]
+    },
+    {
+      "name": "ZCL_ABAP_GENERATOR_REPORT",
+      "methodCount": 8,
+      "maxComplexity": 13,
+      "maxMethodLength": 80,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "read_selection",
+          "complexity": 13,
+          "length": 80
+        },
+        {
+          "name": "create_report",
+          "complexity": 6,
+          "length": 28
+        },
+        {
+          "name": "update_report",
+          "complexity": 6,
+          "length": 35
+        },
+        {
+          "name": "read_template_report",
+          "complexity": 4,
+          "length": 15
+        },
+        {
+          "name": "read_selop_data",
+          "complexity": 2,
+          "length": 15
+        },
+        {
+          "name": "constructor",
+          "complexity": 0,
+          "length": 2
+        },
+        {
+          "name": "build_new_reportname",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "show_report",
+          "complexity": 0,
+          "length": 1
+        }
+      ]
+    },
+    {
+      "name": "ZCL_ABAP_GENERATOR",
+      "methodCount": 25,
+      "maxComplexity": 4,
+      "maxMethodLength": 17,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "replace_template_structure",
+          "complexity": 4,
+          "length": 17
+        },
+        {
+          "name": "clear_technical_data",
+          "complexity": 3,
+          "length": 10
+        },
+        {
+          "name": "replace_template_string",
+          "complexity": 2,
+          "length": 9
+        },
+        {
+          "name": "replace_template_table",
+          "complexity": 2,
+          "length": 8
+        },
+        {
+          "name": "set_main_attributes",
+          "complexity": 1,
+          "length": 7
+        },
+        {
+          "name": "get_settings",
+          "complexity": 1,
+          "length": 4
+        },
+        {
+          "name": "set_initial_settings",
+          "complexity": 1,
+          "length": 5
+        },
+        {
+          "name": "constructor",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "run_initialization",
+          "complexity": 0,
+          "length": 5
+        },
+        {
+          "name": "update_selection",
+          "complexity": 0,
+          "length": 4
+        },
+        {
+          "name": "get_package_rangetypes",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_selection_methodname",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_template_packagename",
+          "complexity": 0,
+          "length": 3
+        },
+        {
+          "name": "get_report_sel_start",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_report_sel_end",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_report_set_start",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_report_set_end",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_default_namespace",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_default_dlvunit",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_default_model_suffix",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_default_dict_rt_type",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_default_pdevclass",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "get_default_prefix",
+          "complexity": 0,
+          "length": 7
+        },
+        {
+          "name": "init_technical_data",
+          "complexity": 0,
+          "length": 1
+        },
+        {
+          "name": "show_results",
+          "complexity": 0,
+          "length": 1
+        }
+      ]
+    },
+    {
+      "name": "ZCL_ABAP_GENERATOR_PACKAGE",
+      "methodCount": 4,
+      "maxComplexity": 3,
+      "maxMethodLength": 20,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "create_package",
+          "complexity": 3,
+          "length": 20
+        },
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 4
+        },
+        {
+          "name": "build_new_packagename",
+          "complexity": 1,
+          "length": 4
+        },
+        {
+          "name": "get_new_packagename",
+          "complexity": 0,
+          "length": 1
+        }
+      ]
+    },
+    {
+      "name": "ZCX_ABAP_GEN",
+      "methodCount": 1,
+      "maxComplexity": 1,
+      "maxMethodLength": 7,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 7
+        }
+      ]
+    },
+    {
+      "name": "ZCX_ABAP_GEN_CLASS_CREATE",
+      "methodCount": 1,
+      "maxComplexity": 1,
+      "maxMethodLength": 7,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 7
+        }
+      ]
+    },
+    {
+      "name": "ZCX_ABAP_GEN_CLASS_READ",
+      "methodCount": 1,
+      "maxComplexity": 1,
+      "maxMethodLength": 7,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 7
+        }
+      ]
+    },
+    {
+      "name": "ZCX_ABAP_GEN_CLASS_UPDATE",
+      "methodCount": 1,
+      "maxComplexity": 1,
+      "maxMethodLength": 7,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 7
+        }
+      ]
+    },
+    {
+      "name": "ZCX_ABAP_GEN_MAIN_ATT",
+      "methodCount": 1,
+      "maxComplexity": 1,
+      "maxMethodLength": 7,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 7
+        }
+      ]
+    },
+    {
+      "name": "ZCX_ABAP_GEN_PACKAGE",
+      "methodCount": 1,
+      "maxComplexity": 1,
+      "maxMethodLength": 7,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 7
+        }
+      ]
+    },
+    {
+      "name": "ZCX_ABAP_GEN_REPORT_CREATE",
+      "methodCount": 1,
+      "maxComplexity": 1,
+      "maxMethodLength": 7,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 7
+        }
+      ]
+    },
+    {
+      "name": "ZCX_ABAP_GEN_REPORT_READ",
+      "methodCount": 1,
+      "maxComplexity": 1,
+      "maxMethodLength": 7,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 7
+        }
+      ]
+    },
+    {
+      "name": "ZCX_ABAP_GEN_REPORT_UPDATE",
+      "methodCount": 1,
+      "maxComplexity": 1,
+      "maxMethodLength": 7,
+      "isGodClass": false,
+      "methods": [
+        {
+          "name": "constructor",
+          "complexity": 1,
+          "length": 7
+        }
+      ]
+    }
+  ]
+}

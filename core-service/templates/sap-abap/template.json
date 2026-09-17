@@ -21,6 +21,11 @@
       "name": "sap-abap-cds",
       "label": "SAP ABAP CDS",
       "description": "ABAP CDS view, association, annotation, access control, expression, and troubleshooting guidance."
+    },
+    {
+      "name": "sap-abap-analysis-package",
+      "label": "SAP ABAP Package Analysis",
+      "description": "Analyse a whole ABAP package into a technical document: resolve the system, clone the package, build an LLM context bundle."
     }
   ]
 }

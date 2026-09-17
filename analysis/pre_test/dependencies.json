@@ -1,0 +1,394 @@
+{
+  "schemaVersion": 1,
+  "package": "ZABAP_GENERATOR",
+  "nodeCount": 38,
+  "edgeCount": 26,
+  "nodes": [
+    {
+      "id": "CLAS:ZCL_ABAP_GENERATOR",
+      "type": "CLAS",
+      "name": "ZCL_ABAP_GENERATOR",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "type": "CLAS",
+      "name": "ZCL_ABAP_GENERATOR_CLASS",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCL_ABAP_GENERATOR_PACKAGE",
+      "type": "CLAS",
+      "name": "ZCL_ABAP_GENERATOR_PACKAGE",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCL_ABAP_GENERATOR_REPORT",
+      "type": "CLAS",
+      "name": "ZCL_ABAP_GENERATOR_REPORT",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCX_ABAP_GEN",
+      "type": "CLAS",
+      "name": "ZCX_ABAP_GEN",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCX_ABAP_GEN_CLASS_CREATE",
+      "type": "CLAS",
+      "name": "ZCX_ABAP_GEN_CLASS_CREATE",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCX_ABAP_GEN_CLASS_READ",
+      "type": "CLAS",
+      "name": "ZCX_ABAP_GEN_CLASS_READ",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCX_ABAP_GEN_CLASS_UPDATE",
+      "type": "CLAS",
+      "name": "ZCX_ABAP_GEN_CLASS_UPDATE",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCX_ABAP_GEN_MAIN_ATT",
+      "type": "CLAS",
+      "name": "ZCX_ABAP_GEN_MAIN_ATT",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCX_ABAP_GEN_PACKAGE",
+      "type": "CLAS",
+      "name": "ZCX_ABAP_GEN_PACKAGE",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCX_ABAP_GEN_REPORT_CREATE",
+      "type": "CLAS",
+      "name": "ZCX_ABAP_GEN_REPORT_CREATE",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCX_ABAP_GEN_REPORT_READ",
+      "type": "CLAS",
+      "name": "ZCX_ABAP_GEN_REPORT_READ",
+      "external": false
+    },
+    {
+      "id": "CLAS:ZCX_ABAP_GEN_REPORT_UPDATE",
+      "type": "CLAS",
+      "name": "ZCX_ABAP_GEN_REPORT_UPDATE",
+      "external": false
+    },
+    {
+      "id": "FUGR:ZFG_ABAP_GEN",
+      "type": "FUGR",
+      "name": "ZFG_ABAP_GEN",
+      "external": false
+    },
+    {
+      "id": "PROG:ZABAP_GENERATOR",
+      "type": "PROG",
+      "name": "ZABAP_GENERATOR",
+      "external": false
+    },
+    {
+      "id": "FUNC:DDIF_TABL_ACTIVATE",
+      "type": "FUNC",
+      "name": "DDIF_TABL_ACTIVATE",
+      "external": true
+    },
+    {
+      "id": "FUNC:DDIF_TABL_PUT",
+      "type": "FUNC",
+      "name": "DDIF_TABL_PUT",
+      "external": true
+    },
+    {
+      "id": "FUNC:DDIF_TTYP_ACTIVATE",
+      "type": "FUNC",
+      "name": "DDIF_TTYP_ACTIVATE",
+      "external": true
+    },
+    {
+      "id": "FUNC:DDIF_TTYP_PUT",
+      "type": "FUNC",
+      "name": "DDIF_TTYP_PUT",
+      "external": true
+    },
+    {
+      "id": "FUNC:PRETTY_PRINTER",
+      "type": "FUNC",
+      "name": "PRETTY_PRINTER",
+      "external": true
+    },
+    {
+      "id": "FUNC:RS_CORR_INSERT",
+      "type": "FUNC",
+      "name": "RS_CORR_INSERT",
+      "external": true
+    },
+    {
+      "id": "FUNC:RS_TOOL_ACCESS",
+      "type": "FUNC",
+      "name": "RS_TOOL_ACCESS",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_ATTRIBUTE_CREATE",
+      "type": "FUNC",
+      "name": "SEO_ATTRIBUTE_CREATE",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_ATTRIBUTE_DELETE",
+      "type": "FUNC",
+      "name": "SEO_ATTRIBUTE_DELETE",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_CLASS_CREATE_COMPLETE",
+      "type": "FUNC",
+      "name": "SEO_CLASS_CREATE_COMPLETE",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_CLASS_GENERATE_SECTIONS",
+      "type": "FUNC",
+      "name": "SEO_CLASS_GENERATE_SECTIONS",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_CLASS_TYPEINFO_GET",
+      "type": "FUNC",
+      "name": "SEO_CLASS_TYPEINFO_GET",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_METHOD_CREATE",
+      "type": "FUNC",
+      "name": "SEO_METHOD_CREATE",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_METHOD_GENERATE_INCLUDE",
+      "type": "FUNC",
+      "name": "SEO_METHOD_GENERATE_INCLUDE",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_PARAMETER_CREATE",
+      "type": "FUNC",
+      "name": "SEO_PARAMETER_CREATE",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_PARAMETER_DELETE",
+      "type": "FUNC",
+      "name": "SEO_PARAMETER_DELETE",
+      "external": true
+    },
+    {
+      "id": "FUNC:SEO_TYPE_CREATE",
+      "type": "FUNC",
+      "name": "SEO_TYPE_CREATE",
+      "external": true
+    },
+    {
+      "id": "FUNC:TR_TADIR_INTERFACE",
+      "type": "FUNC",
+      "name": "TR_TADIR_INTERFACE",
+      "external": true
+    },
+    {
+      "id": "FUNC:VIEWCLUSTER_UNDO_DEPENDENT",
+      "type": "FUNC",
+      "name": "VIEWCLUSTER_UNDO_DEPENDENT",
+      "external": true
+    },
+    {
+      "id": "INCL:LSVIMTDT",
+      "type": "INCL",
+      "name": "LSVIMTDT",
+      "external": true
+    },
+    {
+      "id": "TABL:DD03L",
+      "type": "TABL",
+      "name": "DD03L",
+      "external": true
+    },
+    {
+      "id": "TABL:REPOSRC",
+      "type": "TABL",
+      "name": "REPOSRC",
+      "external": true
+    },
+    {
+      "id": "TABL:ZZT_ABAP_GEN",
+      "type": "TABL",
+      "name": "ZZT_ABAP_GEN",
+      "external": true
+    }
+  ],
+  "edges": [
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR",
+      "to": "TABL:ZZT_ABAP_GEN",
+      "kind": "readsTable",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_CLASS_TYPEINFO_GET",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:PRETTY_PRINTER",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_CLASS_CREATE_COMPLETE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_TYPE_CREATE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_METHOD_CREATE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_METHOD_GENERATE_INCLUDE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_ATTRIBUTE_CREATE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_PARAMETER_CREATE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_CLASS_GENERATE_SECTIONS",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:RS_CORR_INSERT",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:DDIF_TABL_PUT",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:TR_TADIR_INTERFACE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:DDIF_TABL_ACTIVATE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:DDIF_TTYP_PUT",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:DDIF_TTYP_ACTIVATE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_ATTRIBUTE_DELETE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_CLASS",
+      "to": "FUNC:SEO_PARAMETER_DELETE",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_REPORT",
+      "to": "FUNC:RS_CORR_INSERT",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_REPORT",
+      "to": "FUNC:PRETTY_PRINTER",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_REPORT",
+      "to": "FUNC:RS_TOOL_ACCESS",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_REPORT",
+      "to": "TABL:DD03L",
+      "kind": "readsTable",
+      "source": "parse"
+    },
+    {
+      "from": "CLAS:ZCL_ABAP_GENERATOR_REPORT",
+      "to": "TABL:REPOSRC",
+      "kind": "readsTable",
+      "source": "parse"
+    },
+    {
+      "from": "PROG:ZABAP_GENERATOR",
+      "to": "CLAS:ZCL_ABAP_GENERATOR",
+      "kind": "instantiates",
+      "source": "parse"
+    },
+    {
+      "from": "FUGR:ZFG_ABAP_GEN",
+      "to": "FUNC:VIEWCLUSTER_UNDO_DEPENDENT",
+      "kind": "callFunction",
+      "source": "parse"
+    },
+    {
+      "from": "FUGR:ZFG_ABAP_GEN",
+      "to": "INCL:LSVIMTDT",
+      "kind": "includes",
+      "source": "parse"
+    }
+  ]
+}

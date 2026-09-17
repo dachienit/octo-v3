@@ -1,0 +1,2757 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API for Info Record Cockpit - PDC</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font: 16px/1.6 -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+         max-width: 60rem; margin: 2rem auto; padding: 0 1rem; }
+  h1, h2, h3, h4 { line-height: 1.25; margin-top: 1.8em; }
+  h1 { margin-top: 0; }
+  img { max-width: 100%; height: auto; }
+  pre { background: #f4f5f7; padding: .75rem 1rem; overflow-x: auto; border-radius: 4px; }
+  code { font-family: ui-monospace, Consolas, "Courier New", monospace; font-size: .9em; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 1rem 0; display: block; overflow-x: auto; }
+  th, td { border: 1px solid #ccc; padding: .4rem .6rem; text-align: left; vertical-align: top; }
+  th { background: #f4f5f7; }
+  blockquote { margin: 1rem 0; padding: .5rem 1rem; border-left: 4px solid #ccc; }
+  .docu-meta { font-size: .85rem; color: #6b778c; border-bottom: 1px solid #ddd;
+               padding-bottom: .75rem; margin-bottom: 1.5rem; }
+  .docu-meta a { color: inherit; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1b1f23; color: #e6e6e6; }
+    pre, th { background: #24292e; }
+    th, td { border-color: #444; }
+    .docu-meta { color: #9aa4b2; border-color: #333; }
+  }
+</style>
+</head>
+<body>
+<h1>API for Info Record Cockpit - PDC</h1>
+<p class="docu-meta">Space <strong>CDS4</strong> &middot; v8 &middot; updated 2023-05-24T11:37:49.000+02:00 &middot; by SOP3KOR &middot; <a href="https://inside-docupedia.bosch.com/confluence/spaces/CDS4/pages/1963908704/API+for+Info+Record+Cockpit+-+PDC">view in Docupedia</a></p>
+<div class="contentLayout2">
+ <div class="columnLayout single" data-layout="single">
+  <div class="cell normal" data-type="normal">
+   <div class="innerCell">
+    <p><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);"><em><strong>In SolMan document type to be used for ULR link to Docupedia page: TDD (Technical Development Documentation)</strong></em></span></p>
+   </div>
+  </div>
+ </div>
+ <div class="columnLayout single" data-layout="single">
+  <div class="cell normal" data-type="normal">
+   <div class="innerCell">
+    <p><strong>Template Change History:</strong></p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <th class="confluenceTh">Version</th>
+        <th colspan="1" class="confluenceTh">Date</th>
+        <th class="confluenceTh">Description</th>
+        <th class="confluenceTh">Author</th>
+       </tr>
+       <tr>
+        <td colspan="1" class="confluenceTd">v1.0</td>
+        <td colspan="1" class="confluenceTd">23.07.2021</td>
+        <td colspan="1" class="confluenceTd">initial Version</td>
+        <td colspan="1" class="confluenceTd">
+         <div class="content-wrapper">
+          <p><a class="confluence-userlink user-mention" data-username="gsc7fe" href="https://inside-docupedia.bosch.com/confluence/display/~gsc7fe" data-linked-resource-id="137618112" data-linked-resource-version="89" data-linked-resource-type="userinfo" data-base-url="https://inside-docupedia.bosch.com/confluence">Gschiermeister Claus (BD/ERA-SPS BD/ERA-SPS-Sq1)</a></p>
+         </div>
+        </td>
+       </tr>
+       <tr>
+        <td colspan="1" class="confluenceTd">v1.1</td>
+        <td colspan="1" class="confluenceTd">16.09.2021</td>
+        <td colspan="1" class="confluenceTd">added link to interface description chapter 3.3</td>
+        <td colspan="1" class="confluenceTd">
+         <div class="content-wrapper">
+          <p><a class="confluence-userlink user-mention" data-username="ssd8fe" href="https://inside-docupedia.bosch.com/confluence/display/~ssd8fe" data-linked-resource-id="5691" data-linked-resource-version="61" data-linked-resource-type="userinfo" data-base-url="https://inside-docupedia.bosch.com/confluence">Sassmannshausen Dirk (BD/ERA-NGE)</a></p>
+         </div>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+   </div>
+  </div>
+ </div>
+ <div class="columnLayout two-equal" data-layout="two-equal">
+  <div class="cell normal" data-type="normal">
+   <div class="innerCell">
+    <p><strong>Table of Contents </strong><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">(please activate number headings in the toolbar above)</span><strong>:</strong></p>
+    <p>
+     <style type="text/css">/*<![CDATA[*/
+div.rbtoc1789291386367 {padding: 0px;}
+div.rbtoc1789291386367 ul {list-style: none !important;margin-left: 0px;}
+div.rbtoc1789291386367 li {margin-left: 0px;padding-left: 0px;}
+
+/*]]>*/</style>
+    </p>
+    <div class="toc-macro rbtoc1789291386367">
+     <ul class="toc-indentation">
+      <li><a href="#APIforInfoRecordCockpitPDC-Responsibilities&amp;Links">1. Responsibilities &amp; Links</a></li>
+      <li><a href="#APIforInfoRecordCockpitPDC-MotivationandKeyFigures">2. Motivation and Key Figures</a>
+       <ul class="toc-indentation">
+        <li><a href="#APIforInfoRecordCockpitPDC-Shortdescriptionandsummaryofunctions">2.1. Short description and summary of unctions</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-Businessproblemssolved,benefits">2.2. Business problems solved, benefits</a></li>
+       </ul></li>
+      <li><a href="#APIforInfoRecordCockpitPDC-FunctionalDescription">3. Functional Description</a></li>
+      <li><a href="#APIforInfoRecordCockpitPDC-TechnicalDescription(High-LevelArchitecture)">4. Technical Description (High-Level Architecture)</a>
+       <ul class="toc-indentation">
+        <li><a href="#APIforInfoRecordCockpitPDC-Frontendcomponents">4.1. Frontend components</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-Packagestructureanddependencies">4.2. Package structure and dependencies</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-1.1UsedSAPtables">4.3. 1.1 Used SAP tables</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-1.1Codinglogicexplanation-Conditionsfunction">4.4. 1.1 Coding logic explanation - Conditions function</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-1.1Errorhandlingconceptanddetails">4.5. 1.1 Error handling concept and details</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-1.2Messageconcept">4.6. 1.2 Message concept</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-1.3Loggingconcept">4.7. 1.3 Logging concept</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-1.4Maintenanceconcept">4.8. 1.4 Maintenance concept</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-1.5Phaseoutconcept">4.9. 1.5 Phase out concept</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-APIsandotherexternalinterfaces">4.10. APIs and other external interfaces</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-Mostimportantclasses">4.11. Most important classes</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-Datamodel">4.12. Data model</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-UsedSAPenhancements">4.13. Used SAP enhancements</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-BusinessRoles&amp;Authorizations">4.14. Business Roles &amp; Authorizations</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-OutputManagement">4.15. Output Management</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-OpenSourceSoftware(OSS)">4.16. Open Source Software (OSS)</a></li>
+       </ul></li>
+      <li><a href="#APIforInfoRecordCockpitPDC-Deployment">5. Deployment</a>
+       <ul class="toc-indentation">
+        <li><a href="#APIforInfoRecordCockpitPDC-TechnicalPrerequisites&amp;Dependencies">5.1. Technical Prerequisites &amp; Dependencies</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-TransportConsiderations">5.2. Transport Considerations</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-LocalAdaptation">5.3. Local Adaptation</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-LocalRolemaintenance">5.4. Local Role maintenance</a></li>
+        <li><a href="#APIforInfoRecordCockpitPDC-DeletionandPhase-out">5.5. Deletion and Phase-out</a></li>
+       </ul></li>
+      <li><a href="#APIforInfoRecordCockpitPDC-ReleaseNotes">6. Release Notes</a></li>
+     </ul>
+    </div>
+    <p></p>
+   </div>
+  </div>
+  <div class="cell normal" data-type="normal">
+   <div class="innerCell">
+    <p><strong>Page Release Status:&#xa0;<span class="status-macro aui-lozenge aui-lozenge-moved">DRAFT</span><span class="status-macro aui-lozenge aui-lozenge-success">RELEASED</span></strong></p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <th class="confluenceTh">Package Owner</th>
+        <th class="confluenceTh">Functional Specialist</th>
+        <th class="confluenceTh">Developer</th>
+        <th colspan="1" class="confluenceTh">SolDoc Link</th>
+        <th colspan="1" class="confluenceTh">Development Release Link T&amp;R</th>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <div class="content-wrapper">
+          <p><a class="confluence-userlink user-mention" data-username="SOP3KOR" href="https://inside-docupedia.bosch.com/confluence/display/~SOP3KOR" data-linked-resource-id="112167551" data-linked-resource-version="51" data-linked-resource-type="userinfo" data-base-url="https://inside-docupedia.bosch.com/confluence">Koppa Jagdish Somashekar (BD/CSA-PUR1)</a></p>
+         </div>
+        </td>
+        <td class="confluenceTd"><a class="confluence-userlink user-mention" data-username="WGM3SZH" href="https://inside-docupedia.bosch.com/confluence/display/~WGM3SZH" data-linked-resource-id="506819407" data-linked-resource-version="40" data-linked-resource-type="userinfo" data-base-url="https://inside-docupedia.bosch.com/confluence">WANG Emma (BD/PTD-S2P3)</a></td>
+        <td class="confluenceTd"><a class="confluence-userlink user-mention" data-username="8aba638a7a7cca2b017a89c11856005d" href="https://inside-docupedia.bosch.com/confluence/display/~8aba638a7a7cca2b017a89c11856005d" data-linked-resource-id="7112766923" data-linked-resource-version="1" data-linked-resource-type="userinfo" data-base-url="https://inside-docupedia.bosch.com/confluence">user-5a6e0</a></td>
+        <td colspan="1" class="confluenceTd">
+         <br>
+        </td>
+        <td colspan="1" class="confluenceTd">
+         <br>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <p><strong>Page Revision History:</strong></p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <th class="confluenceTh">Version</th>
+        <th colspan="1" class="confluenceTh">Date</th>
+        <th class="confluenceTh">Description</th>
+        <th class="confluenceTh">Author</th>
+        <th class="confluenceTh">Link to SolMan Change Request</th>
+       </tr>
+       <tr>
+        <td colspan="1" class="confluenceTd">
+         <br>
+        </td>
+        <td colspan="1" class="confluenceTd">
+         <br>
+        </td>
+        <td colspan="1" class="confluenceTd">
+         <br>
+        </td>
+        <td colspan="1" class="confluenceTd">
+         <br>
+        </td>
+        <td colspan="1" class="confluenceTd">
+         <br>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+   </div>
+  </div>
+ </div>
+ <div class="columnLayout single" data-layout="single">
+  <div class="cell normal" data-type="normal">
+   <div class="innerCell">
+    <br>
+    <h1 id="APIforInfoRecordCockpitPDC-Responsibilities&amp;Links"><span class="nh-number">1. </span>Responsibilities &amp; Links</h1>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <th class="confluenceTh">Package Owner</th>
+        <th class="confluenceTh">Functional Specialist</th>
+        <th class="confluenceTh">Developer</th>
+        <th colspan="1" class="confluenceTh">SolMan Docu Link</th>
+        <th colspan="1" class="confluenceTh">Development Release Link T&amp;R</th>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td colspan="1" class="confluenceTd">
+         <br>
+        </td>
+        <td colspan="1" class="confluenceTd">
+         <br>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <h1 id="APIforInfoRecordCockpitPDC-MotivationandKeyFigures"><span class="nh-number">2. </span>Motivation and Key Figures</h1>
+    <p><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);"><em>Why was this package created, what's the main purpose, key-figures like number of users etc.</em> </span></p>
+    <h2 id="APIforInfoRecordCockpitPDC-Shortdescriptionandsummaryofunctions"><span class="nh-number">2.1. </span>Short description and summary of unctions</h2>
+    <p><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);"><em>Provide a short description of the main functions for the reader to get a basic understanding</em></span></p>
+    <h2 id="APIforInfoRecordCockpitPDC-Businessproblemssolved,benefits"><span class="nh-number">2.2. </span>Business problems solved, benefits</h2>
+    <p><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);"><em>optionally add a Powerpoint slide with details, graphics, screenshots,..</em></span></p>
+    <h1 id="APIforInfoRecordCockpitPDC-FunctionalDescription"><span class="nh-number">3. </span>Functional Description</h1>
+    <p><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">Describe the individual functions of the product (create sub-chapters per function). Per feature describe, e.g.</span></em></p>
+    <ul>
+     <li><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">starting point of program (in the process)</span></em></li>
+     <li><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">determination logic</span></em></li>
+     <li><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">functional dependencies</span></em></li>
+     <li><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">customizing entries</span></em></li>
+     <li><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">result (of substeps)</span></em></li>
+     <li><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">variances</span></em></li>
+    </ul>
+    <h1 id="APIforInfoRecordCockpitPDC-TechnicalDescription(High-LevelArchitecture)"><span class="nh-number">4. </span>Technical Description (High-Level Architecture)</h1>
+    <h2 id="APIforInfoRecordCockpitPDC-Frontendcomponents"><span class="nh-number">4.1. </span>Frontend components</h2>
+    <p>Technical documentation of Fiori is done according&#xa0;<a href="https://inside-docupedia.bosch.com/confluence/display/CDS4/Documenting+Fiori+UI5+objects+in+SAP+Solution+Manager+documentation">Documenting Fiori UI5 objects in SAP Solution Manager documentation</a></p>
+    <h2 id="APIforInfoRecordCockpitPDC-Packagestructureanddependencies"><span class="nh-number">4.2. </span>Package structure and dependencies</h2>
+    <p><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);"><em>e.g. package interface use accesses</em></span></p>
+    <p>This is an API function packages which is designed for Purchasing inforecord functions below,</p>
+    <ul>
+     <li>Get Attributes</li>
+     <li>Inforecord Read</li>
+     <li>Inforecord Save</li>
+     <li>Inforecord log</li>
+    </ul>
+    <p><span style="letter-spacing: 0.0px;">The package name: </span><em style="letter-spacing: 0.0px;">/RB4R/MM_INFOREC_API.</em></p>
+    <p><span style="letter-spacing: 0.0px;">This package is embedded into the main package </span><em style="letter-spacing: 0.0px;">/RB4R/MM_PUR_DAT_COKCPIT</em></p>
+    <p>Function Group Details: /RB4R/MM_API_INFO</p>
+    <p>
+     <br>
+    </p>
+    <h2 id="APIforInfoRecordCockpitPDC-1.1UsedSAPtables"><span class="nh-number">4.3. </span>1.1&#xa0;&#xa0;&#xa0;&#xa0;&#xa0; Used SAP tables</h2>
+    <p>This product has direct access to all the tables listed below:</p>
+    <p>
+     <br>
+    </p>
+    <p>CRUD - Create, Read, Update and Delete.</p>
+    <p>
+     <br>
+    </p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Table Name</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Accessed Fields</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Access</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Used in</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>EINA&#xa0;&#xa0; </span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>&lt;All Fields&gt;</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+        <td rowspan="14" class="confluenceTd">
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>
+          <br>
+         </p>
+         <p>Function module&#xa0; :</p>
+         <p>/RB4R/MM_API_INFO_READ</p>
+         <p>/RB4R/MM_API_INFO_SAVE</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>EINE</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>&lt;All Fields&gt;</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>T001W</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>&lt;All Fields&gt;</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>T001</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>&lt;All Fields&gt;</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>T024E</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>&lt;All Fields&gt;</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>KONM</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>&lt;All Field&gt;</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>T001W</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>&lt;All Fields&gt;</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>/RB4R/MM_INFOP</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>Spooled</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>T000</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>MWAER</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>T685A</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>KALSM</p>
+         <p>KZBZG</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>T002T</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>SPTXT</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>T001K</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>&lt;All Fields&gt;</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>TTXOB</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>&lt;All Fields&gt;</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><span>&#xa0;LFA1</span></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p>NAME1</p>
+         <p>SPRAS</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Read</p>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <p>
+     <br>
+    </p>
+    <p><span style="font-size: 16.0px;font-weight: bold;letter-spacing: -0.006em;">Product dependencies</span></p>
+    <p>This is a not a stand-alone solution, and dependent on embedded packages as per below hierarchy.<span style="font-size: 20.0px;letter-spacing: -0.008em;">&#xa0;Entity Relationship Model</span></p>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="400" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-12_14-18-17.png"></span></p>
+    <p><span style="font-size: 20.0px;letter-spacing: -0.008em;">Class diagram</span></p>
+    <p>
+     <br>
+    </p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>/RB4R/MM_CL_API_INFO_UTILITY</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><u>Attributes:</u></strong></p>
+         <p><strong><u>&#xa0;</u></strong></p>
+         <p>gt_iso_cuky</p>
+         <p>gt_iso_langu</p>
+         <p>gt_iso_unit</p>
+         <p>gt_inforec_data_v</p>
+         <p>gt_inforec_data_h</p>
+         <p>gt_inforec_cond_v</p>
+         <p><strong><u>&#xa0;</u></strong></p>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong><u>Methods:</u></strong></p>
+         <p>
+          <br>
+          build_api_condtion_values
+         </p>
+         <p>build_api_return_log</p>
+         <p>build_api_scale_values</p>
+         <p>convert_iso_to_sap_cuky</p>
+         <p>convert_iso_to_sap_lang</p>
+         <p>convert_iso_to_sap_unit</p>
+         <p>convert_sap_to_iso_cuky</p>
+         <p>convert_sap_to_iso_lang</p>
+         <p>convert_sap_to_iso_unit</p>
+         <p>get_changed_field_list</p>
+         <p>get_curr_conv_factor</p>
+         <p>map_inbound_data</p>
+         <p>map_inbound_datax</p>
+         <p>map_outbound_data</p>
+         <p>map_outbound_datax</p>
+         <p>merged_data</p>
+         <p>merged_datax</p>
+         <p>save_data</p>
+         <p>validate_data</p>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <p>
+     <br>
+    </p>
+    <p><span style="font-size: 20.0px;letter-spacing: -0.008em;">Data flow diagram</span></p>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="400" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-25-36.png"></span></p>
+    <p>
+     <br>
+    </p>
+    <h2 id="APIforInfoRecordCockpitPDC-1.1Codinglogicexplanation-Conditionsfunction"><span class="nh-number">4.4. </span>1.1&#xa0;&#xa0;&#xa0;&#xa0;&#xa0; Coding logic explanation&#xa0; -&#xa0; Conditions function</h2>
+    <ol>
+     <li><strong> Function module /RB4R/MM_API_INFO_GETFIELD</strong></li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <p>This function module API will be used to fetch the field level attribute details for Info record cockpit operations.</p>
+    <p>
+     <br>
+    </p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <tbody>
+       <tr>
+        <td colspan="2" class="confluenceTd">
+         <p><strong>Function module</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>&#xa0;/RB4R/MM_API_INFO_GETFIELD</p>
+        </td>
+       </tr>
+       <tr>
+        <td colspan="2" class="confluenceTd">
+         <p><strong>Function group</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>/RB4R/MM_API_INFO</p>
+        </td>
+       </tr>
+       <tr>
+        <td colspan="2" class="confluenceTd">
+         <p><strong>Short text</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>Get field attributes</p>
+        </td>
+       </tr>
+       <tr>
+        <td colspan="2" class="confluenceTd">
+         <p><strong>Processing mode</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>Remote-Enabled , Start Immediately</p>
+        </td>
+       </tr>
+       <tr>
+        <td colspan="2" class="confluenceTd">
+         <p><strong>Package</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>/RB4R/MM_INFOREC_API</p>
+        </td>
+       </tr>
+       <tr>
+        <td colspan="7" class="confluenceTd">
+         <p><strong>Parameter</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Para</strong><strong>. Name</strong></p>
+        </td>
+        <td colspan="2" class="confluenceTd">
+         <p><strong>Associated type</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Default Value</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Optional</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Pass Value</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Short text</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_ACTION</p>
+        </td>
+        <td colspan="2" class="confluenceTd">
+         <p>TRTYP</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>H = Create;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;&#xa0;</p>
+         <p>V = Change;</p>
+         <p>A = Display</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_APPLICATION</p>
+        </td>
+        <td colspan="2" class="confluenceTd">
+         <p>CHAR1</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>I = Inforecord;</p>
+         <p>F = PurchaseOrder;</p>
+         <p>K= Contract;</p>
+         <p>L =Scheduling Agreement</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_CONDITION</p>
+        </td>
+        <td colspan="2" class="confluenceTd">
+         <p>CHAR1</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X - Only Conditon fields are return;</p>
+         <p>&lt;SPACE&gt; - Only purching fields are return</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>ET_FIELD_ATTRIBUTES</p>
+        </td>
+        <td colspan="2" class="confluenceTd">
+         <p>/RB4R/MM_T_FIELD_ATTRIBUTES</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Return parameter table</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>EV_SYSTEM_ID</p>
+        </td>
+        <td colspan="2" class="confluenceTd">
+         <p>SYSYSID</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Name of the SAP System</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <p>
+     <br>
+    </p>
+    <p><strong><u>Processing:</u></strong></p>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>Assign the current SAP system id value to the return parameter of the EV_SYSTEM_ID.</li>
+     <li>Assign the function type based on the type of input PO document (IV_APPLICATION) and mode of operation based on the type of input action (IV_ACTION) and IV_CONDITION values.
+      <ol>
+       <li>For Inforecord, the function types are 'INFO_CREAT', 'INFO_CHNG' &amp; 'INFO_COND'.</li>
+      </ol></li>
+     <li>When the function type is Inforecord create or change, determine the field attributes based on the utility class /RB4R/MM_cl_inforecord=&gt;get_field_attributes</li>
+     <li>When the function type is Inforecord condition, determine the field attributes based on the control type /RB4R/MM_INFOP.</li>
+     <li>Based on the determined field attributes, return the all field information with attributes
+      <ol>
+       <li>TABNAME - Name of the table</li>
+       <li>FIELDNAME - Name of field name</li>
+       <li>FIELD_DISP - Field is display only</li>
+       <li>FIELD_CHNG - Field is editable</li>
+       <li>FIELD_REQD - Field is mandatory</li>
+       <li>FIELD_OPTN - Field is optional</li>
+      </ol></li>
+     <li>Return structure details</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Field name</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Data type</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Length</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Decimals</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Description</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>TABNAME</p>
+        </td>
+        <td class="confluenceTd">
+         <p>CHAR</p>
+        </td>
+        <td class="confluenceTd">
+         <p>30</p>
+        </td>
+        <td class="confluenceTd">
+         <p>0</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Table Name</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>FIELDNAME</p>
+        </td>
+        <td class="confluenceTd">
+         <p>CHAR</p>
+        </td>
+        <td class="confluenceTd">
+         <p>30</p>
+        </td>
+        <td class="confluenceTd">
+         <p>0</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Field Name</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>FIELD_DISP</p>
+        </td>
+        <td class="confluenceTd">
+         <p>CHAR</p>
+        </td>
+        <td class="confluenceTd">
+         <p>1</p>
+        </td>
+        <td class="confluenceTd">
+         <p>0</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Checkbox</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>FIELD_CHNG</p>
+        </td>
+        <td class="confluenceTd">
+         <p>CHAR</p>
+        </td>
+        <td class="confluenceTd">
+         <p>1</p>
+        </td>
+        <td class="confluenceTd">
+         <p>0</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Checkbox</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>FIELD_REQD</p>
+        </td>
+        <td class="confluenceTd">
+         <p>CHAR</p>
+        </td>
+        <td class="confluenceTd">
+         <p>1</p>
+        </td>
+        <td class="confluenceTd">
+         <p>0</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Checkbox</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>FIELD_OPTN</p>
+        </td>
+        <td class="confluenceTd">
+         <p>CHAR</p>
+        </td>
+        <td class="confluenceTd">
+         <p>1</p>
+        </td>
+        <td class="confluenceTd">
+         <p>0</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Checkbox</p>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <ol>
+     <li>Example trigger.</li>
+    </ol>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="186" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-31-41.png"></span></p>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="400" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-32-15.png"></span></p>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="250" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-32-38.png"></span></p>
+    <p><strong>III. Function module /RB4R/MM_API_INFO_READ</strong></p>
+    <p><strong>&#xa0;</strong><span style="letter-spacing: 0.0px;">This function module API will be used to fetch the read inforecord data details at different levels such as EINA/EINE/KONH/KONP/KONM data.</span></p>
+    <p>
+     <br>
+    </p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Function module</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>&#xa0;/RB4R/MM_API_INFO_READ</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Function group</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>/RB4R/MM_API_INFO</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Short text</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>Get inforecords</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Processing mode</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>Remote-Enabled , Start Immediately</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Package</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>/RB4R/MM_INFOREC_API</p>
+        </td>
+       </tr>
+       <tr>
+        <td colspan="6" class="confluenceTd">
+         <p><strong>Parameter</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Para</strong><strong>. Name</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Associated type</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Default Value</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Optional</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Pass Value</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Short text</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_VENDOR</p>
+        </td>
+        <td class="confluenceTd">
+         <p>LIFNR</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Vendor number</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IT_MATERIAL</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_MATERIALS</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Material list</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IT_MATERIAL_GRP</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_MAT_GROUPS</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Input selection for Material Groups</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IT_PURCH_ORG</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_PUR_ORGS</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Input selection for purchase org</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IT_PLANT</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_PLANTS</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Input selection for Plants</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IT_INFO_TYPE</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFO_TYPES</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Input selection for Info types</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IT_LANGU</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_LANGU_ISO</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Language ISO for (Memo/material desc)</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_MATERIAL_GRP_INFOREC</p>
+        </td>
+        <td class="confluenceTd">
+         <p>XFELD</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>'X' = read material group inforecord</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_GET_INFOREC_DATA</p>
+        </td>
+        <td class="confluenceTd">
+         <p>XFELD</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X =&#xa0; inforecord data also return; &lt;space&gt; = no inforecord data</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_GET_INFOREC_DATAX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>XFELD</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X =&#xa0; inforecord datax also return; &lt;space&gt; = no inforecord datax</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_GET_INFOREC_COND</p>
+        </td>
+        <td class="confluenceTd">
+         <p>XFELD</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X =&#xa0; condition data also return; &lt;space&gt; = no condition data</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_GET_INFOREC_CONDX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>XFELD</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X =&#xa0; condition data also return; &lt;space&gt; = no condition data</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_GET_INFOREC_MEMO</p>
+        </td>
+        <td class="confluenceTd">
+         <p>XFELD</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X =&#xa0; inforecord memo text return; &lt;space&gt; = no memo text</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>IV_EXTERNAL_ID</p>
+        </td>
+        <td class="confluenceTd">
+         <p>CHAR50</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>External ID</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>ET_INFOREC_DATA</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecords</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>ET_INFOREC_DATAX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFORECX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecords general and purchasing data</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>ET_INFOREC_EXTN</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_EXTN</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecords general and purchasing additioanl fields</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>ET_INFOREC_EXTNX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_EXTNX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecord: general and pruchasing additional update flag</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>ET_INFOREC_COND</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_COND</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecord conditions</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>ET_INFOREC_CONDX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_CONDX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecord conditions update flag</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>ET_INFOREC_MEMO</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_MEMO_TX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecord MEMO text</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>ET_RETURN</p>
+        </td>
+        <td class="confluenceTd">
+         <p>BAPIRET2_T</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Return parameter table</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>EV_EXTERNAL_ID</p>
+        </td>
+        <td class="confluenceTd">
+         <p>CHAR50</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>External ID</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>EV_SYSTEM_ID</p>
+        </td>
+        <td class="confluenceTd">
+         <p>SYSYSID</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Name of the SAP System</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <p>
+     <br>
+    </p>
+    <p><strong><u>Processing:</u></strong></p>
+    <ol>
+     <li>Assign the current SAP system id value to the return parameter of the EV_SYSTEM_ID.</li>
+     <li>Assign the incoming external id value to the return parameter of the EV_EXTERNAL_ID.</li>
+     <li>Perform collect and convert the incoming inputs into SAP format for validation.</li>
+     <li>Perform validation on all inputs data.</li>
+     <li>If there are any validation errors, then terminate the processing along with return error message.</li>
+     <li>If there are no validation errors, then process the EINE/EINE input values.</li>
+    </ol>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="150" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-33-21.png"></span></p>
+    <ol>
+     <li>Get the return message after all processing.</li>
+     <li>Based on the below utility class , the mapping of outbound data takes place.</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <p>CALL&#xa0;METHOD&#xa0;/rb4r/mm_cl_api_info_utility=&gt;map_outbound_data</p>
+    <ol>
+     <li>The enhancement section /RB4R/MM_API_OUTBOUND is provided for developing the customer specific logic for the custom fields in each target system.</li>
+     <li>Example Trigger</li>
+    </ol>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="250" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-34-20.png"></span></p>
+    <p>
+     <br>
+    </p>
+    <p><strong>Function module /RB4R/MM_API_INFO_SAVE</strong></p>
+    <p>This function module API will be used to save inforecord data EINA/EINE/KONH/KONP/KONM details for Inforecord maintenance.</p>
+    <p>
+     <br>
+    </p>
+    <p>
+     <br>
+    </p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Function module</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>&#xa0;/RB4R/MM_API_INFO_SAVE</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Function group</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>/RB4R/MM_API_INFO</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Short text</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>Maintain inforecords</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Processing mode</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>Remote-Enabled , Start Immediately</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Package</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>/RB4R/MM_INFOREC_API</p>
+        </td>
+       </tr>
+       <tr>
+        <td colspan="6" class="confluenceTd">
+         <p><strong>Parameter</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Para</strong><strong>. Name</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Associated type</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Default Value</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Optional</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Pass Value</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Short text</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IT_INFOREC_DATA</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>/RB4R/MM_T_INFOREC</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecords general and purchasing data</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IT_INFOREC_DATAX</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>/RB4R/MM_T_INFORECX</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecords general and purchasing fields update flag</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IT_INFOREC_EXTN</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_EXTN</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecord: general and pruchasing extension</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IT_INFOREC_EXTNX</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_EXTNX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Inforecord: general and pruchasing additional update flag</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IT_INFOREC_COND</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_COND</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Inforecord conditions</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IT_INFOREC_CONDX</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_CONDX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Inforecord conditions update flag</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IT_INFOREC_MEMO</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_MEMO_TX</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Inforecord MEMO text</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_BACKGROUND_MODE</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>XFELD</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X = Update in background; &lt;SPACE&gt; = synchronous update</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_TEST_MODE</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>XFELD</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>X</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>X = Test mode, no DB changes</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_EXTERNAL_ID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>CHAR50</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>External ID</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_RFCDEST</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>RFCDEST</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Logical Destination (Specified in Function Call)</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_RFCNAME</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>CHAR32</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>RFC name</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_SENDING_SYSTEMID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>CHAR10</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Sending System ID</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>ET_RETURN</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_RETURNS</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Inforecord returns</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>EV_JOB_NAME</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>BTCJOB</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Background job name</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>EV_JOB_ID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>BTCJOBCNT</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Background Job ID</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>EV_EXTERNAL_ID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>CHAR50</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>External ID</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>EV_SYSTEM_ID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>SYSYSID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>SAP system</span></p>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <p><span>&#xa0;</span></p>
+    <p>
+     <br>
+    </p>
+    <p>
+     <br>
+    </p>
+    <p><strong><u>Processing:</u></strong></p>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>Assign the current SAP system id value to the return parameter of the EV_SYSTEM_ID.</li>
+     <li>Assign the incoming external id value to the return parameter of the EV_EXTERNAL_ID.</li>
+     <li>Perform customer&#xa0;&#xa0;adjustment&#xa0;in&#xa0;DATAX&#xa0;structure and convert the incoming inputs into SAP format for validation.</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>The enhancement section /RB4R/MM_API_INBOUNDX is provided for developing the customer specific logic for the custom fields in each target system.</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>Based on the below utility class , the mapping of inbound data takes place.</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <p>CALL&#xa0;METHOD&#xa0;/rb4r/mm_cl_api_info_utility=&gt;map_inbound_data</p>
+    <p>
+     <br>
+    </p>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>During Mapping of inbound data, the database values are fetched for EINE/EINA/KONP and compared with the inbound data. Then the resulted records are determined using merge of both entities and as per its corresponding X- Structures.</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>The enhancement section /RB4R/MM_API_INBOUNDX is provided for developing the customer specific logic for the custom fields in each target system.</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <p>
+     <br>
+    </p>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>Incase of any error during inbound mapping, then SAVE operation terminates and error messages returned to ET_RETURN.</li>
+     <li>Incase of no errors, then following operations are performed.
+      <ol>
+       <li>Validation of data</li>
+       <li>Save</li>
+      </ol></li>
+     <li>Perform validation on all inputs data by using the utility class</li>
+    </ol>
+    <p>CALL&#xa0;METHOD&#xa0;/rb4r/mm_cl_api_info_utility=&gt;validate_data</p>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>The result of the validations are returned to ET_RETURN.</li>
+     <li>Depends upon the type of mode, the save operation takes place.</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>When the background mode is initial (IV_BACKGROUND_MODE = ' '), then Synchronous&#xa0;processing takes place by using utility class CALL&#xa0;METHOD&#xa0;/rb4R/MM_cl_api_info_utility=&gt;save_data</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>When the background mode is 'X' (IV_BACKGROUND_MODE = 'X' ), then ASynchronous&#xa0;processing takes place by using background job via submit program /RB4R/MM_PUR_INFOREC_API_JOB and spool number is returned in EV_JOB_NAME and &#xa0;EV_JOB_ID</li>
+    </ol>
+    <p>
+     <br>
+    </p>
+    <ol>
+     <li>Example Trigger</li>
+    </ol>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="250" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-36-7.png"></span></p>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="139" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-36-17.png"></span></p>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="177" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-36-35.png"></span></p>
+    <p><span class="confluence-embedded-file-wrapper confluence-embedded-manual-size"><img class="confluence-embedded-image" draggable="false" height="250" src="../_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-37-50.png"></span></p>
+    <p>
+     <br>
+    </p>
+    <p><strong>Function module /RB4R/MM_API_INFO_LOG</strong></p>
+    <p>This function module API will be used to return the job log details for Inforecord cockpit operations. This function is realized in this current version of release.</p>
+    <p>
+     <br>
+    </p>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Function module</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>&#xa0;/RB4R/MM_API_INFO_LOG</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Function group</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>/RB4R/MM_API_INFO</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Short text</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>Get inforecords</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Processing mode</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>Remote-Enabled , Start Immediately</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Package</strong></p>
+        </td>
+        <td colspan="5" class="confluenceTd">
+         <p>/RB4R/MM_INFOREC_API</p>
+        </td>
+       </tr>
+       <tr>
+        <td colspan="6" class="confluenceTd">
+         <p><strong>Parameter</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Para</strong><strong>. Name</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Associated type</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Default Value</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Optional</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Pass Value</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Short text</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_JOB_NAME</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>BTCJOB</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Background job name</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_JOB_ID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>BTCJOBCNT</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Job ID</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_EXTERNAL_ID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>CHAR50</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>External ID</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>IV_SYSTEM_ID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>SYSYSID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p>Name of the SAP System</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>ET_RETURN</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_T_INFOREC_RETURNS</p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>Return parameter table</span></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p><span>EV_EXTERNAL_ID</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>CHAR50</span></p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>
+          <br>
+         </p>
+        </td>
+        <td class="confluenceTd">
+         <p>Yes</p>
+        </td>
+        <td class="confluenceTd">
+         <p><span>External ID</span></p>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <p>
+     <br>
+    </p>
+    <p><strong>&#xa0;</strong></p>
+    <h2 id="APIforInfoRecordCockpitPDC-1.1Errorhandlingconceptanddetails"><span class="nh-number">4.5. </span>1.1&#xa0;&#xa0;&#xa0;&#xa0;&#xa0; Error handling concept and details</h2>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <colgroup>
+       <col>
+       <col>
+       <col>
+      </colgroup>
+      <tbody>
+       <tr>
+        <td class="confluenceTd">
+         <p><strong>Scenario</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>How is it handled?</strong></p>
+        </td>
+        <td class="confluenceTd">
+         <p><strong>Where?</strong></p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>Input validations for read</p>
+        </td>
+        <td class="confluenceTd">
+         <p>API return(ET_RETURN)</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_API_INFO_READ</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>Input data mapping</p>
+        </td>
+        <td class="confluenceTd">
+         <p>API return(ET_RETURN)</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_API_INFO_SAVE</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>Input data validation</p>
+        </td>
+        <td class="confluenceTd">
+         <p>API return(ET_RETURN)</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_API_INFO_SAVE</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>Input data merge</p>
+        </td>
+        <td class="confluenceTd">
+         <p>API return(ET_RETURN)</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_API_INFO_SAVE</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>Inforecord validations</p>
+        </td>
+        <td class="confluenceTd">
+         <p>API return(ET_RETURN)</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_API_INFO_SAVE</p>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <p>Inforecord Save operation</p>
+        </td>
+        <td class="confluenceTd">
+         <p>API return(ET_RETURN)</p>
+        </td>
+        <td class="confluenceTd">
+         <p>/RB4R/MM_API_INFO_SAVE</p>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+    <h2 id="APIforInfoRecordCockpitPDC-1.2Messageconcept"><span class="nh-number">4.6. </span>1.2&#xa0;&#xa0;&#xa0;&#xa0;&#xa0; Message concept</h2>
+    <p>A message class /RB4R/MM_PUR_INFOM with all required messages (Error, warning and information) is created.</p>
+    <p>
+     <br>
+    </p>
+    <h2 id="APIforInfoRecordCockpitPDC-1.3Loggingconcept"><span class="nh-number">4.7. </span>1.3&#xa0;&#xa0;&#xa0;&#xa0;&#xa0; Logging concept</h2>
+    <p>None.</p>
+    <p>
+     <br>
+    </p>
+    <h2 id="APIforInfoRecordCockpitPDC-1.4Maintenanceconcept"><span class="nh-number">4.8. </span>1.4&#xa0;&#xa0;&#xa0;&#xa0;&#xa0; Maintenance concept</h2>
+    <p>This tool can be easily configured with the help of the custom tables supplied with this product in order to meet requirements of any target system.</p>
+    <p>
+     <br>
+    </p>
+    <p>These tables can be maintained via either SM30 or the respective custom transactions, /RB4R/MM_INFOC and /RB4R/MM_INFOD.</p>
+    <p>
+     <br>
+    </p>
+    <p>Currently in this version, the authorization group MCOR required in order to maintain these tables.</p>
+    <p>
+     <br>
+    </p>
+    <h2 id="APIforInfoRecordCockpitPDC-1.5Phaseoutconcept"><span class="nh-number">4.9. </span>1.5&#xa0;&#xa0;&#xa0;&#xa0;&#xa0; Phase out concept</h2>
+    <p>Phasing out this product is pretty straightforward, as it works completely on its own namespace, having all associated objects in a single package. In order to decommission this product, phase-out (technically deletion) transports prepared in CD system have to be imported to the target system. &#xa0;To completely delete the product from the system, it would require a deletion transport from DC7 system. This deletion transport must include all the objects of the objects for the respective version of the tool.</p>
+    <p>
+     <br>
+    </p>
+    <p>Please note that if any development or enhancement implemented locally in target system on top of this CD product, all of them have to be removed from the target system before importing the phase-out transports.</p>
+    <h2 id="APIforInfoRecordCockpitPDC-APIsandotherexternalinterfaces"><span class="nh-number">4.10. </span>APIs and other external interfaces</h2>
+    <p class="Explanation"><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">both, provided and consumed interfaces</span></em></p>
+    <p class="Explanation"><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">Add link to Interface Instantiation Guide“ (s. <a href="https://inside-docupedia.bosch.com/confluence/x/WihXag">here</a> for example)</span></em></p>
+    <h2 id="APIforInfoRecordCockpitPDC-Mostimportantclasses"><span class="nh-number">4.11. </span>Most important classes</h2>
+    <p class="Explanation"><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">responsibility and collaborators of the major classes 
+       <br></span></em></p>
+    <h2 id="APIforInfoRecordCockpitPDC-Datamodel"><span class="nh-number">4.12. </span>Data model</h2>
+    <p><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">if new custom Business Objects are created; incl. CDS Views</span></em></p>
+    <h2 id="APIforInfoRecordCockpitPDC-UsedSAPenhancements"><span class="nh-number">4.13. </span>Used SAP enhancements</h2>
+    <h2 id="APIforInfoRecordCockpitPDC-BusinessRoles&amp;Authorizations"><span class="nh-number">4.14. </span>Business Roles &amp; Authorizations</h2>
+    <p><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">Business roles in terms of groups of users (e.g. sales accountant), technical authorizations</span></em></p>
+    <h2 id="APIforInfoRecordCockpitPDC-OutputManagement"><span class="nh-number">4.15. </span>Output Management</h2>
+    <p><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">Printouts, Adobe Forms etc. 
+       <br></span></em></p>
+    <h2 id="APIforInfoRecordCockpitPDC-OpenSourceSoftware(OSS)"><span class="nh-number">4.16. </span>Open Source Software (OSS)</h2>
+    <p><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);"><em>Describe any open source software used by this package and provide mandatory OSS information if used, e.g. scan results</em></span></p>
+    <h1 id="APIforInfoRecordCockpitPDC-Deployment"><span class="nh-number">5. </span>Deployment&#xa0;</h1>
+    <h2 id="APIforInfoRecordCockpitPDC-TechnicalPrerequisites&amp;Dependencies"><span class="nh-number">5.1. </span>Technical Prerequisites &amp; Dependencies</h2>
+    <p><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">e.g. AddOns, Business Functions, dependencies to other packages,...</span></em></p>
+    <h2 id="APIforInfoRecordCockpitPDC-TransportConsiderations"><span class="nh-number">5.2. </span>Transport Considerations</h2>
+    <p><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);"><em>e.g. sequence, downtime-relevance, critical objects,..)</em></span></p>
+    <h2 id="APIforInfoRecordCockpitPDC-LocalAdaptation"><span class="nh-number">5.3. </span>Local Adaptation</h2>
+    <p><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">e.g. customizing, code, enhancements or BADIs in solution code)</span></em></p>
+    <h2 id="APIforInfoRecordCockpitPDC-LocalRolemaintenance"><span class="nh-number">5.4. </span>Local Role maintenance</h2>
+    <h2 id="APIforInfoRecordCockpitPDC-DeletionandPhase-out"><span class="nh-number">5.5. </span>Deletion and Phase-out</h2>
+    <p><em><span style="color:var(--ds-background-accent-blue-bolder,#0c66e4);">e.g. for temporary solutions, how to remove the package from the system, how to handle existing data (archiving?) 
+       <br></span></em></p>
+    <h1 id="APIforInfoRecordCockpitPDC-ReleaseNotes"><span class="nh-number">6. </span>Release Notes</h1>
+    <div class="table-wrap">
+     <table class="wrapped confluenceTable">
+      <tbody>
+       <tr>
+        <th class="confluenceTh">Date</th>
+        <th class="confluenceTh">Transport</th>
+        <th class="confluenceTh">Comment</th>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+       </tr>
+       <tr>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+        <td class="confluenceTd">
+         <br>
+        </td>
+       </tr>
+      </tbody>
+     </table>
+    </div>
+   </div>
+  </div>
+ </div>
+</div>
+</body>
+</html>

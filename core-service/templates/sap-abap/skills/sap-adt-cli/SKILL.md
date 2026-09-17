@@ -27,6 +27,9 @@ The user connects systems in the UI. The connection they are working in is alrea
 **a bare command targets the right system**.
 
 - Never pass `-p` / `--profile`, and never run anything in the `auth` group.
+  The one exception is the `sap-abap-analysis-package` skill, which reads
+  `auth profile list` and may run `auth profile use` to line the session up with the
+  package the user asked about. Outside that skill this rule stands unchanged.
 - Never ask the user which profile, system, client, or credentials to use.
 - If a command fails with an authentication or connection error, report it and stop. Do not try to
   log in, repair a profile, or pick a different system.

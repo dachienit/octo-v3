@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "source": "https://inside-docupedia.bosch.com/confluence",
+  "scope": "page 7581437859 (recursive)",
+  "exportedAt": "2026-09-10T03:12:15.782Z",
+  "formats": [
+    "md",
+    "html"
+  ],
+  "counts": {
+    "total": 1,
+    "exported": 1,
+    "skipped": 0,
+    "failed": 0
+  },
+  "pages": [
+    {
+      "id": "7581437859",
+      "title": "Technical Document",
+      "space": "CDS4",
+      "url": "https://inside-docupedia.bosch.com/confluence/spaces/CDS4/pages/7581437859/Technical+Document",
+      "version": 1,
+      "lastUpdated": "2026-09-10T05:12:09.000+02:00",
+      "path": "Technical Document",
+      "files": {
+        "html": "Technical Document.html",
+        "md": "Technical Document.md"
+      },
+      "attachments": [],
+      "status": "exported"
+    }
+  ]
+}

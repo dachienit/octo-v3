@@ -1,0 +1,602 @@
+{
+  "schemaVersion": 1,
+  "source": "https://inside-docupedia.bosch.com/confluence",
+  "scope": "page 1885669081 (recursive)",
+  "exportedAt": "2026-09-13T09:23:02.144Z",
+  "formats": [
+    "html"
+  ],
+  "counts": {
+    "total": 4,
+    "exported": 4,
+    "skipped": 0,
+    "failed": 0
+  },
+  "pages": [
+    {
+      "id": "1963908704",
+      "title": "API for Info Record Cockpit - PDC",
+      "space": "CDS4",
+      "url": "https://inside-docupedia.bosch.com/confluence/spaces/CDS4/pages/1963908704/API+for+Info+Record+Cockpit+-+PDC",
+      "version": 8,
+      "lastUpdated": "2023-05-24T11:37:49.000+02:00",
+      "path": "-RB4R-MM_PUR_DAT_COCKPIT - Purchasing Data Cockpit (R)/API for Info Record Cockpit - PDC",
+      "files": {
+        "html": "-RB4R-MM_PUR_DAT_COCKPIT - Purchasing Data Cockpit (R)/API for Info Record Cockpit - PDC.html"
+      },
+      "attachments": [
+        {
+          "id": "1968348756",
+          "title": "image2021-10-14_10-37-50.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-37-50.png",
+          "mediaType": "image/png",
+          "bytes": 131458
+        },
+        {
+          "id": "1968348744",
+          "title": "image2021-10-14_10-36-17.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-36-17.png",
+          "mediaType": "image/png",
+          "bytes": 45142
+        },
+        {
+          "id": "1968348718",
+          "title": "image2021-10-14_10-34-20.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-34-20.png",
+          "mediaType": "image/png",
+          "bytes": 136025
+        },
+        {
+          "id": "1968348715",
+          "title": "image2021-10-14_10-33-21.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-33-21.png",
+          "mediaType": "image/png",
+          "bytes": 88271
+        },
+        {
+          "id": "1968348712",
+          "title": "image2021-10-14_10-32-38.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-32-38.png",
+          "mediaType": "image/png",
+          "bytes": 42873
+        },
+        {
+          "id": "1968348743",
+          "title": "image2021-10-14_10-36-7.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-36-7.png",
+          "mediaType": "image/png",
+          "bytes": 122369
+        },
+        {
+          "id": "1968348749",
+          "title": "image2021-10-14_10-36-35.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-36-35.png",
+          "mediaType": "image/png",
+          "bytes": 148832
+        },
+        {
+          "id": "1968348704",
+          "title": "image2021-10-14_10-31-41.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-31-41.png",
+          "mediaType": "image/png",
+          "bytes": 62094
+        },
+        {
+          "id": "1968348709",
+          "title": "image2021-10-14_10-32-15.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-32-15.png",
+          "mediaType": "image/png",
+          "bytes": 245251
+        },
+        {
+          "id": "1968348686",
+          "title": "image2021-10-14_10-25-36.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-14_10-25-36.png",
+          "mediaType": "image/png",
+          "bytes": 70944
+        },
+        {
+          "id": "1963908895",
+          "title": "image2021-10-12_14-18-17.png",
+          "file": "_attachments/api-for-info-record-cockpit-pdc-1963908704/image2021-10-12_14-18-17.png",
+          "mediaType": "image/png",
+          "bytes": 104393
+        }
+      ],
+      "status": "exported"
+    },
+    {
+      "id": "1957839128",
+      "title": "EXCEL Interface - Purchasing Data Cockpit(R)",
+      "space": "CDS4",
+      "url": "https://inside-docupedia.bosch.com/confluence/spaces/CDS4/pages/1957839128/EXCEL+Interface+-+Purchasing+Data+Cockpit+R",
+      "version": 5,
+      "lastUpdated": "2023-05-24T11:38:24.000+02:00",
+      "path": "-RB4R-MM_PUR_DAT_COCKPIT - Purchasing Data Cockpit (R)/EXCEL Interface - Purchasing Data Cockpit(R)",
+      "files": {
+        "html": "-RB4R-MM_PUR_DAT_COCKPIT - Purchasing Data Cockpit (R)/EXCEL Interface - Purchasing Data Cockpit(R).html"
+      },
+      "attachments": [
+        {
+          "id": "1963367248",
+          "title": "image2021-10-11_14-11-31.png",
+          "file": "_attachments/excel-interface-purchasing-data-cockpit-r-1957839128/image2021-10-11_14-11-31.png",
+          "mediaType": "image/png",
+          "bytes": 40815
+        }
+      ],
+      "status": "exported"
+    },
+    {
+      "id": "1885669081",
+      "title": "/RB4R/MM_PUR_DAT_COCKPIT - Purchasing Data Cockpit (R)",
+      "space": "CDS4",
+      "url": "https://inside-docupedia.bosch.com/confluence/spaces/CDS4/pages/1885669081/RB4R+MM_PUR_DAT_COCKPIT+-+Purchasing+Data+Cockpit+R",
+      "version": 130,
+      "lastUpdated": "2026-09-03T12:45:03.000+02:00",
+      "path": "-RB4R-MM_PUR_DAT_COCKPIT - Purchasing Data Cockpit (R)/index",
+      "files": {
+        "html": "-RB4R-MM_PUR_DAT_COCKPIT - Purchasing Data Cockpit (R)/index.html"
+      },
+      "attachments": [
+        {
+          "id": "7424713885",
+          "title": "image-2026-7-28_10-58-44.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-7-28_10-58-44.png",
+          "mediaType": "image/png",
+          "bytes": 41098
+        },
+        {
+          "id": "6929371551",
+          "title": "image-2026-3-13_14-8-38.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-3-13_14-8-38.png",
+          "mediaType": "image/png",
+          "bytes": 83172
+        },
+        {
+          "id": "6929371537",
+          "title": "image-2026-3-13_14-7-47.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-3-13_14-7-47.png",
+          "mediaType": "image/png",
+          "bytes": 19105
+        },
+        {
+          "id": "6929371501",
+          "title": "image-2026-3-13_14-3-50.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-3-13_14-3-50.png",
+          "mediaType": "image/png",
+          "bytes": 212235
+        },
+        {
+          "id": "6981848860",
+          "title": "image-2026-3-26_9-32-14.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-3-26_9-32-14.png",
+          "mediaType": "image/png",
+          "bytes": 143856
+        },
+        {
+          "id": "6981875108",
+          "title": "image-2026-3-27_8-53-59.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-3-27_8-53-59.png",
+          "mediaType": "image/png",
+          "bytes": 144284
+        },
+        {
+          "id": "6929371381",
+          "title": "image-2026-3-13_13-51-32.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-3-13_13-51-32.png",
+          "mediaType": "image/png",
+          "bytes": 135606
+        },
+        {
+          "id": "6929371365",
+          "title": "image-2026-3-13_13-50-21.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-3-13_13-50-21.png",
+          "mediaType": "image/png",
+          "bytes": 5834
+        },
+        {
+          "id": "6929371391",
+          "title": "image-2026-3-13_13-53-47.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-3-13_13-53-47.png",
+          "mediaType": "image/png",
+          "bytes": 19584
+        },
+        {
+          "id": "6929371759",
+          "title": "image-2026-3-13_14-26-55-1.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-3-13_14-26-55-1.png",
+          "mediaType": "image/png",
+          "bytes": 228999
+        },
+        {
+          "id": "6683818453",
+          "title": "image-2026-1-14_12-20-9.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-1-14_12-20-9.png",
+          "mediaType": "image/png",
+          "bytes": 19843
+        },
+        {
+          "id": "6683818389",
+          "title": "RB4R_MMVPIRLOG.XLSX",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/RB4R_MMVPIRLOG.XLSX",
+          "mediaType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "bytes": 6548
+        },
+        {
+          "id": "6683818383",
+          "title": "image-2026-1-14_12-15-42.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-1-14_12-15-42.png",
+          "mediaType": "image/png",
+          "bytes": 6548
+        },
+        {
+          "id": "6683818355",
+          "title": "image-2026-1-14_12-13-38.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-1-14_12-13-38.png",
+          "mediaType": "image/png",
+          "bytes": 78233
+        },
+        {
+          "id": "6683818464",
+          "title": "image-2026-1-14_12-20-51.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-1-14_12-20-51.png",
+          "mediaType": "image/png",
+          "bytes": 40487
+        },
+        {
+          "id": "6683818362",
+          "title": "image-2026-1-14_12-14-3.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-1-14_12-14-3.png",
+          "mediaType": "image/png",
+          "bytes": 77730
+        },
+        {
+          "id": "6683817881",
+          "title": "image-2026-1-14_11-52-8.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2026-1-14_11-52-8.png",
+          "mediaType": "image/png",
+          "bytes": 19206
+        },
+        {
+          "id": "6369185153",
+          "title": "image-2025-10-15_13-55-27.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-55-27.png",
+          "mediaType": "image/png",
+          "bytes": 56770
+        },
+        {
+          "id": "6369184829",
+          "title": "image-2025-10-15_13-43-30.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-43-30.png",
+          "mediaType": "image/png",
+          "bytes": 94745
+        },
+        {
+          "id": "6369184985",
+          "title": "image-2025-10-15_13-50-15.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-50-15.png",
+          "mediaType": "image/png",
+          "bytes": 140680
+        },
+        {
+          "id": "6369185216",
+          "title": "image-2025-10-15_13-57-23.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-57-23.png",
+          "mediaType": "image/png",
+          "bytes": 85480
+        },
+        {
+          "id": "6369184699",
+          "title": "image-2025-10-15_13-38-54.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-38-54.png",
+          "mediaType": "image/png",
+          "bytes": 139236
+        },
+        {
+          "id": "6369184567",
+          "title": "image-2025-10-15_13-33-28.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-33-28.png",
+          "mediaType": "image/png",
+          "bytes": 61194
+        },
+        {
+          "id": "6369184533",
+          "title": "image-2025-10-15_13-31-58.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-31-58.png",
+          "mediaType": "image/png",
+          "bytes": 137207
+        },
+        {
+          "id": "6369184302",
+          "title": "image-2025-10-15_13-28-11.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-28-11.png",
+          "mediaType": "image/png",
+          "bytes": 136468
+        },
+        {
+          "id": "6369185110",
+          "title": "image-2025-10-15_13-54-1.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-54-1.png",
+          "mediaType": "image/png",
+          "bytes": 137248
+        },
+        {
+          "id": "6261773570",
+          "title": "image-2025-9-17_12-24-46.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-9-17_12-24-46.png",
+          "mediaType": "image/png",
+          "bytes": 82143
+        },
+        {
+          "id": "6261773540",
+          "title": "image-2025-9-17_12-23-0.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-9-17_12-23-0.png",
+          "mediaType": "image/png",
+          "bytes": 89549
+        },
+        {
+          "id": "6261773507",
+          "title": "image-2025-9-17_12-21-23.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-9-17_12-21-23.png",
+          "mediaType": "image/png",
+          "bytes": 104087
+        },
+        {
+          "id": "6369184788",
+          "title": "image-2025-10-15_13-41-28.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-10-15_13-41-28.png",
+          "mediaType": "image/png",
+          "bytes": 132794
+        },
+        {
+          "id": "5844595182",
+          "title": "image-2025-6-3_19-59-5.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-6-3_19-59-5.png",
+          "mediaType": "image/png",
+          "bytes": 91660
+        },
+        {
+          "id": "5822333408",
+          "title": "image-2025-5-27_9-39-14.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-5-27_9-39-14.png",
+          "mediaType": "image/png",
+          "bytes": 21839
+        },
+        {
+          "id": "5574776521",
+          "title": "image-2025-3-28_14-4-23.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-3-28_14-4-23.png",
+          "mediaType": "image/png",
+          "bytes": 1337
+        },
+        {
+          "id": "4433288361",
+          "title": "image-2024-7-1_10-31-52.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2024-7-1_10-31-52.png",
+          "mediaType": "image/png",
+          "bytes": 41167
+        },
+        {
+          "id": "4433288412",
+          "title": "image-2024-7-1_10-36-12.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2024-7-1_10-36-12.png",
+          "mediaType": "image/png",
+          "bytes": 19605
+        },
+        {
+          "id": "4433288382",
+          "title": "image-2024-7-1_10-33-54.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2024-7-1_10-33-54.png",
+          "mediaType": "image/png",
+          "bytes": 24957
+        },
+        {
+          "id": "6261773442",
+          "title": "image-2025-9-17_12-19-43.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2025-9-17_12-19-43.png",
+          "mediaType": "image/png",
+          "bytes": 85802
+        },
+        {
+          "id": "4433288359",
+          "title": "image-2024-7-1_10-31-41.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2024-7-1_10-31-41.png",
+          "mediaType": "image/png",
+          "bytes": 41167
+        },
+        {
+          "id": "4290590052",
+          "title": "image-2024-5-23_14-32-13.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2024-5-23_14-32-13.png",
+          "mediaType": "image/png",
+          "bytes": 53956
+        },
+        {
+          "id": "3300262012",
+          "title": "image-2023-7-31_9-0-6.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2023-7-31_9-0-6.png",
+          "mediaType": "image/png",
+          "bytes": 28523
+        },
+        {
+          "id": "2730361158",
+          "title": "image2023-2-8_10-18-36.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2023-2-8_10-18-36.png",
+          "mediaType": "image/png",
+          "bytes": 28101
+        },
+        {
+          "id": "3300262037",
+          "title": "image-2023-7-31_9-6-35.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2023-7-31_9-6-35.png",
+          "mediaType": "image/png",
+          "bytes": 57931
+        },
+        {
+          "id": "1935861940",
+          "title": "image2021-9-23_12-53-31.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_12-53-31.png",
+          "mediaType": "image/png",
+          "bytes": 10933
+        },
+        {
+          "id": "1935861929",
+          "title": "image2021-9-23_12-53-2.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_12-53-2.png",
+          "mediaType": "image/png",
+          "bytes": 10917
+        },
+        {
+          "id": "1935861495",
+          "title": "image2021-9-23_12-28-35.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_12-28-35.png",
+          "mediaType": "image/png",
+          "bytes": 26844
+        },
+        {
+          "id": "3300262066",
+          "title": "image-2023-7-31_9-11-49-1.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2023-7-31_9-11-49-1.png",
+          "mediaType": "image/png",
+          "bytes": 108466
+        },
+        {
+          "id": "1935861512",
+          "title": "image2021-9-23_12-30-10.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_12-30-10.png",
+          "mediaType": "image/png",
+          "bytes": 44672
+        },
+        {
+          "id": "1935861491",
+          "title": "image2021-9-23_12-28-25.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_12-28-25.png",
+          "mediaType": "image/png",
+          "bytes": 29849
+        },
+        {
+          "id": "3300262064",
+          "title": "image-2023-7-31_9-11-40-1.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image-2023-7-31_9-11-40-1.png",
+          "mediaType": "image/png",
+          "bytes": 135040
+        },
+        {
+          "id": "1935861440",
+          "title": "image2021-9-23_12-25-42.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_12-25-42.png",
+          "mediaType": "image/png",
+          "bytes": 63979
+        },
+        {
+          "id": "1935860811",
+          "title": "image2021-9-23_11-56-34.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_11-56-34.png",
+          "mediaType": "image/png",
+          "bytes": 63722
+        },
+        {
+          "id": "1935860264",
+          "title": "image2021-9-23_11-17-1.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_11-17-1.png",
+          "mediaType": "image/png",
+          "bytes": 54222
+        },
+        {
+          "id": "1935860962",
+          "title": "image2021-9-23_12-4-42.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_12-4-42.png",
+          "mediaType": "image/png",
+          "bytes": 48184
+        },
+        {
+          "id": "1935860263",
+          "title": "image2021-9-23_11-16-48.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_11-16-48.png",
+          "mediaType": "image/png",
+          "bytes": 53894
+        },
+        {
+          "id": "1935859922",
+          "title": "image2021-9-23_10-48-35.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_10-48-35.png",
+          "mediaType": "image/png",
+          "bytes": 28705
+        },
+        {
+          "id": "1935860782",
+          "title": "image2021-9-23_11-55-11.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_11-55-11.png",
+          "mediaType": "image/png",
+          "bytes": 55353
+        },
+        {
+          "id": "1908542264",
+          "title": "image2021-8-27_11-27-13.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-8-27_11-27-13.png",
+          "mediaType": "image/png",
+          "bytes": 254267
+        },
+        {
+          "id": "1908541955",
+          "title": "image2021-8-27_11-9-8.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-8-27_11-9-8.png",
+          "mediaType": "image/png",
+          "bytes": 43913
+        },
+        {
+          "id": "1934252965",
+          "title": "image2021-9-21_11-20-38.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-21_11-20-38.png",
+          "mediaType": "image/png",
+          "bytes": 33252
+        },
+        {
+          "id": "1935860915",
+          "title": "image2021-9-23_12-2-19.png",
+          "file": "_attachments/rb4r-mm-pur-dat-cockpit-purchasing-data-cockpit-r-1885669081/image2021-9-23_12-2-19.png",
+          "mediaType": "image/png",
+          "bytes": 104159
+        }
+      ],
+      "status": "exported"
+    },
+    {
+      "id": "1954993186",
+      "title": "Source List - Purchasing Data Cockpit(R)",
+      "space": "CDS4",
+      "url": "https://inside-docupedia.bosch.com/confluence/spaces/CDS4/pages/1954993186/Source+List+-+Purchasing+Data+Cockpit+R",
+      "version": 9,
+      "lastUpdated": "2023-05-24T11:39:18.000+02:00",
+      "path": "-RB4R-MM_PUR_DAT_COCKPIT - Purchasing Data Cockpit (R)/Source List - Purchasing Data Cockpit(R)",
+      "files": {
+        "html": "-RB4R-MM_PUR_DAT_COCKPIT - Purchasing Data Cockpit (R)/Source List - Purchasing Data Cockpit(R).html"
+      },
+      "attachments": [
+        {
+          "id": "1954999153",
+          "title": "image2021-10-6_17-13-50.png",
+          "file": "_attachments/source-list-purchasing-data-cockpit-r-1954993186/image2021-10-6_17-13-50.png",
+          "mediaType": "image/png",
+          "bytes": 30900
+        },
+        {
+          "id": "3260363273",
+          "title": "image-2023-7-19_11-22-43-1.png",
+          "file": "_attachments/source-list-purchasing-data-cockpit-r-1954993186/image-2023-7-19_11-22-43-1.png",
+          "mediaType": "image/png",
+          "bytes": 47762
+        },
+        {
+          "id": "1954999063",
+          "title": "image2021-10-6_17-10-13.png",
+          "file": "_attachments/source-list-purchasing-data-cockpit-r-1954993186/image2021-10-6_17-10-13.png",
+          "mediaType": "image/png",
+          "bytes": 104393
+        }
+      ],
+      "status": "exported"
+    }
+  ]
+}

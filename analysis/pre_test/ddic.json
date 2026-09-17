@@ -1,0 +1,495 @@
+{
+  "schemaVersion": 1,
+  "package": "ZABAP_GENERATOR",
+  "counts": {
+    "tables": 1,
+    "structures": 3,
+    "views": 0,
+    "dataElements": 13,
+    "domains": 6,
+    "other": 0
+  },
+  "tables": [
+    {
+      "typeId": "TABL/DT",
+      "name": "ZZT_ABAP_GEN",
+      "type": "TABL",
+      "description": "ABAP Generator Settings",
+      "sourceUri": "./zzt_abap_gen/source/main",
+      "fieldCount": 3,
+      "keyFields": [],
+      "fields": [
+        {
+          "name": "CLIENT",
+          "dataType": "C",
+          "length": 3,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Client"
+        },
+        {
+          "name": "OBJECT",
+          "dataType": "C",
+          "length": 20,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Object"
+        },
+        {
+          "name": "VALUE",
+          "dataType": "C",
+          "length": 100,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Value"
+        }
+      ]
+    }
+  ],
+  "structures": [
+    {
+      "typeId": "TABL/DS",
+      "name": "ZZS_ABAP_GEN_PREFIX",
+      "type": "TABL",
+      "description": "ABAP Generator Prefix Mapping",
+      "sourceUri": "./zzs_abap_gen_prefix/source/main",
+      "fieldCount": 8,
+      "keyFields": [],
+      "fields": [
+        {
+          "name": "REPORT_PARAMETER",
+          "dataType": "C",
+          "length": 10,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Parameter Prefix"
+        },
+        {
+          "name": "REPORT_SELOPT",
+          "dataType": "C",
+          "length": 10,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Prog. SelOpt Prefix"
+        },
+        {
+          "name": "ATTRIBUTE",
+          "dataType": "C",
+          "length": 10,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Attribute Prefix"
+        },
+        {
+          "name": "CLASS_PARAMETER",
+          "dataType": "C",
+          "length": 10,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Class Param. Prefix"
+        },
+        {
+          "name": "CLASS_SELOPT",
+          "dataType": "C",
+          "length": 10,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Class SelOpt Prefix"
+        },
+        {
+          "name": "CLASS_RT_TYPE",
+          "dataType": "C",
+          "length": 10,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Type RangeTab Prefix"
+        },
+        {
+          "name": "DICT_RT_TYPE",
+          "dataType": "C",
+          "length": 10,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Type RangeTab Prefix"
+        },
+        {
+          "name": "RT_TYPE",
+          "dataType": "C",
+          "length": 10,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "Type RangeTab Prefix"
+        }
+      ]
+    },
+    {
+      "typeId": "TABL/DS",
+      "name": "ZZS_ABAP_GEN_RANGE_TYPES",
+      "type": "TABL",
+      "description": "Select-Options Range Types",
+      "sourceUri": "./zzs_abap_gen_range_types/source/main",
+      "fieldCount": 3,
+      "keyFields": [],
+      "fields": [
+        {
+          "name": "VARNAME",
+          "dataType": "g",
+          "length": null,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "VARNAME"
+        },
+        {
+          "name": "DICTYPE",
+          "dataType": "g",
+          "length": null,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "DICTYPE"
+        },
+        {
+          "name": "TYPENAME",
+          "dataType": "g",
+          "length": null,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "TYPENAME"
+        }
+      ]
+    },
+    {
+      "typeId": "TABL/DS",
+      "name": "ZZS_ABAP_GEN_SELECTION",
+      "type": "TABL",
+      "description": "Selection Data",
+      "sourceUri": "./zzs_abap_gen_selection/source/main",
+      "fieldCount": 4,
+      "keyFields": [],
+      "fields": [
+        {
+          "name": "CODETYPE",
+          "dataType": "g",
+          "length": null,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "CODETYPE"
+        },
+        {
+          "name": "NAME",
+          "dataType": "g",
+          "length": null,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "NAME"
+        },
+        {
+          "name": "TYPENAME",
+          "dataType": "g",
+          "length": null,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "TYPENAME"
+        },
+        {
+          "name": "DICTYPE",
+          "dataType": "g",
+          "length": null,
+          "decimals": null,
+          "isKey": false,
+          "keyIndex": null,
+          "description": "DICTYPE"
+        }
+      ]
+    }
+  ],
+  "views": [],
+  "dataElements": [
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_ATTRIBUTE_PREFIX",
+      "type": "DTEL",
+      "description": "Report Parameter Prefix",
+      "typeKind": "domain",
+      "domain": "CHAR10",
+      "dataType": "CHAR",
+      "length": 10,
+      "decimals": 0,
+      "shortFieldLabel": "Attr.Pref.",
+      "mediumFieldLabel": "Attribute Prefix",
+      "longFieldLabel": "Attribute Prefix",
+      "headingFieldLabel": "Attribute Prefix"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_CLASS_PARAPREFIX",
+      "type": "DTEL",
+      "description": "Report Parameter Prefix",
+      "typeKind": "domain",
+      "domain": "CHAR10",
+      "dataType": "CHAR",
+      "length": 10,
+      "decimals": 0,
+      "shortFieldLabel": "Para.Pref.",
+      "mediumFieldLabel": "Class Param. Prefix",
+      "longFieldLabel": "Class Parameter Prefix",
+      "headingFieldLabel": "Class Parameter Prefix"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_CLASS_SELOPPREFIX",
+      "type": "DTEL",
+      "description": "Report Parameter Prefix",
+      "typeKind": "domain",
+      "domain": "CHAR10",
+      "dataType": "CHAR",
+      "length": 10,
+      "decimals": 0,
+      "shortFieldLabel": "SelOp.Pref",
+      "mediumFieldLabel": "Class SelOpt Prefix",
+      "longFieldLabel": "Class Select-Options Prefix",
+      "headingFieldLabel": "Class Select-Options Prefix"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_LOCAL",
+      "type": "DTEL",
+      "description": "ABAP GEN Local",
+      "typeKind": "domain",
+      "domain": "BOOLE",
+      "dataType": "CHAR",
+      "length": 1,
+      "decimals": 0,
+      "shortFieldLabel": "Local",
+      "mediumFieldLabel": "Local",
+      "longFieldLabel": "Local",
+      "headingFieldLabel": "Local"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_MODELSUFFIX",
+      "type": "DTEL",
+      "description": "ABAP GEN Modelsuffix",
+      "typeKind": "domain",
+      "domain": "ZZDO_ABAP_MODELSUFFIX",
+      "dataType": "CHAR",
+      "length": 10,
+      "decimals": 0,
+      "shortFieldLabel": "Model",
+      "mediumFieldLabel": "Model Suffix",
+      "longFieldLabel": "Model Suffix",
+      "headingFieldLabel": "Model Suffix"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_NAME",
+      "type": "DTEL",
+      "description": "ABAP GEN Name",
+      "typeKind": "domain",
+      "domain": "ZZDO_ABAP_NAME",
+      "dataType": "CHAR",
+      "length": 20,
+      "decimals": 0,
+      "shortFieldLabel": "Name",
+      "mediumFieldLabel": "Name",
+      "longFieldLabel": "Name",
+      "headingFieldLabel": "Name"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_NAMESPACE",
+      "type": "DTEL",
+      "description": "ABAP GEN Namespace",
+      "typeKind": "domain",
+      "domain": "ZZDO_ABAP_NAMESPACE",
+      "dataType": "CHAR",
+      "length": 1,
+      "decimals": 0,
+      "shortFieldLabel": "Namespace",
+      "mediumFieldLabel": "Namespace",
+      "longFieldLabel": "Namespace",
+      "headingFieldLabel": "Namespace"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_OBJECT",
+      "type": "DTEL",
+      "description": "ABAP GEN Object",
+      "typeKind": "domain",
+      "domain": "ZZDO_ABAP_OBJECT",
+      "dataType": "CHAR",
+      "length": 20,
+      "decimals": 0,
+      "shortFieldLabel": "Object",
+      "mediumFieldLabel": "Object",
+      "longFieldLabel": "Object",
+      "headingFieldLabel": "Object"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_PREFIX",
+      "type": "DTEL",
+      "description": "ABAP GEN PREFIX",
+      "typeKind": "domain",
+      "domain": "ZZDO_ABAP_PREFIX",
+      "dataType": "CHAR",
+      "length": 1,
+      "decimals": 0,
+      "shortFieldLabel": "Prefix",
+      "mediumFieldLabel": "Prefix",
+      "longFieldLabel": "Prefix",
+      "headingFieldLabel": "Prefix"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_REPORT_PARAPREFIX",
+      "type": "DTEL",
+      "description": "Report Parameter Prefix",
+      "typeKind": "domain",
+      "domain": "CHAR10",
+      "dataType": "CHAR",
+      "length": 10,
+      "decimals": 0,
+      "shortFieldLabel": "Para.Pref.",
+      "mediumFieldLabel": "Parameter Prefix",
+      "longFieldLabel": "Report Parameter Prefix",
+      "headingFieldLabel": "Report Parameter Prefix"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_REPORT_SELOPPREFIX",
+      "type": "DTEL",
+      "description": "Report Selection Prefix",
+      "typeKind": "domain",
+      "domain": "CHAR10",
+      "dataType": "CHAR",
+      "length": 10,
+      "decimals": 0,
+      "shortFieldLabel": "Prog. SeOp",
+      "mediumFieldLabel": "Prog. SelOpt Prefix",
+      "longFieldLabel": "Programm SelectOptions Prefix",
+      "headingFieldLabel": "Programm SelectOptions Prefix"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_TYPERANGETAB_PREFIX",
+      "type": "DTEL",
+      "description": "Report Parameter Prefix",
+      "typeKind": "domain",
+      "domain": "CHAR10",
+      "dataType": "CHAR",
+      "length": 10,
+      "decimals": 0,
+      "shortFieldLabel": "TyRT Pref.",
+      "mediumFieldLabel": "Type RangeTab Prefix",
+      "longFieldLabel": "Type RangeTable Prefix",
+      "headingFieldLabel": "Type RangeTable Prefix"
+    },
+    {
+      "typeId": "DTEL/DE",
+      "name": "ZZDE_ABAP_VALUE",
+      "type": "DTEL",
+      "description": "ABAP GEN Value",
+      "typeKind": "domain",
+      "domain": "ZZDO_ABAP_VALUE",
+      "dataType": "CHAR",
+      "length": 100,
+      "decimals": 0,
+      "shortFieldLabel": "Value",
+      "mediumFieldLabel": "Value",
+      "longFieldLabel": "Value",
+      "headingFieldLabel": "Value"
+    }
+  ],
+  "domains": [
+    {
+      "typeId": "DOMA/DD",
+      "name": "ZZDO_ABAP_MODELSUFFIX",
+      "type": "DOMA",
+      "description": "ABAP GEN Model Suffix",
+      "dataType": "CHAR",
+      "length": 10,
+      "decimals": 0,
+      "outputLength": 10,
+      "conversionExit": null,
+      "valueTable": null
+    },
+    {
+      "typeId": "DOMA/DD",
+      "name": "ZZDO_ABAP_NAME",
+      "type": "DOMA",
+      "description": "ABAP GEN Name",
+      "dataType": "CHAR",
+      "length": 20,
+      "decimals": 0,
+      "outputLength": 20,
+      "conversionExit": null,
+      "valueTable": null
+    },
+    {
+      "typeId": "DOMA/DD",
+      "name": "ZZDO_ABAP_NAMESPACE",
+      "type": "DOMA",
+      "description": "ABAP GEN Prefix",
+      "dataType": "CHAR",
+      "length": 1,
+      "decimals": 0,
+      "outputLength": 1,
+      "conversionExit": null,
+      "valueTable": null
+    },
+    {
+      "typeId": "DOMA/DD",
+      "name": "ZZDO_ABAP_OBJECT",
+      "type": "DOMA",
+      "description": "ABAP GEN Object",
+      "dataType": "CHAR",
+      "length": 20,
+      "decimals": 0,
+      "outputLength": 20,
+      "conversionExit": null,
+      "valueTable": null
+    },
+    {
+      "typeId": "DOMA/DD",
+      "name": "ZZDO_ABAP_PREFIX",
+      "type": "DOMA",
+      "description": "ABAP GEN Prefix",
+      "dataType": "CHAR",
+      "length": 1,
+      "decimals": 0,
+      "outputLength": 1,
+      "conversionExit": null,
+      "valueTable": null
+    },
+    {
+      "typeId": "DOMA/DD",
+      "name": "ZZDO_ABAP_VALUE",
+      "type": "DOMA",
+      "description": "ABAP Value",
+      "dataType": "CHAR",
+      "length": 100,
+      "decimals": 0,
+      "outputLength": 100,
+      "conversionExit": null,
+      "valueTable": null
+    }
+  ],
+  "other": []
+}
